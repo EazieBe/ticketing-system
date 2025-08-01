@@ -162,7 +162,7 @@ function Reports() {
   const ticketTypeData = [
     { name: 'Inhouse', value: tickets.filter(t => t.type === 'inhouse').length },
     { name: 'Onsite', value: tickets.filter(t => t.type === 'onsite').length },
-    { name: 'Project', value: tickets.filter(t => t.type === 'project').length },
+            { name: 'Projects', value: tickets.filter(t => t.type === 'projects').length },
     { name: 'Shipping', value: tickets.filter(t => t.type === 'shipping').length },
     { name: 'Misc', value: tickets.filter(t => t.type === 'misc').length }
   ].filter(item => item.value > 0);

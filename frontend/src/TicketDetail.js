@@ -189,7 +189,6 @@ function TicketDetail() {
       case 'closed': return 'success';
       case 'in_progress': return 'warning';
       case 'open': return 'primary';
-      case 'in_progress': return 'info';
       case 'pending': return 'default';
       default: return 'default';
     }
@@ -200,7 +199,6 @@ function TicketDetail() {
       case 'closed': return <CheckCircle />;
       case 'in_progress': return <PlayArrow />;
       case 'open': return <Assignment />;
-      case 'in_progress': return <Person />;
       case 'pending': return <Pause />;
       default: return <Assignment />;
     }

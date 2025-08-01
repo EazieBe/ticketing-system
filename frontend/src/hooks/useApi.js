@@ -1,11 +1,13 @@
 import { useState, useCallback } from 'react';
 import { useAuth } from '../AuthContext';
+import useErrorHandler from './useErrorHandler';
 import api from '../axiosConfig';
 
 const useApi = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const { logout } = useAuth();
+  const { handleApiError } = useErrorHandler();
 
   const request = useCallback(async (config, showToast = true) => {
     setLoading(true);
@@ -30,7 +32,7 @@ const useApi = () => {
       }
       
       if (showToast) {
-        console.error('Error:', errorMessage);
+        handleApiError(err, 'API request');
       }
       
       throw err;

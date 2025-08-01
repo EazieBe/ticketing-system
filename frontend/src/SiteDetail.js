@@ -150,7 +150,6 @@ function SiteDetail() {
     switch (status) {
       case 'open': return 'primary';
       case 'in_progress': return 'warning';
-      case 'in_progress': return 'info';
       case 'pending': return 'default';
       case 'closed': return 'success';
       default: return 'default';

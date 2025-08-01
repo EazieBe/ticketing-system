@@ -83,10 +83,7 @@ function TicketClaim() {
 
     setClaiming(true);
     try {
-      // Debug: Check if token exists
-      const token = localStorage.getItem('token');
-      console.log('Token exists:', !!token);
-      console.log('Token length:', token ? token.length : 0);
+      // Remove debug logging for security
       
       const updatedTicket = {
         site_id: ticket.site_id,
@@ -107,11 +104,7 @@ function TicketClaim() {
         special_flag: ticket.special_flag
       };
 
-      console.log('Making PUT request to:', `/tickets/${ticket_id}`);
-      console.log('Request data:', updatedTicket);
-      
       const response = await api.put(`/tickets/${ticket_id}`, updatedTicket);
-      console.log('Response:', response);
       
       // Clear any previous errors
       setError(null);
@@ -122,8 +115,7 @@ function TicketClaim() {
       // Navigate back to tickets list
       navigate('/tickets');
     } catch (err) {
-      console.error('Error claiming ticket:', err);
-      console.error('Error response:', err.response);
+      // Use error handler instead of console.error for security
       
       // Check if it's actually a network/CORS error
       if (err.message && err.message.includes('Network Error')) {
@@ -134,7 +126,6 @@ function TicketClaim() {
         setError(`Failed to claim ticket: ${err.response.data?.detail || 'Unknown error'}`);
       } else {
         // If it's not a real error or the request succeeded, just navigate
-        console.log('Request may have succeeded despite error, navigating...');
         navigate('/tickets');
       }
     } finally {
