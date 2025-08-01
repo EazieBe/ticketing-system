@@ -290,4 +290,26 @@ class StatusUpdate(BaseModel):
 
 class TokenData(BaseModel):
     user_id: Optional[str] = None
-    role: Optional[UserRole] = None 
+    role: Optional[UserRole] = None
+
+class SLARuleBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    ticket_type: Optional[TicketType] = None
+    customer_impact: Optional[ImpactLevel] = None
+    business_priority: Optional[BusinessPriority] = None
+    sla_target_hours: Optional[int] = 24
+    sla_breach_hours: Optional[int] = 48
+    escalation_levels: Optional[int] = 3
+    is_active: Optional[bool] = True
+
+class SLARuleCreate(SLARuleBase):
+    pass
+
+class SLARuleUpdate(SLARuleBase):
+    name: Optional[str] = None
+
+class SLARuleOut(SLARuleBase):
+    rule_id: str
+    created_at: datetime
+    updated_at: datetime 

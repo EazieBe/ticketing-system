@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, Integer, Float, Date, DateTime, ForeignKe
 from sqlalchemy.orm import relationship
 from app.database import Base
 import enum
+from datetime import datetime
 
 class UserRole(enum.Enum):
     tech = 'tech'
@@ -230,4 +231,19 @@ class Task(Base):
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
     ticket = relationship('Ticket', back_populates='tasks')
-    assigned_user = relationship('User', back_populates='tasks') 
+    assigned_user = relationship('User', back_populates='tasks')
+
+class SLARule(Base):
+    __tablename__ = 'sla_rules'
+    rule_id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text)
+    ticket_type = Column(Enum(TicketType))
+    customer_impact = Column(Enum(ImpactLevel))
+    business_priority = Column(Enum(BusinessPriority))
+    sla_target_hours = Column(Integer, default=24)
+    sla_breach_hours = Column(Integer, default=48)
+    escalation_levels = Column(Integer, default=3)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 

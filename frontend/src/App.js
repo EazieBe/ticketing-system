@@ -68,6 +68,7 @@ import {
 } from '@mui/icons-material';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
+import { ToastProvider } from './contexts/ToastContext';
 import Login from './Login';
 import Dashboard from './Dashboard';
 import Tickets from './Tickets';
@@ -763,16 +764,18 @@ function RequireAuth({ children }) {
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/*" element={
-            <RequireAuth>
-              <AppLayout />
-            </RequireAuth>
-          } />
-        </Routes>
-      </Router>
+      <ToastProvider>
+        <Router>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/*" element={
+              <RequireAuth>
+                <AppLayout />
+              </RequireAuth>
+            } />
+          </Routes>
+        </Router>
+      </ToastProvider>
     </AuthProvider>
   );
 }

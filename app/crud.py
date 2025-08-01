@@ -533,4 +533,111 @@ def get_ticket_audit(db: Session, audit_id: str):
     return db.query(models.TicketAudit).filter(models.TicketAudit.audit_id == audit_id).first()
 
 def get_ticket_audits(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.TicketAudit).offset(skip).limit(limit).all() 
+    return db.query(models.TicketAudit).offset(skip).limit(limit).all()
+
+# SLA Rule CRUD
+
+def create_sla_rule(db: Session, rule: schemas.SLARuleCreate):
+    db_rule = models.SLARule(
+        rule_id=str(uuid.uuid4()),
+        name=rule.name,
+        description=rule.description,
+        ticket_type=rule.ticket_type,
+        customer_impact=rule.customer_impact,
+        business_priority=rule.business_priority,
+        sla_target_hours=rule.sla_target_hours,
+        sla_breach_hours=rule.sla_breach_hours,
+        escalation_levels=rule.escalation_levels,
+        is_active=rule.is_active
+    )
+    db.add(db_rule)
+    db.commit()
+    db.refresh(db_rule)
+    return db_rule
+
+def get_sla_rule(db: Session, rule_id: str):
+    return db.query(models.SLARule).filter(models.SLARule.rule_id == rule_id).first()
+
+def get_sla_rules(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.SLARule).offset(skip).limit(limit).all()
+
+def update_sla_rule(db: Session, rule_id: str, rule: schemas.SLARuleUpdate):
+    db_rule = db.query(models.SLARule).filter(models.SLARule.rule_id == rule_id).first()
+    if not db_rule:
+        return None
+    
+    # Update fields if provided
+    if rule.name is not None:
+        db_rule.name = rule.name
+    if rule.description is not None:
+        db_rule.description = rule.description
+    if rule.ticket_type is not None:
+        db_rule.ticket_type = rule.ticket_type
+    if rule.customer_impact is not None:
+        db_rule.customer_impact = rule.customer_impact
+    if rule.business_priority is not None:
+        db_rule.business_priority = rule.business_priority
+    if rule.sla_target_hours is not None:
+        db_rule.sla_target_hours = rule.sla_target_hours
+    if rule.sla_breach_hours is not None:
+        db_rule.sla_breach_hours = rule.sla_breach_hours
+    if rule.escalation_levels is not None:
+        db_rule.escalation_levels = rule.escalation_levels
+    if rule.is_active is not None:
+        db_rule.is_active = rule.is_active
+    
+    db.commit()
+    db.refresh(db_rule)
+    return db_rule
+
+def delete_sla_rule(db: Session, rule_id: str):
+    db_rule = db.query(models.SLARule).filter(models.SLARule.rule_id == rule_id).first()
+    if not db_rule:
+        return None
+    
+    db.delete(db_rule)
+    db.commit()
+    return db_rule
+
+def get_matching_sla_rule(db: Session, ticket_type, customer_impact, business_priority):
+    """Get the most specific SLA rule that matches the ticket criteria"""
+    # First try to find an exact match
+    rule = db.query(models.SLARule).filter(
+        models.SLARule.ticket_type == ticket_type,
+        models.SLARule.customer_impact == customer_impact,
+        models.SLARule.business_priority == business_priority,
+        models.SLARule.is_active == True
+    ).first()
+    
+    if rule:
+        return rule
+    
+    # Try partial matches (ticket_type + customer_impact)
+    rule = db.query(models.SLARule).filter(
+        models.SLARule.ticket_type == ticket_type,
+        models.SLARule.customer_impact == customer_impact,
+        models.SLARule.business_priority.is_(None),
+        models.SLARule.is_active == True
+    ).first()
+    
+    if rule:
+        return rule
+    
+    # Try ticket_type only
+    rule = db.query(models.SLARule).filter(
+        models.SLARule.ticket_type == ticket_type,
+        models.SLARule.customer_impact.is_(None),
+        models.SLARule.business_priority.is_(None),
+        models.SLARule.is_active == True
+    ).first()
+    
+    if rule:
+        return rule
+    
+    # Return default rule (no specific criteria)
+    return db.query(models.SLARule).filter(
+        models.SLARule.ticket_type.is_(None),
+        models.SLARule.customer_impact.is_(None),
+        models.SLARule.business_priority.is_(None),
+        models.SLARule.is_active == True
+    ).first() 

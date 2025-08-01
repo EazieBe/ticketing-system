@@ -1037,3 +1037,102 @@ def get_user_performance_analytics(db: Session = Depends(get_db)):
         }
     
     return user_performance 
+
+# SLA Rule Endpoints
+
+@app.post("/sla-rules/", response_model=schemas.SLARuleOut)
+def create_sla_rule(rule: schemas.SLARuleCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Create a new SLA rule"""
+    result = crud.create_sla_rule(db=db, rule=rule)
+    
+    # Create audit log
+    audit = schemas.TicketAuditCreate(
+        ticket_id=None,
+        user_id=current_user.user_id,
+        change_time=datetime.utcnow(),
+        field_changed="sla_rule_create",
+        old_value=None,
+        new_value=str(result.rule_id)
+    )
+    crud.create_ticket_audit(db, audit)
+    
+    return result
+
+@app.get("/sla-rules/{rule_id}", response_model=schemas.SLARuleOut)
+def get_sla_rule(rule_id: str, db: Session = Depends(get_db)):
+    """Get a specific SLA rule"""
+    rule = crud.get_sla_rule(db, rule_id=rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="SLA rule not found")
+    return rule
+
+@app.get("/sla-rules/", response_model=List[schemas.SLARuleOut])
+def list_sla_rules(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """List all SLA rules"""
+    return crud.get_sla_rules(db, skip=skip, limit=limit)
+
+@app.put("/sla-rules/{rule_id}", response_model=schemas.SLARuleOut)
+def update_sla_rule(rule_id: str, rule: schemas.SLARuleUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Update an SLA rule"""
+    result = crud.update_sla_rule(db=db, rule_id=rule_id, rule=rule)
+    if not result:
+        raise HTTPException(status_code=404, detail="SLA rule not found")
+    
+    # Create audit log
+    audit = schemas.TicketAuditCreate(
+        ticket_id=None,
+        user_id=current_user.user_id,
+        change_time=datetime.utcnow(),
+        field_changed="sla_rule_update",
+        old_value=str(rule_id),
+        new_value=str(rule_id)
+    )
+    crud.create_ticket_audit(db, audit)
+    
+    return result
+
+@app.delete("/sla-rules/{rule_id}")
+def delete_sla_rule(rule_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Delete an SLA rule"""
+    result = crud.delete_sla_rule(db=db, rule_id=rule_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="SLA rule not found")
+    
+    # Create audit log
+    audit = schemas.TicketAuditCreate(
+        ticket_id=None,
+        user_id=current_user.user_id,
+        change_time=datetime.utcnow(),
+        field_changed="sla_rule_delete",
+        old_value=str(rule_id),
+        new_value=None
+    )
+    crud.create_ticket_audit(db, audit)
+    
+    return {"message": "SLA rule deleted successfully"}
+
+@app.get("/sla-rules/match")
+def get_matching_sla_rule(
+    ticket_type: str = None,
+    customer_impact: str = None,
+    business_priority: str = None,
+    db: Session = Depends(get_db)
+):
+    """Get the matching SLA rule for given criteria"""
+    rule = crud.get_matching_sla_rule(
+        db=db,
+        ticket_type=ticket_type,
+        customer_impact=customer_impact,
+        business_priority=business_priority
+    )
+    
+    if not rule:
+        raise HTTPException(status_code=404, detail="No matching SLA rule found")
+    
+    return {
+        "rule_id": rule.rule_id,
+        "name": rule.name,
+        "sla_target_hours": rule.sla_target_hours,
+        "sla_breach_hours": rule.sla_breach_hours,
+        "escalation_levels": rule.escalation_levels
+    } 
