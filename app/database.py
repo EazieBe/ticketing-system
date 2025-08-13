@@ -9,6 +9,11 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)),
 
 DATABASE_URL = os.getenv('DATABASE_URL') or 'postgresql://ticketuser:securepassword123@localhost:5432/ticketing'
 
-engine = create_engine(DATABASE_URL, echo=True, future=True)
+engine = create_engine(
+    DATABASE_URL, 
+    pool_pre_ping=True, 
+    future=True,
+    echo=False  # Set to True for debugging SQL queries
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base() 

@@ -8,7 +8,7 @@ from database import SessionLocal, engine
 from typing import List, Optional
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 import asyncio
 import random
 import string
@@ -19,10 +19,18 @@ import uuid
 app = FastAPI()
 
 # CORS middleware must be added immediately after creating the app
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://192.168.43.50:3000",
+    # Add your production frontend domain here
+    # "https://your-frontend-domain.com"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://192.168.43.50:3000", "http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_credentials=True,
+    allow_origins=origins,
+    allow_credentials=True,  # Keep True since we're using JWT tokens
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
@@ -45,14 +53,14 @@ def verify_password(plain_password, hashed_password):
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 def create_refresh_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -124,7 +132,26 @@ def read_root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    """Health check endpoint for monitoring and container orchestration"""
+    try:
+        # Test database connectivity
+        db = SessionLocal()
+        db.execute("SELECT 1")
+        db.close()
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "version": "1.0.0",
+        "database": db_status,
+        "services": {
+            "api": "running",
+            "websocket": "available"
+        }
+    }
 
 @app.get("/test-cors")
 def test_cors():
