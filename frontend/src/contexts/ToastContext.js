@@ -1,72 +1,79 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import Toast from '../components/Toast';
+import { Snackbar, Alert } from '@mui/material';
 
 const ToastContext = createContext();
 
-export const useToast = () => {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within a ToastProvider');
-  }
-  return context;
-};
+export function ToastProvider({ children }) {
+  const [toasts, setToasts] = useState([]);
 
-export const ToastProvider = ({ children }) => {
-  const [toast, setToast] = useState({
-    open: false,
-    message: '',
-    severity: 'info',
-    autoHideDuration: 6000
-  });
-
-  const showToast = useCallback((message, severity = 'info', autoHideDuration = 6000) => {
-    setToast({
-      open: true,
-      message,
-      severity,
-      autoHideDuration
-    });
+  const removeToast = useCallback((id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
   }, []);
 
-  const hideToast = useCallback(() => {
-    setToast(prev => ({ ...prev, open: false }));
-  }, []);
+  const addToast = useCallback((message, severity = 'info', duration = 6000) => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, severity, duration }]);
+    
+    setTimeout(() => {
+      removeToast(id);
+    }, duration);
+  }, [removeToast]);
 
-  const success = useCallback((message, autoHideDuration) => {
-    showToast(message, 'success', autoHideDuration);
-  }, [showToast]);
+  const success = useCallback((message, duration) => {
+    addToast(message, 'success', duration);
+  }, [addToast]);
 
-  const error = useCallback((message, autoHideDuration) => {
-    showToast(message, 'error', autoHideDuration);
-  }, [showToast]);
+  const error = useCallback((message, duration) => {
+    addToast(message, 'error', duration);
+  }, [addToast]);
 
-  const warning = useCallback((message, autoHideDuration) => {
-    showToast(message, 'warning', autoHideDuration);
-  }, [showToast]);
+  const warning = useCallback((message, duration) => {
+    addToast(message, 'warning', duration);
+  }, [addToast]);
 
-  const info = useCallback((message, autoHideDuration) => {
-    showToast(message, 'info', autoHideDuration);
-  }, [showToast]);
+  const info = useCallback((message, duration) => {
+    addToast(message, 'info', duration);
+  }, [addToast]);
 
   const value = {
-    showToast,
-    hideToast,
+    toasts,
+    addToast,
+    removeToast,
     success,
     error,
     warning,
-    info
+    info,
   };
 
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <Toast
-        open={toast.open}
-        message={toast.message}
-        severity={toast.severity}
-        autoHideDuration={toast.autoHideDuration}
-        onClose={hideToast}
-      />
+      {toasts.map((toast) => (
+        <Snackbar
+          key={toast.id}
+          open={true}
+          autoHideDuration={toast.duration}
+          onClose={() => removeToast(toast.id)}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <Alert
+            onClose={() => removeToast(toast.id)}
+            severity={toast.severity}
+            variant="filled"
+            sx={{ width: '100%' }}
+          >
+            {toast.message}
+          </Alert>
+        </Snackbar>
+      ))}
     </ToastContext.Provider>
   );
-}; 
+}
+
+export function useToast() {
+  const context = useContext(ToastContext);
+  if (!context) {
+    throw new Error('useToast must be used within a ToastProvider');
+  }
+  return context;
+} 

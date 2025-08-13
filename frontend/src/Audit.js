@@ -1,59 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Box,
-  Typography,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TablePagination,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Button,
-  Chip,
-  Card,
-  CardContent,
-  Grid,
-  IconButton,
-  Tooltip,
-  Alert,
-  CircularProgress,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Divider
+  Container, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  IconButton, Chip, Box, TextField, FormControl, InputLabel, Select, MenuItem, Button,
+  Dialog, DialogTitle, DialogContent, DialogActions, Alert, CircularProgress, Grid,
+  Card, CardContent, Avatar, Badge, Tooltip, List, ListItem, ListItemText, Divider, TablePagination
 } from '@mui/material';
 import {
-  Search,
-  FilterList,
-  Refresh,
-  History,
-  Person,
-  Assignment,
-  Store,
-  LocalShipping,
-  Inventory,
-  Build,
-  Group,
-  ExpandMore,
-  Info,
-  Timeline,
-  Download
+  Visibility, Edit, Delete, Person, Schedule, CheckCircle, Cancel, Warning,
+  LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
+  Notifications, NotificationsOff, ExpandMore, ExpandLess, FilterList, Sort,
+  Assignment, Store, Group, Info, History, Refresh, Download, Timeline, Search
 } from '@mui/icons-material';
-import api from './axiosConfig';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
 import dayjs from 'dayjs';
 
 function Audit() {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [audits, setAudits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -68,34 +34,42 @@ function Audit() {
   const [selectedAudit, setSelectedAudit] = useState(null);
   const [users, setUsers] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({
+    user: 'all',
+    action: 'all',
+    dateFrom: '',
+    dateTo: ''
+  });
+
+  const fetchAudits = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/audit/');
+      setAudits(response || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching audits:', err);
+      setError('Failed to load audit logs');
+      setAudits([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const response = await api.get('/users/');
+      setUsers(response || []);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+      setUsers([]);
+    }
+  }, [api]);
 
   useEffect(() => {
     fetchAudits();
     fetchUsers();
-  }, []);
-
-  const fetchAudits = async () => {
-    setLoading(true);
-    try {
-      const response = await api.get('/audits/');
-      setAudits(response.data);
-      setError(null);
-    } catch (err) {
-      setError('Failed to fetch audit logs');
-      console.error('Error fetching audits:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchUsers = async () => {
-    try {
-      const response = await api.get('/users/');
-      setUsers(response.data);
-    } catch (err) {
-      console.error('Error fetching users:', err);
-    }
-  };
+  }, [fetchAudits, fetchUsers]);
 
   const getEntityIcon = (entityType) => {
     switch (entityType) {

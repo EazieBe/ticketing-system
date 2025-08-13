@@ -1,879 +1,707 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Chip,
-  IconButton,
-  Button,
-  TextField,
-  InputAdornment,
-  Menu,
-  MenuItem,
-  Avatar,
-  AvatarGroup,
-  Badge,
-  Tooltip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Alert,
-  CircularProgress,
-  ToggleButton,
-  ToggleButtonGroup,
-  Divider,
-  Fab,
-  Skeleton,
-  Grid,
-  Stack,
-  AlertTitle
+  Container, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  IconButton, Chip, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
+  CircularProgress, FormControl, InputLabel, Select, MenuItem, Grid, Card, CardContent,
+  Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider, TablePagination,
+  InputAdornment, ToggleButton, ToggleButtonGroup
 } from '@mui/material';
 import {
-  Add,
-  Search,
-  FilterList,
-  MoreVert,
-  Assignment,
-  Person,
-  Schedule,
-  PriorityHigh,
-  CheckCircle,
-  Cancel,
-  Visibility,
-  Edit,
-  Delete,
-  Archive,
-  Unarchive,
-  Refresh,
-  Clear,
-  Download,
-  Upload,
-  Business,
-  LocalShipping,
-  Build,
-  Phone,
-  NetworkCheck,
-  ExpandMore,
-  ExpandLess,
-  Sort,
-  ViewList,
-  ViewModule,
-  DragIndicator,
-  Star,
-  StarBorder,
-  Notifications,
-  NotificationsOff,
-  Flag,
-  FlagOutlined
+  Add, Edit, Delete, Visibility, Person, Schedule, CheckCircle, Cancel, Warning,
+  LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
+  Notifications, NotificationsOff, ExpandMore, ExpandLess, FilterList, Sort,
+  Emergency, PriorityHigh, Business, Assignment, Phone, Refresh, Search, Clear,
+  ViewList, ViewModule, MoreVert
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
-import api from './axiosConfig';
 import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
+import useWebSocket from './hooks/useWebSocket';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import TicketForm from './TicketForm';
+import ClickableTicketId from './components/ClickableTicketId';
 
 dayjs.extend(relativeTime);
 
 function Tickets() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
+  
   const [tickets, setTickets] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
-  const [dialog, setDialog] = useState(false);
-  const [editingTicket, setEditingTicket] = useState(null);
-  const [deleteDialog, setDeleteDialog] = useState(false);
-  const [deleteTicket, setDeleteTicket] = useState(null);
   const [users, setUsers] = useState([]);
   const [sites, setSites] = useState([]);
-  
-  // Modern UI State
-  const [viewMode, setViewMode] = useState('cards'); // 'cards' or 'list'
-  const [groupBy, setGroupBy] = useState('status'); // 'status', 'type', 'priority', 'assigned'
-  const [sortBy, setSortBy] = useState('date_created'); // 'date_created', 'priority', 'status'
-  const [sortOrder, setSortOrder] = useState('desc'); // 'asc' or 'desc'
-  const [expandedGroups, setExpandedGroups] = useState(new Set(['open', 'in_progress']));
-  
-  // Filtering and Search
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterType, setFilterType] = useState('all');
-  const [filterPriority, setFilterPriority] = useState('all');
-  const [filterAssigned, setFilterAssigned] = useState('all');
-  const [showArchived, setShowArchived] = useState(false);
-  
-  // Context Menus
-  const [contextMenu, setContextMenu] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [viewMode, setViewMode] = useState('list'); // 'list' or 'cards'
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [groupBy, setGroupBy] = useState('none'); // 'none', 'type', 'status', 'priority'
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  
+  // Filters
+  const [filters, setFilters] = useState({
+    search: '',
+    type: 'all',
+    status: 'all',
+    priority: 'all',
+    assignedTo: 'all',
+    site: 'all',
+    dateFrom: '',
+    dateTo: ''
+  });
 
-  const typeOptions = [
-    { value: 'inhouse', label: 'In House', icon: '🏢', color: '#1976d2' },
-    { value: 'onsite', label: 'On Site', icon: '📍', color: '#388e3c' },
-    { value: 'shipping', label: 'Shipping', icon: '📦', color: '#f57c00' },
-    { value: 'projects', label: 'Projects', icon: '📋', color: '#7b1fa2' },
-    { value: 'nro', label: 'NRO', icon: '⚡', color: '#d32f2f' },
-    { value: 'misc', label: 'Misc', icon: '🔧', color: '#5d4037' }
-  ];
+  // WebSocket setup
+  const wsUrl = `ws://${window.location.hostname}:8000/ws/updates`;
+  const { sendMessage } = useWebSocket(wsUrl, handleWebSocketMessage, handleWebSocketError, handleWebSocketOpen, handleWebSocketClose);
 
-  const priorityOptions = [
-    { value: 'low', label: 'Low', color: '#4caf50', icon: '🟢' },
-    { value: 'medium', label: 'Medium', color: '#ff9800', icon: '🟡' },
-    { value: 'high', label: 'High', color: '#f44336', icon: '🔴' },
-    { value: 'urgent', label: 'Urgent', color: '#9c27b0', icon: '🟣' }
-  ];
+  function handleWebSocketMessage(data) {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'ticket_update' || message.type === 'ticket_created' || message.type === 'ticket_deleted') {
+        fetchTickets(); // Refresh tickets when there's an update
+      }
+    } catch (error) {
+      console.error('Error parsing WebSocket message:', error);
+    }
+  }
+
+  function handleWebSocketError(error) {
+    console.error('❌ WebSocket error:', error);
+  }
+
+  function handleWebSocketOpen() {
+    console.log('✅ WebSocket connected for tickets');
+  }
+
+  function handleWebSocketClose(event) {
+    console.log('🔌 WebSocket disconnected for tickets:', event.code, event.reason);
+  }
 
   const getStatusOptions = (ticketType) => {
-    const baseOptions = [
-      { value: 'open', label: 'Open', color: '#1976d2', icon: '🔵' },
-      { value: 'in_progress', label: 'In Progress', color: '#388e3c', icon: '🟢' },
-      { value: 'pending', label: 'Pending', color: '#ff9800', icon: '🟡' },
-      { value: 'closed', label: 'Closed', color: '#757575', icon: '⚫' }
-    ];
-
-    if (ticketType === 'inhouse') {
-      return [...baseOptions, { value: 'approved', label: 'Approved', color: '#4caf50', icon: '✅' }];
-    } else if (ticketType === 'onsite') {
-      return [...baseOptions, 
-        { value: 'checked_in', label: 'Checked In', color: '#00bcd4', icon: '📍' },
-        { value: 'return_visit', label: 'Return Visit', color: '#ff9800', icon: '🔄' }
-      ];
-    } else if (ticketType === 'shipping') {
-      return [...baseOptions,
-        { value: 'shipped', label: 'Shipped', color: '#00bcd4', icon: '📦' },
-        { value: 'delivered', label: 'Delivered', color: '#4caf50', icon: '📬' }
-      ];
-    } else if (ticketType === 'projects') {
-      return [...baseOptions,
-        { value: 'planning', label: 'Planning', color: '#00bcd4', icon: '📋' },
-        { value: 'review', label: 'Review', color: '#ff9800', icon: '👀' },
-        { value: 'completed', label: 'Completed', color: '#4caf50', icon: '✅' }
-      ];
-    }
+    const baseStatuses = ['open', 'in_progress', 'completed', 'closed'];
     
-    return baseOptions;
+    switch (ticketType) {
+      case 'inhouse':
+        return [...baseStatuses, 'pending'];
+      case 'onsite':
+        return ['open', 'scheduled', 'checked_in', 'in_progress', 'needs_parts', 'go_back_scheduled', 'completed', 'closed'];
+      case 'projects':
+        return ['open', 'planning', 'in_progress', 'completed', 'closed'];
+      case 'misc':
+        return baseStatuses;
+      default:
+        return baseStatuses;
+    }
   };
+
+  const fetchTickets = useCallback(async () => {
+    try {
+      const response = await api.get('/tickets/');
+      setTickets(response || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching tickets:', err);
+      setError('Failed to load tickets');
+      showToast('Error loading tickets', 'error');
+      setTickets([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api, showToast]);
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const response = await api.get('/users/');
+      setUsers(response || []);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+      setUsers([]);
+    }
+  }, [api]);
+
+  const fetchSites = useCallback(async () => {
+    try {
+      const response = await api.get('/sites/');
+      setSites(response || []);
+    } catch (err) {
+      console.error('Error fetching sites:', err);
+      setSites([]);
+    }
+  }, [api]);
 
   useEffect(() => {
     fetchTickets();
     fetchUsers();
     fetchSites();
-  }, []);
-
-  const fetchTickets = async () => {
-    try {
-      const response = await api.get('/tickets/');
-      setTickets(response.data);
-    } catch (err) {
-      setError('Failed to load tickets');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchUsers = async () => {
-    try {
-      const response = await api.get('/users/');
-      setUsers(response.data);
-    } catch (err) {
-      console.error('Failed to load users:', err);
-    }
-  };
-
-  const fetchSites = async () => {
-    try {
-      const response = await api.get('/sites/');
-      setSites(response.data);
-    } catch (err) {
-      console.error('Failed to load sites:', err);
-    }
-  };
+  }, [fetchTickets, fetchUsers, fetchSites]);
 
   const handleAdd = () => {
-    setEditingTicket(null);
-    setDialog(true);
+    navigate('/tickets/new');
   };
 
   const handleEdit = (ticket) => {
-    setEditingTicket(ticket);
-    setDialog(true);
+    navigate(`/tickets/${ticket.ticket_id}/edit`);
   };
 
   const handleClose = () => {
-    setDialog(false);
-    setEditingTicket(null);
+    navigate('/tickets');
   };
 
   const handleSubmit = async (values) => {
     try {
-      if (editingTicket) {
-        const response = await api.put(`/tickets/${editingTicket.ticket_id}`, values);
-        // Update the ticket in the local state immediately
-        setTickets(prevTickets => prevTickets.map(t => 
-          t.ticket_id === editingTicket.ticket_id ? response.data : t
-        ));
-        setSuccessMessage('Ticket updated successfully!');
+      if (values.ticket_id) {
+        await api.put(`/tickets/${values.ticket_id}`, values);
+        showToast('Ticket updated successfully', 'success');
       } else {
-        const response = await api.post('/tickets/', values);
-        // Add the new ticket to the local state immediately
-        setTickets(prevTickets => [...prevTickets, response.data]);
-        setSuccessMessage('Ticket created successfully!');
+        await api.post('/tickets/', values);
+        showToast('Ticket created successfully', 'success');
       }
+      fetchTickets();
       handleClose();
-      setError(null);
     } catch (err) {
-      setError('Failed to save ticket');
+      console.error('Error saving ticket:', err);
+      showToast('Error saving ticket', 'error');
     }
   };
 
   const handleDelete = (ticket) => {
-    setDeleteTicket(ticket);
-    setDeleteDialog(true);
+    setSelectedTicket(ticket);
+    setDeleteDialogOpen(true);
   };
 
   const handleDeleteConfirm = async () => {
-    if (!deleteTicket) return;
-    
     try {
-      await api.delete(`/tickets/${deleteTicket.ticket_id}`, { data: {} });
-      setDeleteDialog(false);
-      // Remove the ticket from the local state immediately
-      setTickets(prevTickets => prevTickets.filter(t => t.ticket_id !== deleteTicket.ticket_id));
-      setDeleteTicket(null);
-      setSuccessMessage('Ticket deleted successfully!');
-      setError(null);
+      await api.delete(`/tickets/${selectedTicket.ticket_id}`);
+      showToast('Ticket deleted successfully', 'success');
+      fetchTickets();
+      setDeleteDialogOpen(false);
+      setSelectedTicket(null);
     } catch (err) {
-      setError('Failed to delete ticket');
+      console.error('Error deleting ticket:', err);
+      showToast('Error deleting ticket', 'error');
     }
   };
 
   const handleStatusChange = async (ticketId, newStatus) => {
     try {
-      const response = await api.patch(`/tickets/${ticketId}/status`, { status: newStatus });
-      // Update the ticket in the local state immediately
-      setTickets(prevTickets => prevTickets.map(t => 
-        t.ticket_id === ticketId ? response.data : t
-      ));
-      setSuccessMessage(`Ticket status updated to ${newStatus}!`);
-      setError(null);
+      await api.put(`/tickets/${ticketId}`, { status: newStatus });
+      showToast('Status updated successfully', 'success');
+      fetchTickets();
     } catch (err) {
-      setError('Failed to update ticket status');
+      console.error('Error updating status:', err);
+      showToast('Error updating status', 'error');
     }
   };
 
   const handleClaim = async (ticketId) => {
     try {
-      const response = await api.put(`/tickets/${ticketId}`, {
-        status: 'in_progress',
-        assigned_user_id: user.user_id
-      });
-      // Update the ticket in the local state immediately
-      setTickets(prevTickets => prevTickets.map(t => 
-        t.ticket_id === ticketId ? response.data : t
-      ));
-      setSuccessMessage('Ticket claimed successfully!');
-      setError(null);
+      await api.put(`/tickets/${ticketId}/claim`);
+      showToast('Ticket claimed successfully', 'success');
+      fetchTickets();
     } catch (err) {
-      setError('Failed to claim ticket');
+      console.error('Error claiming ticket:', err);
+      showToast('Error claiming ticket', 'error');
     }
   };
 
   const getSiteName = (siteId) => {
-    if (!siteId || !sites || sites.length === 0) {
-      return 'Unknown Site';
-    }
     const site = sites.find(s => s.site_id === siteId);
-    return site ? site.location : 'Unknown Site';
+    return site ? site.name : 'Unknown Site';
   };
 
   const getAssignedUserName = (userId) => {
-    if (!userId || !users || users.length === 0) {
-      return 'Unassigned';
-    }
     const user = users.find(u => u.user_id === userId);
-    return user ? user.name : 'Unassigned';
+    return user ? user.name : 'Unknown User';
   };
 
   const getTypeLabel = (type) => {
-    const option = typeOptions.find(opt => opt.value === type);
-    return option ? option.label : type;
+    switch (type) {
+      case 'inhouse': return 'Inhouse';
+      case 'onsite': return 'Onsite';
+      case 'projects': return 'Projects';
+      case 'misc': return 'Misc';
+      default: return type;
+    }
   };
 
   const getPriorityLabel = (priority) => {
-    const option = priorityOptions.find(opt => opt.value === priority);
-    return option ? option.label : priority;
+    switch (priority) {
+      case 'emergency': return 'Emergency';
+      case 'critical': return 'Critical';
+      case 'normal': return 'Normal';
+      default: return priority;
+    }
   };
 
   const getStatusLabel = (status) => {
-    const option = getStatusOptions('').find(opt => opt.value === status);
-    return option ? option.label : status;
+    switch (status) {
+      case 'open': return 'Open';
+      case 'scheduled': return 'Scheduled';
+      case 'checked_in': return 'Checked In';
+      case 'in_progress': return 'In Progress';
+      case 'pending': return 'Pending';
+      case 'needs_parts': return 'Needs Parts';
+      case 'go_back_scheduled': return 'Go-back Scheduled';
+      case 'completed': return 'Completed';
+      case 'closed': return 'Closed';
+      case 'planning': return 'Planning';
+      default: return status;
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'open': return 'default';
+      case 'scheduled': return 'primary';
+      case 'checked_in': return 'warning';
+      case 'in_progress': return 'info';
+      case 'pending': return 'secondary';
+      case 'needs_parts': return 'error';
+      case 'go_back_scheduled': return 'warning';
+      case 'completed': return 'success';
+      case 'closed': return 'default';
+      case 'planning': return 'primary';
+      default: return 'default';
+    }
+  };
+
+  const getPriorityColor = (priority) => {
+    switch (priority) {
+      case 'emergency': return 'error';
+      case 'critical': return 'warning';
+      case 'normal': return 'default';
+      default: return 'default';
+    }
+  };
+
+  const getPriorityIcon = (priority) => {
+    switch (priority) {
+      case 'emergency': return <Emergency fontSize="small" />;
+      case 'critical': return <PriorityHigh fontSize="small" />;
+      default: return null;
+    }
+  };
+
+  const getTypeIcon = (type) => {
+    switch (type) {
+      case 'inhouse': return <Build />;
+      case 'onsite': return <Business />;
+      case 'projects': return <Assignment />;
+      case 'misc': return <Phone />;
+      default: return <Assignment />;
+    }
   };
 
   // Filter and sort tickets
   const filteredAndSortedTickets = useMemo(() => {
-    let filtered = tickets.filter(ticket => {
-      if (!ticket) return false;
-      
-      try {
-        const matchesSearch = !searchTerm || 
-          (ticket.ticket_id && ticket.ticket_id.toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (ticket.inc_number && ticket.inc_number.toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (ticket.site_id && getSiteName(ticket.site_id).toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (ticket.notes && ticket.notes.toLowerCase().includes(searchTerm.toLowerCase()));
-        
-        const matchesStatus = filterStatus === 'all' || ticket.status === filterStatus;
-        const matchesType = filterType === 'all' || ticket.type === filterType;
-        const matchesPriority = filterPriority === 'all' || ticket.priority === filterPriority;
-        const matchesAssigned = filterAssigned === 'all' || ticket.assigned_user_id === filterAssigned;
-        const matchesArchive = showArchived ? true : ticket.status !== 'archived';
-
-        return matchesSearch && matchesStatus && matchesType && matchesPriority && matchesAssigned && matchesArchive;
-      } catch (error) {
-        console.error('Error filtering ticket:', error, ticket);
+    let filtered = (tickets || []).filter(ticket => {
+      // Search filter
+      if (filters.search && !ticket.title.toLowerCase().includes(filters.search.toLowerCase()) &&
+          !ticket.ticket_id.toLowerCase().includes(filters.search.toLowerCase())) {
         return false;
       }
+      
+      // Type filter
+      if (filters.type !== 'all' && ticket.type !== filters.type) {
+        return false;
+      }
+      
+      // Status filter
+      if (filters.status !== 'all' && ticket.status !== filters.status) {
+        return false;
+      }
+      
+      // Priority filter
+      if (filters.priority !== 'all' && ticket.priority !== filters.priority) {
+        return false;
+      }
+      
+      // Assigned to filter
+      if (filters.assignedTo !== 'all' && ticket.assigned_to !== filters.assignedTo) {
+        return false;
+      }
+      
+      // Site filter
+      if (filters.site !== 'all' && ticket.site_id !== filters.site) {
+        return false;
+      }
+      
+      // Date filters
+      if (filters.dateFrom && dayjs(ticket.created_at).isBefore(dayjs(filters.dateFrom))) {
+        return false;
+      }
+      
+      if (filters.dateTo && dayjs(ticket.created_at).isAfter(dayjs(filters.dateTo))) {
+        return false;
+      }
+      
+      return true;
     });
 
-    // Sort tickets
+    // Sort by priority first, then by creation date
     filtered.sort((a, b) => {
-      let aValue = a[sortBy];
-      let bValue = b[sortBy];
+      const priorityOrder = { emergency: 0, critical: 1, normal: 2 };
+      const aPriority = priorityOrder[a.priority] || 2;
+      const bPriority = priorityOrder[b.priority] || 2;
       
-      if (sortBy === 'date_created' || sortBy === 'date_updated' || sortBy === 'date_scheduled') {
-        aValue = dayjs(aValue);
-        bValue = dayjs(bValue);
+      if (aPriority !== bPriority) {
+        return aPriority - bPriority;
       }
       
-      if (sortOrder === 'asc') {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
-      }
+      return new Date(b.created_at) - new Date(a.created_at);
     });
 
     return filtered;
-  }, [tickets, searchTerm, filterStatus, filterType, filterPriority, filterAssigned, showArchived, sortBy, sortOrder, sites, users]);
+  }, [tickets, filters]);
 
-  // Group tickets
-  const groupedTickets = useMemo(() => {
-    const groups = {};
-    
-    filteredAndSortedTickets.forEach(ticket => {
-      let groupKey = '';
-      
-      switch (groupBy) {
-        case 'status':
-          groupKey = ticket.status || 'unknown';
-          break;
-        case 'type':
-          groupKey = ticket.type || 'unknown';
-          break;
-        case 'priority':
-          groupKey = ticket.priority || 'unknown';
-          break;
-        case 'assigned':
-          groupKey = ticket.assigned_user_id || 'unassigned';
-          break;
-        default:
-          groupKey = ticket.status || 'unknown';
-      }
-      
-      if (!groups[groupKey]) {
-        groups[groupKey] = [];
-      }
-      groups[groupKey].push(ticket);
-    });
-    
-    return groups;
-  }, [filteredAndSortedTickets, groupBy]);
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
 
-  const handleExportCSV = () => {
-    const headers = ['Ticket ID', 'INC#', 'Site', 'Type', 'Status', 'Priority', 'Assigned To', 'Created Date', 'Notes'];
-    const csvContent = [
-      headers.join(','),
-      ...filteredAndSortedTickets.map(ticket => [
-        ticket.ticket_id,
-        ticket.inc_number || '',
-        getSiteName(ticket.site_id),
-        ticket.type || '',
-        ticket.status || '',
-        ticket.priority || '',
-        getAssignedUserName(ticket.assigned_user_id),
-        dayjs(ticket.date_created).format('MM/DD/YYYY'),
-        (ticket.notes || '').replace(/"/g, '""')
-      ].map(value => `"${value}"`).join(','))
-    ].join('\n');
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `tickets_${dayjs().format('YYYY-MM-DD')}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+  const handleFilterChange = (filterName, value) => {
+    setFilters(prev => ({ ...prev, [filterName]: value }));
+    setPage(0);
   };
 
   const clearFilters = () => {
-    setSearchTerm('');
-    setFilterStatus('all');
-    setFilterType('all');
-    setFilterPriority('all');
-    setFilterAssigned('all');
-    setShowArchived(false);
+    setFilters({
+      search: '',
+      type: 'all',
+      status: 'all',
+      priority: 'all',
+      assignedTo: 'all',
+      site: 'all',
+      dateFrom: '',
+      dateTo: ''
+    });
+    setPage(0);
   };
 
-  const toggleGroupExpanded = (groupKey) => {
-    const newExpanded = new Set(expandedGroups);
-    if (newExpanded.has(groupKey)) {
-      newExpanded.delete(groupKey);
-    } else {
-      newExpanded.add(groupKey);
-    }
-    setExpandedGroups(newExpanded);
-  };
-
-  const handleContextMenu = (event, ticket) => {
-    event.preventDefault();
-    setContextMenu(event.currentTarget);
-    setSelectedTicket(ticket);
-  };
-
-  const handleContextMenuClose = () => {
-    setContextMenu(null);
-    setSelectedTicket(null);
-  };
-
-  const renderTicketCard = (ticket) => {
-    const typeOption = typeOptions.find(opt => opt.value === ticket.type);
-    const priorityOption = priorityOptions.find(opt => opt.value === ticket.priority);
-    const statusOption = getStatusOptions(ticket.type).find(opt => opt.value === ticket.status);
-    
-    return (
-      <Card 
-        key={ticket.ticket_id}
-        sx={{ 
-          mb: 2, 
-          cursor: 'pointer',
-          transition: 'all 0.2s ease-in-out',
-          '&:hover': {
-            transform: 'translateY(-2px)',
-            boxShadow: 3
-          },
-          border: ticket.assigned_user_id === user?.user_id ? '2px solid #1976d2' : '1px solid #e0e0e0'
-        }}
-        onClick={() => navigate(`/tickets/${ticket.ticket_id}`)}
-      >
-        <CardContent sx={{ p: 2 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600, color: '#666' }}>
-                {ticket.ticket_id.substring(0, 8)}...
-              </Typography>
-              {ticket.inc_number && (
-                <Chip 
-                  label={ticket.inc_number} 
-                  size="small" 
-                  variant="outlined"
-                  sx={{ fontSize: '0.7rem' }}
-                />
-              )}
-            </Box>
+  const renderTicketRow = (ticket) => (
+    <TableRow key={ticket.ticket_id} hover>
+      <TableCell>
+        <Box display="flex" alignItems="center" gap={1}>
+          {getTypeIcon(ticket.type)}
+          <ClickableTicketId ticketId={ticket.ticket_id} />
+          {getPriorityIcon(ticket.priority)}
+        </Box>
+      </TableCell>
+      <TableCell>
+        <Typography variant="body2" noWrap>
+          {ticket.title}
+        </Typography>
+      </TableCell>
+      <TableCell>
+        <Chip 
+          label={getTypeLabel(ticket.type)} 
+          size="small" 
+          variant="outlined"
+        />
+      </TableCell>
+      <TableCell>
+        <Chip 
+          label={getPriorityLabel(ticket.priority)} 
+          size="small" 
+          color={getPriorityColor(ticket.priority)}
+          variant={ticket.priority === 'normal' ? 'outlined' : 'filled'}
+        />
+      </TableCell>
+      <TableCell>
+        <Chip 
+          label={getStatusLabel(ticket.status)} 
+          size="small" 
+          color={getStatusColor(ticket.status)}
+        />
+      </TableCell>
+      <TableCell>
+        <Typography variant="body2" noWrap>
+          {getSiteName(ticket.site_id)}
+        </Typography>
+      </TableCell>
+      <TableCell>
+        <Typography variant="body2" noWrap>
+          {ticket.assigned_to ? getAssignedUserName(ticket.assigned_to) : 'Unassigned'}
+        </Typography>
+      </TableCell>
+      <TableCell>
+        <Typography variant="body2" noWrap>
+          {dayjs(ticket.created_at).format('MMM D, YYYY')}
+        </Typography>
+      </TableCell>
+      <TableCell>
+        <Box display="flex" gap={1}>
+          <IconButton 
+            size="small" 
+            onClick={() => navigate(`/tickets/${ticket.ticket_id}`)}
+            title="View Details"
+          >
+            <Visibility />
+          </IconButton>
+          <IconButton 
+            size="small" 
+            onClick={() => handleEdit(ticket)}
+            title="Edit Ticket"
+          >
+            <Edit />
+          </IconButton>
+          {ticket.status === 'open' && (
             <IconButton 
               size="small" 
-              onClick={(e) => {
-                e.stopPropagation();
-                handleContextMenu(e, ticket);
-              }}
+              onClick={() => handleClaim(ticket.ticket_id)}
+              title="Claim Ticket"
+              color="primary"
             >
-              <MoreVert fontSize="small" />
+              <Person />
             </IconButton>
-          </Box>
-          
-          <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
-            {getSiteName(ticket.site_id)}
-          </Typography>
-          
-          <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-            <Chip 
-              label={typeOption?.label || ticket.type} 
-              size="small" 
-              sx={{ 
-                backgroundColor: typeOption?.color + '20', 
-                color: typeOption?.color,
-                fontWeight: 600
-              }}
-            />
-            <Chip 
-              label={statusOption?.label || ticket.status} 
-              size="small" 
-              sx={{ 
-                backgroundColor: statusOption?.color + '20', 
-                color: statusOption?.color,
-                fontWeight: 600
-              }}
-            />
-            {ticket.priority && (
-              <Chip 
-                label={priorityOption?.label || ticket.priority} 
-                size="small" 
-                sx={{ 
-                  backgroundColor: priorityOption?.color + '20', 
-                  color: priorityOption?.color,
-                  fontWeight: 600
-                }}
-              />
-            )}
-          </Box>
-          
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Avatar sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>
-                {getAssignedUserName(ticket.assigned_user_id).charAt(0)}
-              </Avatar>
-              <Typography variant="body2" color="text.secondary">
-                {getAssignedUserName(ticket.assigned_user_id)}
-              </Typography>
-            </Box>
-            <Typography variant="caption" color="text.secondary">
-              {dayjs(ticket.date_created).fromNow()}
-            </Typography>
-          </Box>
-        </CardContent>
-      </Card>
-    );
-  };
-
-  const renderGroupHeader = (groupKey, tickets) => {
-    let title = '';
-    let color = '#666';
-    let icon = '📋';
-    
-    switch (groupBy) {
-      case 'status':
-        const statusOption = getStatusOptions('').find(opt => opt.value === groupKey);
-        title = statusOption?.label || groupKey;
-        color = statusOption?.color || '#666';
-        icon = statusOption?.icon || '📋';
-        break;
-      case 'type':
-        const typeOption = typeOptions.find(opt => opt.value === groupKey);
-        title = typeOption?.label || groupKey;
-        color = typeOption?.color || '#666';
-        icon = typeOption?.icon || '📋';
-        break;
-      case 'priority':
-        const priorityOption = priorityOptions.find(opt => opt.value === groupKey);
-        title = priorityOption?.label || groupKey;
-        color = priorityOption?.color || '#666';
-        icon = priorityOption?.icon || '📋';
-        break;
-      case 'assigned':
-        title = groupKey === 'unassigned' ? 'Unassigned' : getAssignedUserName(groupKey);
-        color = '#666';
-        icon = groupKey === 'unassigned' ? '👤' : '👥';
-        break;
-    }
-    
-    return (
-      <Box 
-        sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'space-between',
-          p: 2,
-          backgroundColor: '#f5f5f5',
-          borderRadius: 1,
-          mb: 2,
-          cursor: 'pointer'
-        }}
-        onClick={() => toggleGroupExpanded(groupKey)}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="h6" sx={{ color, fontWeight: 600 }}>
-            {icon} {title}
-          </Typography>
-          <Badge badgeContent={tickets.length} color="primary" />
+          )}
         </Box>
-        <IconButton size="small">
-          {expandedGroups.has(groupKey) ? <ExpandLess /> : <ExpandMore />}
-        </IconButton>
-      </Box>
-    );
-  };
+      </TableCell>
+    </TableRow>
+  );
 
   if (loading) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Skeleton variant="text" width={200} height={40} />
-          <Skeleton variant="rectangular" width={120} height={40} />
-        </Box>
-        <Grid container spacing={2}>
-          {[...Array(6)].map((_, index) => (
-            <Grid item xs={12} md={4} key={index}>
-              <Skeleton variant="rectangular" height={200} />
-            </Grid>
-          ))}
-        </Grid>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+        <CircularProgress />
       </Box>
     );
   }
 
   return (
-    <Box sx={{ p: 3, backgroundColor: '#fafafa', minHeight: '100vh' }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" component="h1" fontWeight="bold" sx={{ color: '#1a1a1a' }}>
+    <Box p={3}>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Typography variant="h4" component="h1" gutterBottom>
           Tickets
         </Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box display="flex" gap={2}>
           <Button
             variant="outlined"
-            startIcon={<Download />}
-            onClick={handleExportCSV}
-            sx={{ borderRadius: 2 }}
+            startIcon={<Refresh />}
+            onClick={fetchTickets}
           >
-            Export
+            Refresh
           </Button>
           <Button
             variant="contained"
             startIcon={<Add />}
             onClick={handleAdd}
-            sx={{ borderRadius: 2 }}
           >
             New Ticket
           </Button>
         </Box>
       </Box>
 
-      {/* Filters and Controls */}
-      <Card sx={{ mb: 3, borderRadius: 2 }}>
-        <CardContent>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={4}>
-              <TextField
-                fullWidth
-                placeholder="Search tickets..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Search />
-                    </InputAdornment>
-                  ),
-                  endAdornment: searchTerm && (
-                    <InputAdornment position="end">
-                      <IconButton size="small" onClick={() => setSearchTerm('')}>
-                        <Clear />
-                      </IconButton>
-                    </InputAdornment>
-                  )
-                }}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-              />
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <TextField
-                select
-                fullWidth
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
+      {/* Filters */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Filters
+        </Typography>
+        <Grid container spacing={2} alignItems="center">
+          <Grid item xs={12} md={3}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Search tickets..."
+              value={filters.search}
+              onChange={(e) => handleFilterChange('search', e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Grid>
+          <Grid item xs={12} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Type</InputLabel>
+              <Select
+                value={filters.type}
+                onChange={(e) => handleFilterChange('type', e.target.value)}
+                label="Type"
+              >
+                <MenuItem value="all">All Types</MenuItem>
+                <MenuItem value="inhouse">Inhouse</MenuItem>
+                <MenuItem value="onsite">Onsite</MenuItem>
+                <MenuItem value="projects">Projects</MenuItem>
+                <MenuItem value="misc">Misc</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={filters.status}
+                onChange={(e) => handleFilterChange('status', e.target.value)}
                 label="Status"
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
               >
                 <MenuItem value="all">All Statuses</MenuItem>
                 <MenuItem value="open">Open</MenuItem>
+                <MenuItem value="scheduled">Scheduled</MenuItem>
+                <MenuItem value="checked_in">Checked In</MenuItem>
                 <MenuItem value="in_progress">In Progress</MenuItem>
                 <MenuItem value="pending">Pending</MenuItem>
+                <MenuItem value="needs_parts">Needs Parts</MenuItem>
+                <MenuItem value="go_back_scheduled">Go-back Scheduled</MenuItem>
+                <MenuItem value="completed">Completed</MenuItem>
                 <MenuItem value="closed">Closed</MenuItem>
-              </TextField>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <TextField
-                select
-                fullWidth
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-                label="Type"
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-              >
-                <MenuItem value="all">All Types</MenuItem>
-                {typeOptions.map(option => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <Button
-                variant="outlined"
-                startIcon={<FilterList />}
-                onClick={clearFilters}
-                fullWidth
-                sx={{ borderRadius: 2 }}
-              >
-                Clear
-              </Button>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <ToggleButtonGroup
-                value={viewMode}
-                exclusive
-                onChange={(e, value) => value && setViewMode(value)}
-                size="small"
-              >
-                <ToggleButton value="cards">
-                  <ViewModule />
-                </ToggleButton>
-                <ToggleButton value="list">
-                  <ViewList />
-                </ToggleButton>
-              </ToggleButtonGroup>
-            </Grid>
+                <MenuItem value="planning">Planning</MenuItem>
+              </Select>
+            </FormControl>
           </Grid>
-        </CardContent>
-      </Card>
+          <Grid item xs={12} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Priority</InputLabel>
+              <Select
+                value={filters.priority}
+                onChange={(e) => handleFilterChange('priority', e.target.value)}
+                label="Priority"
+              >
+                <MenuItem value="all">All Priorities</MenuItem>
+                <MenuItem value="emergency">Emergency</MenuItem>
+                <MenuItem value="critical">Critical</MenuItem>
+                <MenuItem value="normal">Normal</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} md={2}>
+            <Button
+              variant="outlined"
+              startIcon={<Clear />}
+              onClick={clearFilters}
+              size="small"
+            >
+              Clear
+            </Button>
+          </Grid>
+        </Grid>
+      </Paper>
 
-      {/* Alerts */}
+      {/* View Mode Toggle */}
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+        <Typography variant="h6">
+          {filteredAndSortedTickets.length} tickets found
+        </Typography>
+        <ToggleButtonGroup
+          value={viewMode}
+          exclusive
+          onChange={(e, newMode) => newMode && setViewMode(newMode)}
+          size="small"
+        >
+          <ToggleButton value="list">
+            <ViewList />
+          </ToggleButton>
+          <ToggleButton value="cards">
+            <ViewModule />
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
+
+      {/* Tickets List */}
+      {viewMode === 'list' ? (
+        <TableContainer component={Paper}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Ticket ID</TableCell>
+                <TableCell>Title</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Priority</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Site</TableCell>
+                <TableCell>Assigned To</TableCell>
+                <TableCell>Created</TableCell>
+                <TableCell>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filteredAndSortedTickets
+                .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                .map(renderTicketRow)}
+            </TableBody>
+          </Table>
+          <TablePagination
+            rowsPerPageOptions={[10, 25, 50, 100]}
+            component="div"
+            count={filteredAndSortedTickets.length}
+            rowsPerPage={rowsPerPage}
+            page={page}
+            onPageChange={handleChangePage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+          />
+        </TableContainer>
+      ) : (
+        <Grid container spacing={2}>
+          {filteredAndSortedTickets
+            .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+            .map(ticket => (
+              <Grid item xs={12} sm={6} md={4} key={ticket.ticket_id}>
+                <Card sx={{ 
+                  border: ticket.priority === 'emergency' ? '2px solid #f44336' : 
+                          ticket.priority === 'critical' ? '2px solid #ff9800' : '1px solid #e0e0e0' 
+                }}>
+                  <CardContent>
+                    <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
+                      <Box display="flex" alignItems="center" gap={1}>
+                        {getTypeIcon(ticket.type)}
+                        <ClickableTicketId ticketId={ticket.ticket_id} />
+                        {getPriorityIcon(ticket.priority)}
+                      </Box>
+                      <IconButton size="small">
+                        <MoreVert />
+                      </IconButton>
+                    </Box>
+                    
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      {ticket.title}
+                    </Typography>
+                    
+                    <Box display="flex" gap={1} flexWrap="wrap" mb={1}>
+                      <Chip 
+                        label={getTypeLabel(ticket.type)} 
+                        size="small" 
+                        variant="outlined"
+                      />
+                      <Chip 
+                        label={getPriorityLabel(ticket.priority)} 
+                        size="small" 
+                        color={getPriorityColor(ticket.priority)}
+                        variant={ticket.priority === 'normal' ? 'outlined' : 'filled'}
+                      />
+                      <Chip 
+                        label={getStatusLabel(ticket.status)} 
+                        size="small" 
+                        color={getStatusColor(ticket.status)}
+                      />
+                    </Box>
+                    
+                    <Typography variant="caption" color="text.secondary">
+                      {getSiteName(ticket.site_id)} • {dayjs(ticket.created_at).format('MMM D, YYYY')}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+        </Grid>
+      )}
+
       {error && (
-        <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError(null)}>
+        <Alert severity="error" sx={{ mt: 2 }}>
           {error}
         </Alert>
       )}
-      {successMessage && (
-        <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccessMessage(null)}>
-          {successMessage}
-        </Alert>
-      )}
-
-      {/* Tickets Display */}
-      {viewMode === 'cards' ? (
-        <Box>
-          {Object.entries(groupedTickets).map(([groupKey, groupTickets]) => (
-            <Box key={groupKey}>
-              {renderGroupHeader(groupKey, groupTickets)}
-              {expandedGroups.has(groupKey) && (
-                <Grid container spacing={2}>
-                  {groupTickets.map(ticket => (
-                    <Grid item xs={12} md={4} key={ticket.ticket_id}>
-                      {renderTicketCard(ticket)}
-                    </Grid>
-                  ))}
-                </Grid>
-              )}
-            </Box>
-          ))}
-        </Box>
-      ) : (
-        <Card sx={{ borderRadius: 2 }}>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              List view coming soon...
-            </Typography>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Floating Action Button */}
-      <Fab
-        color="primary"
-        aria-label="add"
-        sx={{ position: 'fixed', bottom: 16, right: 16 }}
-        onClick={handleAdd}
-      >
-        <Add />
-      </Fab>
-
-      {/* Dialogs */}
-      {dialog && (
-        <Dialog 
-          open={dialog} 
-          onClose={handleClose} 
-          maxWidth="md" 
-          fullWidth
-          PaperProps={{
-            sx: { borderRadius: 2 }
-          }}
-        >
-          <DialogTitle>
-            {editingTicket ? 'Edit Ticket' : 'Create New Ticket'}
-          </DialogTitle>
-          <DialogContent sx={{ p: 0 }}>
-            <Box sx={{ p: 2 }}>
-              <TicketForm
-                initialValues={editingTicket}
-                onSubmit={async (values) => {
-                  await handleSubmit(values);
-                  handleClose();
-                }}
-                isEdit={!!editingTicket}
-              />
-            </Box>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
-        <DialogTitle>Delete Ticket</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete ticket {deleteTicket?.ticket_id}? This action cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialog(false)}>Cancel</Button>
-          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Context Menu */}
-      <Menu
-        anchorEl={contextMenu}
-        open={Boolean(contextMenu)}
-        onClose={handleContextMenuClose}
-      >
-        <MenuItem onClick={() => {
-          if (selectedTicket) {
-            navigate(`/tickets/${selectedTicket.ticket_id}`);
-          }
-          handleContextMenuClose();
-        }}>
-          <Visibility sx={{ mr: 1 }} /> View Details
-        </MenuItem>
-        <MenuItem onClick={() => {
-          if (selectedTicket) {
-            handleEdit(selectedTicket);
-          }
-          handleContextMenuClose();
-        }}>
-          <Edit sx={{ mr: 1 }} /> Edit
-        </MenuItem>
-        <MenuItem onClick={() => {
-          if (selectedTicket) {
-            handleClaim(selectedTicket.ticket_id);
-          }
-          handleContextMenuClose();
-        }}>
-          <Assignment sx={{ mr: 1 }} /> Claim
-        </MenuItem>
-        <Divider />
-        <MenuItem onClick={() => {
-          if (selectedTicket) {
-            handleDelete(selectedTicket);
-          }
-          handleContextMenuClose();
-        }}>
-          <Delete sx={{ mr: 1 }} /> Delete
-        </MenuItem>
-      </Menu>
     </Box>
   );
 }

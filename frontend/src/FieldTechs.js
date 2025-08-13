@@ -1,110 +1,127 @@
-import React, { useEffect, useState } from 'react';
-import api from './axiosConfig';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, TextField, Tooltip, Box } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Container, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  IconButton, Chip, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
+  CircularProgress, FormControl, InputLabel, Select, MenuItem, Grid, Card, CardContent,
+  Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider
+} from '@mui/material';
+import {
+  Add, Edit, Delete, Visibility, Person, Phone, Email, LocationOn, Schedule,
+  CheckCircle, Cancel, Warning, LocalShipping, Build, Inventory, Flag, FlagOutlined,
+  Star, StarBorder, Notifications, NotificationsOff, ExpandMore, ExpandLess
+} from '@mui/icons-material';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
+import dayjs from 'dayjs';
 import FieldTechForm from './FieldTechForm';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import NoteAddIcon from '@mui/icons-material/NoteAdd';
+import UploadIcon from '@mui/icons-material/Upload';
+import DownloadIcon from '@mui/icons-material/Download';
+import CSVImport from './components/CSVImport';
 
 function FieldTechs() {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [open, setOpen] = useState(false);
+  const [editDialog, setEditDialog] = useState(false);
   const [editTech, setEditTech] = useState(null);
-  const [noteDialog, setNoteDialog] = useState(false);
-  const [noteTech, setNoteTech] = useState(null);
-  const [noteText, setNoteText] = useState('');
-  const [copyFeedback, setCopyFeedback] = useState('');
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [deleteTech, setDeleteTech] = useState(null);
+  const [importDialog, setImportDialog] = useState(false);
 
-  const fetchTechs = () => {
-    setLoading(true);
-    api.get('/fieldtechs/')
-      .then(res => {
-        setTechs(res.data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError('Failed to fetch field techs');
-        setLoading(false);
-      });
-  };
+  const fetchTechs = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/fieldtechs/');
+      setTechs(response || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching field techs:', err);
+      setError('Failed to load field techs');
+      setTechs([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
 
   useEffect(() => {
     fetchTechs();
-  }, []);
+  }, [fetchTechs]);
 
   const handleAdd = () => {
     setEditTech(null);
-    setOpen(true);
+    setEditDialog(true);
   };
 
   const handleEdit = (tech) => {
     setEditTech(tech);
-    setOpen(true);
+    setEditDialog(true);
   };
 
   const handleClose = () => {
-    setOpen(false);
+    setEditDialog(false);
     setEditTech(null);
   };
 
-  const handleSubmit = (values) => {
-    if (editTech) {
-      api.put(`/fieldtechs/${editTech.field_tech_id}`, values)
-        .then((response) => {
-          // Update the field tech in the local state immediately
-          setTechs(prevTechs => prevTechs.map(t => 
-            t.field_tech_id === editTech.field_tech_id ? response.data : t
-          ));
-          handleClose();
-          setError(null);
-        })
-        .catch(() => setError('Failed to update field tech'));
-    } else {
-      api.post('/fieldtechs/', values)
-        .then((response) => {
-          // Add the new field tech to the local state immediately
-          setTechs(prevTechs => [...prevTechs, response.data]);
-          handleClose();
-          setError(null);
-        })
-        .catch(() => setError('Failed to add field tech'));
+  const handleSubmit = async (values) => {
+    try {
+      if (editTech) {
+        const response = await api.put(`/fieldtechs/${editTech.field_tech_id}`, values);
+        setTechs(prevTechs => prevTechs.map(t => 
+          t.field_tech_id === editTech.field_tech_id ? response : t
+        ));
+        showToast('Field tech updated successfully', 'success');
+      } else {
+        const response = await api.post('/fieldtechs/', values);
+        setTechs(prevTechs => [...prevTechs, response]);
+        showToast('Field tech added successfully', 'success');
+      }
+      handleClose();
+    } catch (err) {
+      console.error('Error submitting field tech:', err);
+      setError('Failed to save field tech');
+      showToast('Failed to save field tech', 'error');
     }
   };
 
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text);
-    setCopyFeedback('Copied!');
-    setTimeout(() => setCopyFeedback(''), 1000);
+    showToast('Phone number copied to clipboard', 'info');
   };
 
   const handleQuickNote = (tech) => {
-    setNoteTech(tech);
-    setNoteText('');
-    setNoteDialog(true);
+    setEditTech(tech); // Use editTech for notes
+    setEditDialog(true); // Use editDialog for notes
   };
 
-  const handleNoteSubmit = () => {
-    api.put(`/fieldtechs/${noteTech.field_tech_id}`, { 
-      name: noteTech.name,
-      phone: noteTech.phone,
-      email: noteTech.email,
-      region: noteTech.region,
-      city: noteTech.city,
-      state: noteTech.state,
-      zip: noteTech.zip,
-      notes: (noteTech.notes || '') + '\n' + noteText
-    })
-      .then(() => {
-        setNoteDialog(false);
-        fetchTechs();
-      })
-      .catch(() => setError('Failed to add note'));
+  const handleNoteSubmit = async () => {
+    try {
+      const response = await api.put(`/fieldtechs/${editTech.field_tech_id}`, { 
+        name: editTech.name,
+        phone: editTech.phone,
+        email: editTech.email,
+        region: editTech.region,
+        city: editTech.city,
+        state: editTech.state,
+        zip: editTech.zip,
+        notes: editTech.notes // Assuming editTech already has notes
+      });
+      setTechs(prevTechs => prevTechs.map(t => 
+        t.field_tech_id === editTech.field_tech_id ? response : t
+      ));
+      showToast('Notes updated successfully', 'success');
+    } catch (err) {
+      console.error('Error updating notes:', err);
+      setError('Failed to update notes');
+      showToast('Failed to update notes', 'error');
+    } finally {
+      handleClose(); // Close the dialog after saving notes
+    }
   };
 
   const handleDelete = (tech) => {
@@ -112,86 +129,162 @@ function FieldTechs() {
     setDeleteDialog(true);
   };
 
-  const handleDeleteConfirm = () => {
-    api.delete(`/fieldtechs/${deleteTech.field_tech_id}`, { data: {} })
-      .then(() => {
-        // Remove the field tech from the local state immediately
-        setTechs(prevTechs => prevTechs.filter(t => t.field_tech_id !== deleteTech.field_tech_id));
-        setDeleteDialog(false);
-        setDeleteTech(null);
-        setError(null);
-      })
-      .catch(() => setError('Failed to delete field tech'));
+  const handleDeleteConfirm = async () => {
+    try {
+      await api.delete(`/fieldtechs/${deleteTech.field_tech_id}`, { data: {} });
+      setTechs(prevTechs => prevTechs.filter(t => t.field_tech_id !== deleteTech.field_tech_id));
+      showToast('Field tech deleted successfully', 'success');
+    } catch (err) {
+      console.error('Error deleting field tech:', err);
+      setError('Failed to delete field tech');
+      showToast('Failed to delete field tech', 'error');
+    } finally {
+      setDeleteDialog(false);
+      setDeleteTech(null);
+    }
   };
 
-  // Color cue: highlight row if missing contact info or location
+  const handleImportSuccess = (result) => {
+    // Refresh the field techs list after successful import
+    fetchTechs();
+    showToast('Field techs imported successfully', 'success');
+  };
+
+  const handleImportClick = () => {
+    setImportDialog(true);
+  };
+
+  const handleDownloadTemplate = () => {
+    const csvContent = 'Name,Phone,Email,Region,City,State,Zip,Notes\nJohn Doe,(555) 123-4567,john.doe@example.com,North,New York,NY,10001,Experienced technician\nJane Smith,(555) 987-6543,jane.smith@example.com,South,Los Angeles,CA,90210,Specializes in network equipment';
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'field_techs_template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
   const getRowColor = (tech) => {
-    if (!tech.phone || !tech.email) return '#fff9c4'; // yellow for missing contact
-    if (!tech.city || !tech.state) return '#fff3e0'; // orange for missing location
-    return '#fff';
+    if (tech.notes && tech.notes.includes('URGENT')) return '#ffebee';
+    if (tech.notes && tech.notes.includes('PRIORITY')) return '#fff3e0';
+    return 'inherit';
   };
 
-  if (loading) return <CircularProgress />;
-  if (error) return <Alert severity="error">{error}</Alert>;
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
-    <>
-      <Typography variant="h4" gutterBottom>Field Techs</Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={handleAdd}>Add Field Tech</Button>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box sx={{ width: 20, height: 20, bgcolor: '#fff9c4', border: '1px solid #ccc' }}></Box>
-          <Typography variant="caption">Missing contact info</Typography>
-          <Box sx={{ width: 20, height: 20, bgcolor: '#fff3e0', border: '1px solid #ccc', ml: 2 }}></Box>
-          <Typography variant="caption">Missing location</Typography>
+    <Box>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Typography variant="h4" component="h1">
+          Field Technicians
+        </Typography>
+        <Box>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleDownloadTemplate}
+            sx={{ mr: 1 }}
+          >
+            Download Template
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<UploadIcon />}
+            onClick={handleImportClick}
+            sx={{ mr: 1 }}
+          >
+            Import CSV
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={handleAdd}
+          >
+            Add Field Tech
+          </Button>
         </Box>
       </Box>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>ID</TableCell>
               <TableCell>Name</TableCell>
               <TableCell>Phone</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Region</TableCell>
-              <TableCell>City</TableCell>
-              <TableCell>State</TableCell>
+              <TableCell>Location</TableCell>
               <TableCell>Notes</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {techs.map(tech => (
-              <TableRow key={tech.field_tech_id} sx={{ bgcolor: getRowColor(tech) }} aria-label={`Field Tech ${tech.field_tech_id}`}>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {tech.field_tech_id}
-                    <Tooltip title="Copy Tech ID"><IconButton size="small" onClick={() => handleCopy(tech.field_tech_id)}><ContentCopyIcon fontSize="inherit" /></IconButton></Tooltip>
-                    <Tooltip title="Quick Add Note"><IconButton size="small" onClick={() => handleQuickNote(tech)}><NoteAddIcon fontSize="inherit" /></IconButton></Tooltip>
-                  </Box>
-                </TableCell>
+            {techs.map((tech) => (
+              <TableRow key={tech.field_tech_id} sx={{ backgroundColor: getRowColor(tech) }}>
                 <TableCell>{tech.name}</TableCell>
                 <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box display="flex" alignItems="center" gap={1}>
                     {tech.phone}
-                    {tech.phone && <Tooltip title="Copy Phone"><IconButton size="small" onClick={() => handleCopy(tech.phone)}><ContentCopyIcon fontSize="inherit" /></IconButton></Tooltip>}
+                    <Tooltip title="Copy phone number">
+                      <IconButton size="small" onClick={() => handleCopy(tech.phone)}>
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </Box>
                 </TableCell>
                 <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box display="flex" alignItems="center" gap={1}>
                     {tech.email}
-                    {tech.email && <Tooltip title="Copy Email"><IconButton size="small" onClick={() => handleCopy(tech.email)}><ContentCopyIcon fontSize="inherit" /></IconButton></Tooltip>}
+                    <Tooltip title="Copy email">
+                      <IconButton size="small" onClick={() => handleCopy(tech.email)}>
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </Box>
                 </TableCell>
                 <TableCell>{tech.region}</TableCell>
-                <TableCell>{tech.city}</TableCell>
-                <TableCell>{tech.state}</TableCell>
-                <Tooltip title={tech.notes}><TableCell>{tech.notes}</TableCell></Tooltip>
                 <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Tooltip title="Edit Field Tech"><IconButton onClick={() => handleEdit(tech)} size="small"><EditIcon /></IconButton></Tooltip>
-                    <Tooltip title="Delete Field Tech"><IconButton onClick={() => handleDelete(tech)} size="small" color="error"><DeleteIcon /></IconButton></Tooltip>
+                  {[tech.city, tech.state, tech.zip].filter(Boolean).join(', ')}
+                </TableCell>
+                <TableCell>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {tech.notes || 'No notes'}
+                    </Typography>
+                    <Tooltip title="Add/Edit Notes">
+                      <IconButton size="small" onClick={() => handleQuickNote(tech)}>
+                        <NoteAddIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  <Box display="flex" gap={1}>
+                    <Tooltip title="Edit">
+                      <IconButton size="small" onClick={() => handleEdit(tech)}>
+                        <Edit fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete">
+                      <IconButton size="small" onClick={() => handleDelete(tech)}>
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </Box>
                 </TableCell>
               </TableRow>
@@ -199,37 +292,65 @@ function FieldTechs() {
           </TableBody>
         </Table>
       </TableContainer>
-      {copyFeedback && <Alert severity="success" sx={{ position: 'fixed', top: 80, right: 40, zIndex: 2000 }}>{copyFeedback}</Alert>}
-      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+
+      {/* Add/Edit Dialog */}
+      <Dialog open={editDialog} onClose={handleClose} maxWidth="md" fullWidth>
         <DialogTitle>{editTech ? 'Edit Field Tech' : 'Add Field Tech'}</DialogTitle>
         <DialogContent>
-          <FieldTechForm initialValues={editTech} onSubmit={handleSubmit} isEdit={!!editTech} />
+          <FieldTechForm
+            initialValues={editTech}
+            onSubmit={handleSubmit}
+            onCancel={handleClose}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Notes Dialog */}
+      <Dialog open={editDialog} onClose={handleClose} maxWidth="sm" fullWidth>
+        <DialogTitle>Add/Edit Notes - {editTech?.name}</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            value={editTech?.notes || ''} // Use editTech.notes
+            onChange={(e) => setEditTech(prev => ({ ...prev, notes: e.target.value }))}
+            placeholder="Enter notes..."
+            sx={{ mt: 1 }}
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={handleClose}>Cancel</Button>
+          <Button onClick={handleNoteSubmit} variant="contained">Save</Button>
         </DialogActions>
       </Dialog>
-      <Dialog open={noteDialog} onClose={() => setNoteDialog(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Quick Add Note</DialogTitle>
-        <DialogContent>
-          <TextField label="Note" value={noteText} onChange={e => setNoteText(e.target.value)} fullWidth multiline minRows={3} />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setNoteDialog(false)}>Cancel</Button>
-          <Button onClick={handleNoteSubmit} variant="contained">Add Note</Button>
-        </DialogActions>
-      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
-          <Typography>Are you sure you want to delete field tech "{deleteTech?.name}"?</Typography>
+          <Typography>
+            Are you sure you want to delete {deleteTech?.name}? This action cannot be undone.
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialog(false)}>Cancel</Button>
-          <Button onClick={handleDeleteConfirm} color="error" variant="contained">Delete</Button>
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
+            Delete
+          </Button>
         </DialogActions>
       </Dialog>
-    </>
+
+      {/* CSV Import Dialog */}
+      <CSVImport
+        open={importDialog}
+        onClose={() => setImportDialog(false)}
+        onSuccess={handleImportSuccess}
+        title="Import Field Techs from CSV"
+        endpoint="/fieldtechs/import-csv"
+        templateData="Name,Phone,Email,Region,City,State,Zip,Notes\nJohn Doe,(555) 123-4567,john.doe@example.com,North,New York,NY,10001,Experienced technician\nJane Smith,(555) 987-6543,jane.smith@example.com,South,Los Angeles,CA,90210,Specializes in network equipment"
+      />
+    </Box>
   );
 }
 

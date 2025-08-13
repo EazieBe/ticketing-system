@@ -1,92 +1,102 @@
-import React, { useEffect, useState } from 'react';
-import api from './axiosConfig';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent, DialogActions, IconButton } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Container, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  IconButton, Chip, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
+  CircularProgress, FormControl, InputLabel, Select, MenuItem, Grid, Card, CardContent,
+  Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider
+} from '@mui/material';
+import {
+  Add, Edit, Delete, Visibility, Assignment, Schedule, CheckCircle, Cancel, Warning,
+  LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
+  Notifications, NotificationsOff, ExpandMore, ExpandLess, FilterList, Sort
+} from '@mui/icons-material';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
+import dayjs from 'dayjs';
 import TaskForm from './TaskForm';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import NoteAddIcon from '@mui/icons-material/NoteAdd';
-import Tooltip from '@mui/material/Tooltip';
-import Box from '@mui/material/Box';
-import dayjs from 'dayjs';
-import TextField from '@mui/material/TextField';
-
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 
 
 function Tasks() {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [open, setOpen] = useState(false);
+  const [editDialog, setEditDialog] = useState(false);
   const [editTask, setEditTask] = useState(null);
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [deleteTask, setDeleteTask] = useState(null);
   const [noteDialog, setNoteDialog] = useState(false);
   const [noteTask, setNoteTask] = useState(null);
   const [noteText, setNoteText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
-  const [deleteDialog, setDeleteDialog] = useState(false);
-  const [deleteTask, setDeleteTask] = useState(null);
 
-  const fetchTasks = () => {
-    setLoading(true);
-    api.get('/tasks/')
-      .then(res => {
-        setTasks(res.data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError('Failed to fetch tasks');
-        setLoading(false);
-      });
-  };
+  const fetchTasks = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/tasks/');
+      setTasks(response || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching tasks:', err);
+      setError('Failed to load tasks');
+      setTasks([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
 
   useEffect(() => {
     fetchTasks();
-  }, []);
+  }, [fetchTasks]);
 
   const handleAdd = () => {
     setEditTask(null);
-    setOpen(true);
+    setEditDialog(true);
   };
 
   const handleEdit = (task) => {
     setEditTask(task);
-    setOpen(true);
+    setEditDialog(true);
   };
 
   const handleClose = () => {
-    setOpen(false);
+    setEditDialog(false);
     setEditTask(null);
   };
 
-  const handleSubmit = (values) => {
-    if (editTask) {
-      api.put(`/tasks/${editTask.task_id}`, values)
-        .then((response) => {
-          // Update the task in the local state immediately
-          setTasks(prevTasks => prevTasks.map(t => 
-            t.task_id === editTask.task_id ? response.data : t
-          ));
-          handleClose();
-          setError(null);
-        })
-        .catch(() => setError('Failed to update task'));
-    } else {
-      api.post('/tasks/', values)
-        .then((response) => {
-          // Add the new task to the local state immediately
-          setTasks(prevTasks => [...prevTasks, response.data]);
-          handleClose();
-          setError(null);
-        })
-        .catch(() => setError('Failed to add task'));
+  const handleSubmit = async (values) => {
+    try {
+      if (editTask) {
+        const response = await api.put(`/tasks/${editTask.task_id}`, values);
+        setTasks(prevTasks => prevTasks.map(t => 
+          t.task_id === editTask.task_id ? response : t
+        ));
+        showToast('Task updated successfully', 'success');
+      } else {
+        const response = await api.post('/tasks/', values);
+        setTasks(prevTasks => [...prevTasks, response]);
+        showToast('Task added successfully', 'success');
+      }
+      handleClose();
+    } catch (err) {
+      console.error('Error submitting task:', err);
+      setError('Failed to save task');
+      showToast('Failed to save task', 'error');
     }
   };
 
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text);
-    setCopyFeedback('Copied!');
-    setTimeout(() => setCopyFeedback(''), 1000);
+    showToast('Copied!', 'success');
+    setTimeout(() => showToast('', ''), 1000);
   };
 
   const handleQuickNote = (task) => {
@@ -185,7 +195,7 @@ function Tasks() {
         </Table>
       </TableContainer>
       {copyFeedback && <Alert severity="success" sx={{ position: 'fixed', top: 80, right: 40, zIndex: 2000 }}>{copyFeedback}</Alert>}
-      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <Dialog open={editDialog} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle>{editTask ? 'Edit Task' : 'Add Task'}</DialogTitle>
         <DialogContent>
           <TaskForm initialValues={editTask} onSubmit={handleSubmit} isEdit={!!editTask} />

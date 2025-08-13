@@ -1,77 +1,80 @@
 import { useState, useCallback } from 'react';
 import { useAuth } from '../AuthContext';
-import useErrorHandler from './useErrorHandler';
+import { useToast } from '../contexts/ToastContext';
 import api from '../axiosConfig';
 
-const useApi = () => {
+function useApi() {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
   const { logout } = useAuth();
-  const { handleApiError } = useErrorHandler();
+  const { error: showError } = useToast();
 
-  const request = useCallback(async (config, showToast = true) => {
+  const makeRequest = useCallback(async (method, endpoint, data = null, options = {}) => {
     setLoading(true);
-    setError(null);
-
+    
     try {
-      const response = await api(config);
-      
-      if (showToast && response.data?.message) {
-        // You can integrate with a toast library here
-        console.log('Success:', response.data.message);
+      const config = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+        ...options,
+      };
+
+      if (data && method !== 'GET') {
+        config.data = data;
       }
-      
+
+      const response = await api.request({
+        url: endpoint,
+        ...config,
+      });
+
       return response.data;
     } catch (err) {
-      const errorMessage = err.response?.data?.detail || err.message || 'An error occurred';
-      setError(errorMessage);
+      console.error('API Error:', err);
       
-      // Handle authentication errors
       if (err.response?.status === 401) {
         logout();
+        throw new Error('Unauthorized - please log in again');
       }
       
-      if (showToast) {
-        handleApiError(err, 'API request');
-      }
-      
-      throw err;
+      const errorMessage = err.response?.data?.detail || err.message || 'An error occurred';
+      showError(errorMessage);
+      throw new Error(errorMessage);
     } finally {
       setLoading(false);
     }
-  }, [logout]);
+  }, [logout, showError]);
 
-  const get = useCallback((url, config = {}) => {
-    return request({ ...config, method: 'GET', url }, config.showToast);
-  }, [request]);
+  const get = useCallback((endpoint, options = {}) => {
+    return makeRequest('GET', endpoint, null, options);
+  }, [makeRequest]);
 
-  const post = useCallback((url, data = {}, config = {}) => {
-    return request({ ...config, method: 'POST', url, data }, config.showToast);
-  }, [request]);
+  const post = useCallback((endpoint, data, options = {}) => {
+    return makeRequest('POST', endpoint, data, options);
+  }, [makeRequest]);
 
-  const put = useCallback((url, data = {}, config = {}) => {
-    return request({ ...config, method: 'PUT', url, data }, config.showToast);
-  }, [request]);
+  const put = useCallback((endpoint, data, options = {}) => {
+    return makeRequest('PUT', endpoint, data, options);
+  }, [makeRequest]);
 
-  const patch = useCallback((url, data = {}, config = {}) => {
-    return request({ ...config, method: 'PATCH', url, data }, config.showToast);
-  }, [request]);
+  const patch = useCallback((endpoint, data, options = {}) => {
+    return makeRequest('PATCH', endpoint, data, options);
+  }, [makeRequest]);
 
-  const del = useCallback((url, config = {}) => {
-    return request({ ...config, method: 'DELETE', url }, config.showToast);
-  }, [request]);
+  const delete_ = useCallback((endpoint, options = {}) => {
+    return makeRequest('DELETE', endpoint, null, options);
+  }, [makeRequest]);
 
   return {
-    loading,
-    error,
-    request,
     get,
     post,
     put,
     patch,
-    delete: del,
-    clearError: () => setError(null)
+    delete: delete_,
+    loading,
   };
-};
+}
 
 export default useApi; 

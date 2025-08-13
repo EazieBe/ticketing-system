@@ -1,51 +1,106 @@
-import React, { useEffect, useState } from 'react';
-import api from './axiosConfig';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent, DialogActions, Box } from '@mui/material';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Container, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  IconButton, Chip, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
+  CircularProgress, FormControl, InputLabel, Select, MenuItem, Grid, Card, CardContent,
+  Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider
+} from '@mui/material';
+import {
+  Add, Edit, Delete, Visibility, LocalShipping, Schedule, CheckCircle, Cancel, Warning,
+  Build, Inventory, Flag, FlagOutlined, Star, StarBorder, Notifications, NotificationsOff,
+  ExpandMore, ExpandLess, FilterList, Sort, DragIndicator, Speed, AutoAwesome
+} from '@mui/icons-material';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
+import dayjs from 'dayjs';
 import ShipmentForm from './ShipmentForm';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteIcon from '@mui/icons-material/Delete';
-import Tooltip from '@mui/material/Tooltip';
-import IconButton from '@mui/material/IconButton';
 
 
 
 function Shipments() {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [shipments, setShipments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [addDialog, setAddDialog] = useState(false);
+  const [editDialog, setEditDialog] = useState(false);
+  const [editShipment, setEditShipment] = useState(null);
   const [copyFeedback, setCopyFeedback] = useState('');
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [deleteShipment, setDeleteShipment] = useState(null);
 
+  const fetchShipments = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/shipments/');
+      setShipments(response || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching shipments:', err);
+      setError('Failed to fetch shipments');
+      setShipments([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
   useEffect(() => {
-    api.get('/shipments/')
-      .then(res => {
-        setShipments(res.data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError('Failed to fetch shipments');
-        setLoading(false);
-      });
-  }, []);
+    fetchShipments();
+  }, [fetchShipments]);
 
   const handleAddShipment = () => {
+    setEditShipment(null);
     setAddDialog(true);
   };
 
-  const handleAddSubmit = (values) => {
-    api.post('/shipments/', values)
-      .then((response) => {
-        setAddDialog(false);
-        // Add the new shipment to the existing list immediately
-        setShipments(prevShipments => [...prevShipments, response.data]);
-        setError(null); // Clear any previous errors
-      })
-      .catch((err) => {
-        console.error('Failed to add shipment:', err);
-        setError('Failed to add shipment: ' + (err.response?.data?.detail || err.message));
-      });
+  const handleEdit = (shipment) => {
+    setEditShipment(shipment);
+    setEditDialog(true);
+  };
+
+  const handleClose = () => {
+    setAddDialog(false);
+    setEditDialog(false);
+    setEditShipment(null);
+  };
+
+  const handleSubmit = async (values) => {
+    try {
+      if (editShipment) {
+        const response = await api.put(`/shipments/${editShipment.shipment_id}`, values);
+        setShipments(prevShipments => prevShipments.map(s => 
+          s.shipment_id === editShipment.shipment_id ? response : s
+        ));
+        showToast('Shipment updated successfully', 'success');
+      } else {
+        const response = await api.post('/shipments/', values);
+        setShipments(prevShipments => [...prevShipments, response]);
+        showToast('Shipment added successfully', 'success');
+      }
+      handleClose();
+    } catch (err) {
+      console.error('Error submitting shipment:', err);
+      setError('Failed to save shipment');
+      showToast('Failed to save shipment', 'error');
+    }
+  };
+
+  const handleAddSubmit = async (values) => {
+    try {
+      const response = await api.post('/shipments/', values);
+      setShipments(prevShipments => [...prevShipments, response]);
+      showToast('Shipment added successfully', 'success');
+      handleClose();
+    } catch (err) {
+      console.error('Error adding shipment:', err);
+      setError('Failed to add shipment');
+      showToast('Failed to add shipment', 'error');
+    }
   };
 
   const handleCopy = (text) => {

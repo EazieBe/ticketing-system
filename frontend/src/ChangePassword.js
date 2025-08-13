@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Box, TextField, Button, Typography, Alert, Paper, CircularProgress } from '@mui/material';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
-import { useNavigate } from 'react-router-dom';
-import api from './axiosConfig';
+import useApi from './hooks/useApi';
 
 function ChangePassword({ userId }) {
   const { logout } = useAuth();
+  const api = useApi();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -26,9 +27,7 @@ function ChangePassword({ userId }) {
     }
     setLoading(true);
     try {
-      await api.post(`/users/${userId}/change_password`, { new_password: newPassword }, {
-        headers: { 'Content-Type': 'application/json' },
-      });
+      await api.post(`/users/${userId}/change_password`, { new_password: newPassword });
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);

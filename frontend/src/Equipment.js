@@ -1,91 +1,101 @@
-import React, { useEffect, useState } from 'react';
-import api from './axiosConfig';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent, DialogActions, IconButton } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EquipmentForm from './EquipmentForm';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Container, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  IconButton, Chip, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
+  CircularProgress, FormControl, InputLabel, Select, MenuItem, Grid, Card, CardContent,
+  Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider
+} from '@mui/material';
+import {
+  Add, Edit, Delete, Visibility, Build, Schedule, CheckCircle, Cancel, Warning,
+  LocalShipping, Inventory, Flag, FlagOutlined, Star, StarBorder, Notifications, NotificationsOff,
+  ExpandMore, ExpandLess, FilterList, Sort, DragIndicator, Speed, AutoAwesome
+} from '@mui/icons-material';
 import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
+import dayjs from 'dayjs';
+import EquipmentForm from './EquipmentForm';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import NoteAddIcon from '@mui/icons-material/NoteAdd';
-import Tooltip from '@mui/material/Tooltip';
-import Box from '@mui/material/Box';
-import TextField from '@mui/material/TextField';
-
 
 
 function Equipment() {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [open, setOpen] = useState(false);
+  const [editDialog, setEditDialog] = useState(false);
   const [editEquipment, setEditEquipment] = useState(null);
-  const { user } = useAuth();
-  const isAdminOrDispatcher = user && (user.role === 'admin' || user.role === 'dispatcher');
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [deleteEquipment, setDeleteEquipment] = useState(null);
   const [noteDialog, setNoteDialog] = useState(false);
   const [noteEquipment, setNoteEquipment] = useState(null);
   const [noteText, setNoteText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
-  const [deleteDialog, setDeleteDialog] = useState(false);
-  const [deleteEquipment, setDeleteEquipment] = useState(null);
 
-  const fetchEquipment = () => {
+  const isAdminOrDispatcher = user?.role === 'admin' || user?.role === 'dispatcher';
+
+  const fetchEquipment = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/equipment/');
+      setEquipment(response || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching equipment:', err);
+      setError('Failed to fetch equipment');
+      setEquipment([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
     if (!isAdminOrDispatcher) return;
-    setLoading(true);
-    api.get('/equipment/')
-      .then(res => {
-        setEquipment(res.data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError('Failed to fetch equipment');
-        setLoading(false);
-      });
-  };
+    fetchEquipment();
+  }, [isAdminOrDispatcher, fetchEquipment]);
 
   const handleAdd = () => {
     setEditEquipment(null);
-    setOpen(true);
+    setEditDialog(true);
   };
 
   const handleEdit = (eq) => {
     setEditEquipment(eq);
-    setOpen(true);
+    setEditDialog(true);
   };
 
   const handleClose = () => {
-    setOpen(false);
+    setEditDialog(false);
     setEditEquipment(null);
   };
 
-  const handleSubmit = (values) => {
-    if (editEquipment) {
-      api.put(`/equipment/${editEquipment.equipment_id}`, values)
-        .then((response) => {
-          // Update the equipment in the local state immediately
-          setEquipment(prevEquipment => prevEquipment.map(e => 
-            e.equipment_id === editEquipment.equipment_id ? response.data : e
-          ));
-          handleClose();
-          setError(null);
-        })
-        .catch(() => setError('Failed to update equipment'));
-    } else {
-      api.post('/equipment/', values)
-        .then((response) => {
-          // Add the new equipment to the local state immediately
-          setEquipment(prevEquipment => [...prevEquipment, response.data]);
-          handleClose();
-          setError(null);
-        })
-        .catch(() => setError('Failed to add equipment'));
+  const handleSubmit = async (values) => {
+    try {
+      if (editEquipment) {
+        const response = await api.put(`/equipment/${editEquipment.equipment_id}`, values);
+        setEquipment(prevEquipment => prevEquipment.map(e => 
+          e.equipment_id === editEquipment.equipment_id ? response : e
+        ));
+        showToast('Equipment updated successfully', 'success');
+      } else {
+        const response = await api.post('/equipment/', values);
+        setEquipment(prevEquipment => [...prevEquipment, response]);
+        showToast('Equipment added successfully', 'success');
+      }
+      handleClose();
+    } catch (err) {
+      console.error('Error submitting equipment:', err);
+      setError('Failed to save equipment');
+      showToast('Failed to save equipment', 'error');
     }
   };
 
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text);
-    setCopyFeedback('Copied!');
-    setTimeout(() => setCopyFeedback(''), 1000);
+    showToast('Copied to clipboard', 'success');
   };
 
   const handleQuickNote = (eq) => {
@@ -94,20 +104,24 @@ function Equipment() {
     setNoteDialog(true);
   };
 
-  const handleNoteSubmit = () => {
-    api.put(`/equipment/${noteEquipment.equipment_id}`, { 
-      type: noteEquipment.type,
-      make_model: noteEquipment.make_model,
-      serial_number: noteEquipment.serial_number,
-      install_date: noteEquipment.install_date,
-      notes: (noteEquipment.notes || '') + '\n' + noteText,
-      site_id: noteEquipment.site_id
-    })
-      .then(() => {
-        setNoteDialog(false);
-        fetchEquipment();
-      })
-      .catch(() => setError('Failed to add note'));
+  const handleNoteSubmit = async () => {
+    try {
+      await api.put(`/equipment/${noteEquipment.equipment_id}`, { 
+        type: noteEquipment.type,
+        make_model: noteEquipment.make_model,
+        serial_number: noteEquipment.serial_number,
+        install_date: noteEquipment.install_date,
+        notes: (noteEquipment.notes || '') + '\n' + noteText,
+        site_id: noteEquipment.site_id
+      });
+      showToast('Note added successfully', 'success');
+      setNoteDialog(false);
+      fetchEquipment();
+    } catch (err) {
+      console.error('Error adding note:', err);
+      setError('Failed to add note');
+      showToast('Failed to add note', 'error');
+    }
   };
 
   const handleDelete = (eq) => {
@@ -115,16 +129,20 @@ function Equipment() {
     setDeleteDialog(true);
   };
 
-  const handleDeleteConfirm = () => {
-    api.delete(`/equipment/${deleteEquipment.equipment_id}`, { data: {} })
-      .then(() => {
-        setDeleteDialog(false);
-        // Remove the equipment from the local state immediately
-        setEquipment(prevEquipment => prevEquipment.filter(e => e.equipment_id !== deleteEquipment.equipment_id));
-        setDeleteEquipment(null);
-        setError(null);
-      })
-      .catch(() => setError('Failed to delete equipment'));
+  const handleDeleteConfirm = async () => {
+    try {
+      await api.delete(`/equipment/${deleteEquipment.equipment_id}`, { data: {} });
+      showToast('Equipment deleted successfully', 'success');
+      setDeleteDialog(false);
+      // Remove the equipment from the local state immediately
+      setEquipment(prevEquipment => prevEquipment.filter(e => e.equipment_id !== deleteEquipment.equipment_id));
+      setDeleteEquipment(null);
+      setError(null);
+    } catch (err) {
+      console.error('Error deleting equipment:', err);
+      setError('Failed to delete equipment');
+      showToast('Failed to delete equipment', 'error');
+    }
   };
 
   // Color cue: highlight row if missing serial number
@@ -132,11 +150,6 @@ function Equipment() {
     if (!eq.serial_number) return '#fff9c4'; // yellow
     return '#fff';
   };
-
-  useEffect(() => {
-    fetchEquipment();
-    // eslint-disable-next-line
-  }, [isAdminOrDispatcher]);
 
   if (!isAdminOrDispatcher) {
     return <Alert severity="warning">You do not have permission to view equipment data.</Alert>;
@@ -148,7 +161,7 @@ function Equipment() {
     <>
       <Typography variant="h4" gutterBottom>Equipment</Typography>
       {isAdminOrDispatcher && (
-        <Button variant="contained" startIcon={<AddIcon />} onClick={handleAdd} sx={{ mb: 2 }}>Add Equipment</Button>
+        <Button variant="contained" startIcon={<Add />} onClick={handleAdd} sx={{ mb: 2 }}>Add Equipment</Button>
       )}
       <TableContainer component={Paper}>
         <Table>
@@ -173,7 +186,7 @@ function Equipment() {
                     <Tooltip title="Copy Equipment ID"><IconButton size="small" onClick={() => handleCopy(eq.equipment_id)}><ContentCopyIcon fontSize="inherit" /></IconButton></Tooltip>
                     <Tooltip title="Quick Add Note"><IconButton size="small" onClick={() => handleQuickNote(eq)}><NoteAddIcon fontSize="inherit" /></IconButton></Tooltip>
                     {isAdminOrDispatcher && (
-                      <Tooltip title="Delete Equipment"><IconButton size="small" color="error" onClick={() => handleDelete(eq)}><DeleteIcon fontSize="inherit" /></IconButton></Tooltip>
+                      <Tooltip title="Delete Equipment"><IconButton size="small" color="error" onClick={() => handleDelete(eq)}><Delete fontSize="inherit" /></IconButton></Tooltip>
                     )}
                   </Box>
                 </TableCell>
@@ -190,7 +203,7 @@ function Equipment() {
                 <Tooltip title={eq.notes}><TableCell>{eq.notes}</TableCell></Tooltip>
                 {isAdminOrDispatcher && (
                   <TableCell>
-                    <Tooltip title="Edit Equipment"><IconButton onClick={() => handleEdit(eq)} size="small"><EditIcon /></IconButton></Tooltip>
+                    <Tooltip title="Edit Equipment"><IconButton onClick={() => handleEdit(eq)} size="small"><Edit fontSize="inherit" /></IconButton></Tooltip>
                   </TableCell>
                 )}
               </TableRow>
@@ -199,7 +212,7 @@ function Equipment() {
         </Table>
       </TableContainer>
       {copyFeedback && <Alert severity="success" sx={{ position: 'fixed', top: 80, right: 40, zIndex: 2000 }}>{copyFeedback}</Alert>}
-      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <Dialog open={editDialog} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle>{editEquipment ? 'Edit Equipment' : 'Add Equipment'}</DialogTitle>
         <DialogContent>
           <EquipmentForm initialValues={editEquipment} onSubmit={handleSubmit} isEdit={!!editEquipment} />

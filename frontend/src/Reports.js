@@ -1,104 +1,72 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Box,
-  Typography,
-  Paper,
-  Grid,
-  Card,
-  CardContent,
-  Button,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  TextField,
-  Chip,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  IconButton,
-  Tooltip,
-  Alert,
-  CircularProgress,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Divider
+  Container, Typography, Paper, Box, Grid, Card, CardContent, Chip, Button,
+  FormControl, InputLabel, Select, MenuItem, TextField, Alert, CircularProgress,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton,
+  Tooltip, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem,
+  ListItemText, ListItemIcon, Divider, Accordion, AccordionSummary, AccordionDetails,
+  Pagination
 } from '@mui/material';
 import {
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  Legend,
-  ResponsiveContainer,
-  Area,
-  AreaChart
-} from 'recharts';
-import {
-  TrendingUp,
-  TrendingDown,
-  Assessment,
-  Download,
-  Refresh,
-  FilterList,
-  ExpandMore,
-  Assignment,
-  Store,
-  LocalShipping,
-  Inventory,
-  Build,
-  Group,
-  Timeline,
-  Analytics
+  TrendingUp, TrendingDown, Assessment, LocalShipping, Inventory, Timeline,
+  Analytics, ExpandMore, Download, Visibility, FilterList, Refresh, CalendarToday,
+  Assignment, Store, Group, Build
 } from '@mui/icons-material';
-import api from './axiosConfig';
+import {
+  PieChart, Pie, Cell, Tooltip as RechartsTooltip, AreaChart, CartesianGrid, XAxis, YAxis, Area, BarChart, Bar, ResponsiveContainer
+} from 'recharts';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
 import dayjs from 'dayjs';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
 
 function Reports() {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState('30');
+  const [reportData, setReportData] = useState({});
+  const [dateRange, setDateRange] = useState(30);
   const [selectedReport, setSelectedReport] = useState('overview');
+  const [showFilters, setShowFilters] = useState(false);
   const [tickets, setTickets] = useState([]);
   const [sites, setSites] = useState([]);
   const [users, setUsers] = useState([]);
   const [fieldTechs, setFieldTechs] = useState([]);
   const [shipments, setShipments] = useState([]);
   const [inventory, setInventory] = useState([]);
-  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({
+    dateFrom: dayjs().startOf('month').format('YYYY-MM-DD'),
+    dateTo: dayjs().format('YYYY-MM-DD'),
+    type: 'all'
+  });
+
+  const fetchReportData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/reports/?date_from=${filters.dateFrom}&date_to=${filters.dateTo}&type=${filters.type}`);
+      setReportData(response || {});
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching report data:', err);
+      setError('Failed to load report data');
+      setReportData({});
+    } finally {
+      setLoading(false);
+    }
+  }, [api, filters.dateFrom, filters.dateTo, filters.type]);
 
   useEffect(() => {
+    fetchReportData();
     fetchData();
-  }, []);
+  }, [filters, fetchReportData]);
 
   const fetchData = async () => {
-    setLoading(true);
     try {
-      const [
-        ticketsRes,
-        sitesRes,
-        usersRes,
-        fieldTechsRes,
-        shipmentsRes,
-        inventoryRes
-      ] = await Promise.all([
+      const [ticketsRes, sitesRes, usersRes, fieldTechsRes, shipmentsRes, inventoryRes] = await Promise.all([
         api.get('/tickets/'),
         api.get('/sites/'),
         api.get('/users/'),
@@ -106,19 +74,15 @@ function Reports() {
         api.get('/shipments/'),
         api.get('/inventory/')
       ]);
-
-      setTickets(ticketsRes.data);
-      setSites(sitesRes.data);
-      setUsers(usersRes.data);
-      setFieldTechs(fieldTechsRes.data);
-      setShipments(shipmentsRes.data);
-      setInventory(inventoryRes.data);
-      setError(null);
+      
+      setTickets(ticketsRes || []);
+      setSites(sitesRes || []);
+      setUsers(usersRes || []);
+      setFieldTechs(fieldTechsRes || []);
+      setShipments(shipmentsRes || []);
+      setInventory(inventoryRes || []);
     } catch (err) {
-      setError('Failed to fetch report data');
       console.error('Error fetching data:', err);
-    } finally {
-      setLoading(false);
     }
   };
 

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
-from app import models, schemas
+import models, schemas
 import uuid
+from datetime import date, datetime
 
 # User CRUD
 
@@ -13,6 +14,7 @@ def create_user(db: Session, user: schemas.UserCreate):
         phone=user.phone,
         region=user.region,
         preferences=user.preferences,
+        hashed_password=getattr(user, 'hashed_password', None),
         must_change_password=getattr(user, 'must_change_password', False)
     )
     db.add(db_user)
@@ -641,3 +643,286 @@ def get_matching_sla_rule(db: Session, ticket_type, customer_impact, business_pr
         models.SLARule.business_priority.is_(None),
         models.SLARule.is_active == True
     ).first() 
+
+# Time Entry CRUD
+
+def create_time_entry(db: Session, time_entry_data: dict):
+    db_time_entry = models.TimeEntry(
+        entry_id=str(uuid.uuid4()),
+        ticket_id=time_entry_data["ticket_id"],
+        user_id=time_entry_data["user_id"],
+        start_time=time_entry_data.get("start_time"),
+        end_time=time_entry_data.get("end_time"),
+        duration_minutes=time_entry_data.get("duration_minutes", 0),
+        description=time_entry_data.get("description", ""),
+        is_billable=time_entry_data.get("is_billable", False),
+        hourly_rate=time_entry_data.get("hourly_rate", 0.0),
+        created_at=time_entry_data.get("created_at")
+    )
+    db.add(db_time_entry)
+    db.commit()
+    db.refresh(db_time_entry)
+    return db_time_entry
+
+def get_time_entry(db: Session, entry_id: str):
+    return db.query(models.TimeEntry).filter(models.TimeEntry.entry_id == entry_id).first()
+
+def get_time_entries_by_ticket(db: Session, ticket_id: str):
+    return db.query(models.TimeEntry).filter(models.TimeEntry.ticket_id == ticket_id).order_by(models.TimeEntry.created_at.desc()).all()
+
+def update_time_entry(db: Session, entry_id: str, time_entry_data: dict):
+    db_time_entry = db.query(models.TimeEntry).filter(models.TimeEntry.entry_id == entry_id).first()
+    if not db_time_entry:
+        return None
+    
+    # Update fields if provided
+    for field, value in time_entry_data.items():
+        if hasattr(db_time_entry, field) and value is not None:
+            setattr(db_time_entry, field, value)
+    
+    db.commit()
+    db.refresh(db_time_entry)
+    return db_time_entry
+
+def delete_time_entry(db: Session, entry_id: str):
+    db_time_entry = db.query(models.TimeEntry).filter(models.TimeEntry.entry_id == entry_id).first()
+    if not db_time_entry:
+        return None
+    
+    db.delete(db_time_entry)
+    db.commit()
+    return db_time_entry
+
+# Ticket Comment CRUD
+
+def create_ticket_comment(db: Session, comment_data: dict):
+    db_comment = models.TicketComment(
+        comment_id=str(uuid.uuid4()),
+        ticket_id=comment_data["ticket_id"],
+        user_id=comment_data["user_id"],
+        comment=comment_data.get("comment", ""),
+        is_internal=comment_data.get("is_internal", False),
+        created_at=comment_data.get("created_at")
+    )
+    db.add(db_comment)
+    db.commit()
+    db.refresh(db_comment)
+    return db_comment
+
+def get_ticket_comment(db: Session, comment_id: str):
+    return db.query(models.TicketComment).filter(models.TicketComment.comment_id == comment_id).first()
+
+def get_comments_by_ticket(db: Session, ticket_id: str):
+    return db.query(models.TicketComment).filter(models.TicketComment.ticket_id == ticket_id).order_by(models.TicketComment.created_at.desc()).all()
+
+def update_ticket_comment(db: Session, comment_id: str, comment_data: dict):
+    db_comment = db.query(models.TicketComment).filter(models.TicketComment.comment_id == comment_id).first()
+    if not db_comment:
+        return None
+    
+    # Update fields if provided
+    for field, value in comment_data.items():
+        if hasattr(db_comment, field) and value is not None:
+            setattr(db_comment, field, value)
+    
+    db.commit()
+    db.refresh(db_comment)
+    return db_comment
+
+def delete_ticket_comment(db: Session, comment_id: str):
+    db_comment = db.query(models.TicketComment).filter(models.TicketComment.comment_id == comment_id).first()
+    if not db_comment:
+        return None
+    
+    db.delete(db_comment)
+    db.commit()
+    return db_comment
+
+# Site Equipment CRUD
+
+def create_site_equipment(db: Session, equipment: schemas.SiteEquipmentCreate):
+    db_equipment = models.SiteEquipment(
+        equipment_id=str(uuid.uuid4()),
+        site_id=equipment.site_id,
+        equipment_type=equipment.equipment_type,
+        model=equipment.model,
+        part_number=equipment.part_number,
+        serial_number=equipment.serial_number,
+        installation_date=equipment.installation_date,
+        maintenance_notes=equipment.maintenance_notes,
+        rack_location=equipment.rack_location,
+        additional_details=equipment.additional_details
+    )
+    db.add(db_equipment)
+    db.commit()
+    db.refresh(db_equipment)
+    return db_equipment
+
+def get_site_equipment(db: Session, equipment_id: str):
+    return db.query(models.SiteEquipment).filter(models.SiteEquipment.equipment_id == equipment_id).first()
+
+def get_site_equipment_by_site(db: Session, site_id: str):
+    return db.query(models.SiteEquipment).filter(models.SiteEquipment.site_id == site_id).all()
+
+def update_site_equipment(db: Session, equipment_id: str, equipment: schemas.SiteEquipmentUpdate):
+    db_equipment = db.query(models.SiteEquipment).filter(models.SiteEquipment.equipment_id == equipment_id).first()
+    if not db_equipment:
+        return None
+    
+    # Update fields if provided
+    for field, value in equipment.dict(exclude_unset=True).items():
+        if hasattr(db_equipment, field) and value is not None:
+            setattr(db_equipment, field, value)
+    
+    db.commit()
+    db.refresh(db_equipment)
+    return db_equipment
+
+def delete_site_equipment(db: Session, equipment_id: str):
+    db_equipment = db.query(models.SiteEquipment).filter(models.SiteEquipment.equipment_id == equipment_id).first()
+    if not db_equipment:
+        return None
+    
+    db.delete(db_equipment)
+    db.commit()
+    return db_equipment
+
+# Ticket Attachment CRUD
+
+def create_ticket_attachment(db: Session, attachment: schemas.TicketAttachmentCreate):
+    db_attachment = models.TicketAttachment(
+        attachment_id=str(uuid.uuid4()),
+        ticket_id=attachment.ticket_id,
+        file_name=attachment.file_name,
+        file_type=attachment.file_type,
+        file_size=attachment.file_size,
+        external_url=attachment.external_url,
+        description=attachment.description
+    )
+    db.add(db_attachment)
+    db.commit()
+    db.refresh(db_attachment)
+    return db_attachment
+
+def get_ticket_attachment(db: Session, attachment_id: str):
+    return db.query(models.TicketAttachment).filter(models.TicketAttachment.attachment_id == attachment_id).first()
+
+def get_ticket_attachments(db: Session, ticket_id: str):
+    return db.query(models.TicketAttachment).filter(models.TicketAttachment.ticket_id == ticket_id).all()
+
+def update_ticket_attachment(db: Session, attachment_id: str, attachment: schemas.TicketAttachmentUpdate):
+    db_attachment = db.query(models.TicketAttachment).filter(models.TicketAttachment.attachment_id == attachment_id).first()
+    if not db_attachment:
+        return None
+    
+    # Update fields if provided
+    for field, value in attachment.dict(exclude_unset=True).items():
+        if hasattr(db_attachment, field) and value is not None:
+            setattr(db_attachment, field, value)
+    
+    db.commit()
+    db.refresh(db_attachment)
+    return db_attachment
+
+def delete_ticket_attachment(db: Session, attachment_id: str):
+    db_attachment = db.query(models.TicketAttachment).filter(models.TicketAttachment.attachment_id == attachment_id).first()
+    if not db_attachment:
+        return None
+    
+    db.delete(db_attachment)
+    db.commit()
+    return db_attachment
+
+# Enhanced Ticket Operations
+
+def claim_ticket(db: Session, ticket_id: str, claimed_by: str):
+    """Claim a ticket for in-house tech work"""
+    db_ticket = db.query(models.Ticket).filter(models.Ticket.ticket_id == ticket_id).first()
+    if not db_ticket:
+        return None
+    
+    db_ticket.claimed_by = claimed_by
+    db_ticket.claimed_at = datetime.utcnow()
+    db_ticket.status = models.TicketStatus.in_progress
+    
+    db.commit()
+    db.refresh(db_ticket)
+    return db_ticket
+
+def check_in_ticket(db: Session, ticket_id: str, onsite_tech_id: str):
+    """Check in a field tech for onsite work"""
+    db_ticket = db.query(models.Ticket).filter(models.Ticket.ticket_id == ticket_id).first()
+    if not db_ticket:
+        return None
+    
+    db_ticket.check_in_time = datetime.utcnow()
+    db_ticket.onsite_tech_id = onsite_tech_id
+    db_ticket.status = models.TicketStatus.checked_in
+    
+    db.commit()
+    db.refresh(db_ticket)
+    return db_ticket
+
+def check_out_ticket(db: Session, ticket_id: str, check_out_data: dict):
+    """Check out a field tech from onsite work"""
+    db_ticket = db.query(models.Ticket).filter(models.Ticket.ticket_id == ticket_id).first()
+    if not db_ticket:
+        return None
+    
+    db_ticket.check_out_time = datetime.utcnow()
+    
+    # Calculate onsite duration
+    if db_ticket.check_in_time and db_ticket.check_out_time:
+        duration = db_ticket.check_out_time - db_ticket.check_in_time
+        db_ticket.onsite_duration_minutes = int(duration.total_seconds() / 60)
+    
+    # Update other fields
+    if check_out_data.get('time_spent'):
+        db_ticket.time_spent = check_out_data['time_spent']
+    if check_out_data.get('parts_used'):
+        db_ticket.parts_needed = check_out_data['parts_used']
+    if check_out_data.get('notes'):
+        db_ticket.notes = check_out_data['notes']
+    
+    # Set status based on completion
+    if check_out_data.get('is_completed', True):
+        db_ticket.status = models.TicketStatus.completed
+    else:
+        db_ticket.status = models.TicketStatus.needs_parts
+    
+    db.commit()
+    db.refresh(db_ticket)
+    return db_ticket
+
+def get_daily_tickets(db: Session, date: date = None, ticket_type: str = None, priority: str = None, status: str = None, assigned_user_id: str = None):
+    """Get tickets for daily operations dashboard"""
+    query = db.query(models.Ticket)
+    
+    if date:
+        query = query.filter(models.Ticket.date_scheduled == date)
+    if ticket_type:
+        query = query.filter(models.Ticket.type == ticket_type)
+    if priority:
+        query = query.filter(models.Ticket.priority == priority)
+    if status:
+        query = query.filter(models.Ticket.status == status)
+    if assigned_user_id:
+        query = query.filter(models.Ticket.assigned_user_id == assigned_user_id)
+    
+    return query.order_by(models.Ticket.priority.desc(), models.Ticket.date_scheduled).all()
+
+def update_ticket_costs(db: Session, ticket_id: str, cost_data: dict):
+    """Update ticket cost information"""
+    db_ticket = db.query(models.Ticket).filter(models.Ticket.ticket_id == ticket_id).first()
+    if not db_ticket:
+        return None
+    
+    # Update cost fields
+    if cost_data.get('billing_rate') is not None:
+        db_ticket.billing_rate = cost_data['billing_rate']
+    if cost_data.get('total_cost') is not None:
+        db_ticket.total_cost = cost_data['total_cost']
+    
+    db.commit()
+    db.refresh(db_ticket)
+    return db_ticket

@@ -1,60 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { TextField, Button, Box, Alert, FormControl, InputLabel, Select, MenuItem, CircularProgress } from '@mui/material';
-import api from './axiosConfig';
+import {
+  Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField,
+  FormControl, InputLabel, Select, MenuItem, Box, Typography, Alert,
+  CircularProgress, Grid, Chip, IconButton, Tooltip
+} from '@mui/material';
+import {
+  LocalShipping, Schedule, CheckCircle, Cancel, Warning, Build, Inventory,
+  Flag, FlagOutlined, Star, StarBorder, Notifications, NotificationsOff
+} from '@mui/icons-material';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
+import dayjs from 'dayjs';
 
 function ShipmentForm({ initialValues, onSubmit, isEdit = false }) {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [values, setValues] = useState({
     site_id: '',
-    ticket_id: '',
-    item_id: '',
-    what_is_being_shipped: '',
-    shipping_preference: '',
-    charges_out: '',
-    charges_in: '',
     tracking_number: '',
-    return_tracking: '',
-    date_shipped: '',
-    date_returned: '',
+    carrier: '',
+    status: 'pending',
+    estimated_delivery: '',
+    actual_delivery: '',
     notes: '',
+    ...initialValues
   });
-  const [error, setError] = useState('');
   const [sites, setSites] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [loadingSites, setLoadingSites] = useState(false);
 
-  useEffect(() => {
-    if (initialValues) {
-      setValues({
-        site_id: initialValues.site_id || '',
-        ticket_id: initialValues.ticket_id || '',
-        item_id: initialValues.item_id || '',
-        what_is_being_shipped: initialValues.what_is_being_shipped || '',
-        shipping_preference: initialValues.shipping_preference || '',
-        charges_out: initialValues.charges_out || '',
-        charges_in: initialValues.charges_in || '',
-        tracking_number: initialValues.tracking_number || '',
-        return_tracking: initialValues.return_tracking || '',
-        date_shipped: initialValues.date_shipped || '',
-        date_returned: initialValues.date_returned || '',
-        notes: initialValues.notes || '',
-      });
-    }
-  }, [initialValues]);
-
-  // Fetch sites when component mounts
   useEffect(() => {
     fetchSites();
   }, []);
 
   const fetchSites = async () => {
-    setLoadingSites(true);
     try {
       const response = await api.get('/sites/');
-      setSites(response.data);
-    } catch (error) {
-      console.error('Error fetching sites:', error);
+      setSites(response || []);
+    } catch (err) {
+      console.error('Error fetching sites:', err);
       setSites([]);
-    } finally {
-      setLoadingSites(false);
     }
   };
 

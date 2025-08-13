@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import api from './axiosConfig';
 
 const AuthContext = createContext();
@@ -18,9 +18,9 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
   const refreshTimeoutRef = useRef(null);
-
+  
   // Function to clear all auth data
-  const clearAuth = () => {
+  const clearAuth = useCallback(() => {
     sessionStorage.removeItem('access_token');
     sessionStorage.removeItem('refresh_token');
     setAccessToken(null);
@@ -32,10 +32,10 @@ export const AuthProvider = ({ children }) => {
       clearTimeout(refreshTimeoutRef.current);
       refreshTimeoutRef.current = null;
     }
-  };
+  }, []);
 
   // Function to refresh access token
-  const refreshAccessToken = async () => {
+  const refreshAccessToken = useCallback(async () => {
     if (!refreshToken) {
       clearAuth();
       return false;
@@ -67,7 +67,7 @@ export const AuthProvider = ({ children }) => {
       clearAuth();
       return false;
     }
-  };
+  }, [refreshToken, clearAuth]);
 
   // Function to decode and validate token
   const validateToken = (token) => {
@@ -103,7 +103,7 @@ export const AuthProvider = ({ children }) => {
       return; // This will trigger the effect again with the new accessToken
     }
     
-    if (accessToken) {
+    if (accessToken && !user) {
       const decoded = validateToken(accessToken);
       
       if (decoded && decoded.sub) {
@@ -145,11 +145,11 @@ export const AuthProvider = ({ children }) => {
           setLoading(false);
         });
       }
-    } else {
+    } else if (!accessToken) {
       console.log('No access token found');
       setLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, user]); // Removed refreshAccessToken and clearAuth from dependencies
 
   // Cleanup on unmount
   useEffect(() => {

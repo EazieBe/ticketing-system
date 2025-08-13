@@ -19,7 +19,8 @@ def seed():
         role=models.UserRole.admin,
         phone="555-1000",
         region="HQ",
-        preferences=f"hashed_password:{get_password_hash('password123')}"
+        hashed_password=get_password_hash('password123'),
+        preferences="{}"
     )
     user2 = models.User(
         user_id=str(uuid.uuid4()),
@@ -28,7 +29,8 @@ def seed():
         role=models.UserRole.admin,
         phone="555-2000",
         region="East",
-        preferences=f"hashed_password:{get_password_hash('password123')}"
+        hashed_password=get_password_hash('password123'),
+        preferences="{}"
     )
     db.add_all([user1, user2])
     # Sites
@@ -67,7 +69,7 @@ def seed():
         so_number="SO20001",
         type=models.TicketType.inhouse,
         status=models.TicketStatus.open,
-        priority="High",
+        priority=models.TicketPriority.critical,
         category="Network",
         assigned_user_id=user2.user_id,
         onsite_tech_id=None,
@@ -85,7 +87,7 @@ def seed():
         so_number="SO20002",
         type=models.TicketType.onsite,
         status=models.TicketStatus.in_progress,
-        priority="Medium",
+        priority=models.TicketPriority.normal,
         category="Hardware",
         assigned_user_id=user2.user_id,
         onsite_tech_id=None,

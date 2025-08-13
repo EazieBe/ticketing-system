@@ -1,17 +1,27 @@
-import React, { useEffect, useState } from 'react';
-import api from './axiosConfig';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Container, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  IconButton, Chip, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
+  CircularProgress, FormControl, InputLabel, Select, MenuItem, Grid, Card, CardContent,
+  Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider
+} from '@mui/material';
+import {
+  Add, Edit, Delete, Visibility, Person, Schedule, CheckCircle, Cancel, Warning,
+  LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
+  Notifications, NotificationsOff, ExpandMore, ExpandLess, FilterList, Sort
+} from '@mui/icons-material';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
+import dayjs from 'dayjs';
 import { 
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, 
-  Typography, CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent, 
-  DialogActions, IconButton, Switch, FormControlLabel, TextField, MenuItem, 
-  DialogContentText, Box, Tooltip, Chip, FormControl, InputLabel, Select,
-  ToggleButton, ToggleButtonGroup
+  Switch, FormControlLabel, 
+  DialogContentText, ToggleButton, ToggleButtonGroup
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import UserForm from './UserForm';
-import { useAuth } from './AuthContext';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import NoteAddIcon from '@mui/icons-material/NoteAdd';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -20,10 +30,13 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import FilterListIcon from '@mui/icons-material/FilterList';
 
 function Users() {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [open, setOpen] = useState(false);
+  const [editDialog, setEditDialog] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [noteDialog, setNoteDialog] = useState(false);
   const [noteUser, setNoteUser] = useState(null);
@@ -36,66 +49,74 @@ function Users() {
   const [searchTerm, setSearchTerm] = useState('');
   const [tempPasswordDialog, setTempPasswordDialog] = useState(false);
   const [tempPassword, setTempPassword] = useState('');
-  const { user } = useAuth();
-  const isAdminOrDispatcher = user && (user.role === 'admin' || user.role === 'dispatcher');
 
-  const fetchUsers = () => {
-    setLoading(true);
-    api.get('/users/')
-      .then(res => {
-        setUsers(res.data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError('Failed to fetch users');
-        setLoading(false);
-      });
-  };
+  const isAdmin = user?.role === 'admin';
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/users/');
+      setUsers(response || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+      setError('Failed to load users');
+      setUsers([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [fetchUsers]);
 
   const handleAdd = () => {
     setEditUser(null);
-    setOpen(true);
+    setEditDialog(true);
   };
 
   const handleEdit = (user) => {
     setEditUser(user);
-    setOpen(true);
+    setEditDialog(true);
   };
 
   const handleClose = () => {
-    setOpen(false);
+    setEditDialog(false);
     setEditUser(null);
   };
 
   const handleSubmit = async (values) => {
     if (editUser) {
-      await api.put(`/users/${editUser.user_id}`, values)
-        .then((response) => {
-          // Update the user in the local state immediately
-          setUsers(prevUsers => prevUsers.map(u => 
-            u.user_id === editUser.user_id ? response.data : u
-          ));
-          handleClose();
-          setError(null);
-        })
-        .catch(() => setError('Failed to update user'));
+      try {
+        const response = await api.put(`/users/${editUser.user_id}`, values);
+        setUsers(prevUsers => prevUsers.map(u => 
+          u.user_id === editUser.user_id ? response : u
+        ));
+        handleClose();
+        setError(null);
+        showToast('User updated successfully', 'success');
+      } catch (err) {
+        console.error('Error updating user:', err);
+        setError('Failed to update user');
+        showToast('Failed to update user', 'error');
+      }
     } else {
-      await api.post('/users/', values)
-        .then((res) => {
-          // Add the new user to the local state immediately
-          setUsers(prevUsers => [...prevUsers, res.data]);
-          handleClose();
-          setError(null);
-          if (res.data.temp_password) {
-            setTempPassword(res.data.temp_password);
-            setTempPasswordDialog(true);
-          }
-        })
-        .catch(() => setError('Failed to add user'));
+      try {
+        const res = await api.post('/users/', values);
+        setUsers(prevUsers => [...prevUsers, res]);
+        handleClose();
+        setError(null);
+        showToast('User added successfully', 'success');
+        if (res.temp_password) {
+          setTempPassword(res.temp_password);
+          setTempPasswordDialog(true);
+        }
+      } catch (err) {
+        console.error('Error adding user:', err);
+        setError('Failed to add user');
+        showToast('Failed to add user', 'error');
+      }
     }
   };
 
@@ -204,6 +225,7 @@ function Users() {
         setUsers(prevUsers => prevUsers.filter(u => u.user_id !== deleteUser.user_id));
         setDeleteUser(null);
         setError(null);
+        showToast('User deleted successfully', 'success');
       })
       .catch(() => setError('Failed to delete user'));
   };
@@ -251,7 +273,7 @@ function Users() {
 
   if (loading) return <CircularProgress />;
   if (error) return <Alert severity="error" action={<Button color="inherit" size="small" onClick={fetchUsers}>Retry</Button>}>{error}</Alert>;
-  if (!isAdminOrDispatcher) return <Alert severity="info">You do not have permission to manage users.</Alert>;
+  if (!isAdmin) return <Alert severity="info">You do not have permission to manage users.</Alert>;
 
   return (
     <Box sx={{ 
@@ -350,7 +372,7 @@ function Users() {
                 <TableCell sx={{ bgcolor: darkMode ? '#424242' : 'background.paper', color: darkMode ? 'white' : 'text.primary' }}>Region</TableCell>
                 <TableCell sx={{ bgcolor: darkMode ? '#424242' : 'background.paper', color: darkMode ? 'white' : 'text.primary' }}>Status</TableCell>
                 <TableCell sx={{ bgcolor: darkMode ? '#424242' : 'background.paper', color: darkMode ? 'white' : 'text.primary' }}>Preferences</TableCell>
-                {isAdminOrDispatcher && <TableCell sx={{ bgcolor: darkMode ? '#424242' : 'background.paper', color: darkMode ? 'white' : 'text.primary' }}>Actions</TableCell>}
+                {isAdmin && <TableCell sx={{ bgcolor: darkMode ? '#424242' : 'background.paper', color: darkMode ? 'white' : 'text.primary' }}>Actions</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -412,7 +434,7 @@ function Users() {
                       </Typography>
                     </Tooltip>
                   </TableCell>
-                  {isAdminOrDispatcher && (
+                  {isAdmin && (
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
                         <Tooltip title="Edit User">
@@ -469,7 +491,7 @@ function Users() {
       )}
 
       {/* Dialogs */}
-      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <Dialog open={editDialog} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle>{editUser ? 'Edit User' : 'Add User'}</DialogTitle>
         <DialogContent>
           <UserForm initialValues={editUser} onSubmit={handleSubmit} isEdit={!!editUser} />

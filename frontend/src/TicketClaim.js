@@ -1,42 +1,27 @@
 import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Box,
-  Typography,
-  Paper,
-  Button,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  TextField,
-  Alert,
-  CircularProgress,
-  Card,
-  CardContent,
-  Grid,
-  Chip,
-  Divider
+  Container, Typography, Paper, Box, Button, TextField, FormControl, InputLabel,
+  Select, MenuItem, Alert, CircularProgress, Card, CardContent, Chip, Grid,
+  List, ListItem, ListItemText, ListItemAvatar, Avatar, Divider, Dialog,
+  DialogTitle, DialogContent, DialogActions, IconButton, Tooltip
 } from '@mui/material';
 import {
-  Assignment,
-  Person,
-  Store,
-  Schedule,
-  Description,
-  CheckCircle,
-  Cancel
+  Person, Schedule, CheckCircle, Cancel, Warning, LocalShipping, Build,
+  Inventory, Flag, FlagOutlined, Star, StarBorder, Notifications, NotificationsOff,
+  ExpandMore, ExpandLess, FilterList, Sort, DragIndicator, Speed, AutoAwesome, Assignment, Description
 } from '@mui/icons-material';
-import { useParams, useNavigate } from 'react-router-dom';
-import api from './axiosConfig';
 import { useAuth } from './AuthContext';
-import { useNotification } from './NotificationContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
 import dayjs from 'dayjs';
 
 function TicketClaim() {
   const { ticket_id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { notify } = useNotification();
+  const api = useApi();
+  const { showToast } = useToast();
   const [ticket, setTicket] = useState(null);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,26 +35,19 @@ function TicketClaim() {
   }, [ticket_id]);
 
   const fetchTicketAndUsers = async () => {
-    setLoading(true);
     try {
+      setLoading(true);
       const [ticketRes, usersRes] = await Promise.all([
         api.get(`/tickets/${ticket_id}`),
         api.get('/users/')
       ]);
       
-      setTicket(ticketRes.data);
-      setUsers(usersRes.data);
-      
-      // Auto-select current user if they're available
-      const currentUser = usersRes.data.find(u => u.user_id === user?.user_id);
-      if (currentUser) {
-        setSelectedUser(currentUser.user_id);
-      }
-      
+      setTicket(ticketRes || {});
+      setUsers(usersRes || []);
       setError(null);
     } catch (err) {
-      setError('Failed to fetch ticket or users');
-      console.error('Error fetching data:', err);
+      console.error('Error fetching ticket and users:', err);
+      setError('Failed to load ticket data');
     } finally {
       setLoading(false);
     }
@@ -110,7 +88,7 @@ function TicketClaim() {
       setError(null);
       
       // Show success notification
-      notify('Ticket claimed successfully!', 'success');
+      showToast('Ticket claimed successfully!', 'success');
       
       // Navigate back to tickets list
       navigate('/tickets');
@@ -187,7 +165,7 @@ function TicketClaim() {
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="body2" color="text.secondary">Site</Typography>
                   <Box display="flex" alignItems="center">
-                    <Store sx={{ mr: 1, fontSize: 'small' }} />
+                    <LocalShipping sx={{ mr: 1, fontSize: 'small' }} />
                     <Typography variant="body1">{ticket.site_id}</Typography>
                   </Box>
                 </Box>

@@ -2,211 +2,233 @@ import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
-  Paper,
-  Button,
-  Grid,
   Card,
   CardContent,
   Chip,
+  IconButton,
+  Button,
+  Grid,
   Divider,
   Alert,
   CircularProgress,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
+  Tabs,
+  Tab,
+  Avatar,
+  Badge,
+  Rating,
+  Switch,
+  FormControlLabel,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  TextField,
   List,
   ListItem,
   ListItemText,
   ListItemIcon,
-  IconButton,
-  Tooltip,
-  Rating,
-  FormControlLabel,
-  Checkbox
+  Stepper,
+  Step,
+  StepLabel,
+  StepContent
 } from '@mui/material';
 import {
-  Assignment,
-  Person,
-  Store,
-  Schedule,
-  Description,
+  ArrowBack,
   Edit,
   Delete,
+  Assignment,
+  Person,
+  Schedule,
+  PriorityHigh,
   CheckCircle,
   Cancel,
-  History,
-  Update,
-  Close,
-  PlayArrow,
-  Pause,
-  ThumbUp,
-  ThumbDown,
+  Visibility,
+  Business,
+  LocalShipping,
+  Build,
+  Phone,
+  Email,
   Star,
-  StarBorder
+  Timer,
+  Comment,
+  AutoAwesome,
+  Speed,
+  Warning,
+  AttachMoney,
+  Build as BuildIcon,
+  Inventory,
+  CheckCircle as CheckCircleIcon,
+  Flag,
+  FlagOutlined,
+  ExpandMore,
+  ExpandLess
 } from '@mui/icons-material';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import api from './axiosConfig';
 import { useAuth } from './AuthContext';
 import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import TicketForm from './TicketForm';
+import TimeTracker from './components/TimeTracker';
+import TicketComments from './components/TicketComments';
+import WorkflowAutomation from './components/WorkflowAutomation';
+
+dayjs.extend(relativeTime);
 
 function TicketDetail() {
   const { ticket_id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [ticket, setTicket] = useState(null);
-  const [audits, setAudits] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
   const [editDialog, setEditDialog] = useState(false);
-  const [claimDialog, setClaimDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
-  const [approvalDialog, setApprovalDialog] = useState(false);
-  const [updating, setUpdating] = useState(false);
-  const [approvalData, setApprovalData] = useState({
-    customerSatisfaction: 0,
-    workCompleted: false,
-    partsUsed: false,
-    notes: '',
-    approved: false
+  const [selectedTab, setSelectedTab] = useState(0);
+  const [expandedSections, setExpandedSections] = useState({
+    basic: true,
+    customer: false,
+    workflow: false,
+    equipment: false,
+    quality: false
   });
 
-  const isAdminOrDispatcher = user && (user.role === 'admin' || user.role === 'dispatcher');
-
   useEffect(() => {
-    fetchTicketData();
+    fetchTicket();
   }, [ticket_id]);
 
-  const fetchTicketData = async () => {
-    setLoading(true);
+  const fetchTicket = async () => {
     try {
-      const [ticketRes, auditsRes, usersRes, sitesRes] = await Promise.all([
-        api.get(`/tickets/${ticket_id}`),
-        api.get('/audits/'),
-        api.get('/users/'),
-        api.get('/sites/')
-      ]);
-      
-      setTicket(ticketRes.data);
-      setAudits(auditsRes.data.filter(audit => audit.ticket_id === ticket_id));
-      setUsers(usersRes.data);
-      setSites(sitesRes.data);
-      setError(null);
+      const response = await api.get(`/tickets/${ticket_id}`);
+      setTicket(response || {});
+      setLoading(false);
     } catch (err) {
-      setError('Failed to fetch ticket data');
-      console.error('Error fetching data:', err);
-    } finally {
+      console.error('Error fetching ticket:', err);
+      setError('Failed to load ticket');
       setLoading(false);
     }
   };
 
-  const handleStatusChange = async (newStatus) => {
-    if (newStatus === 'closed') {
-      setApprovalDialog(true);
+  const handleEdit = () => {
+    setEditDialog(true);
+  };
+
+  const handleCloseEdit = () => {
+    setEditDialog(false);
+  };
+
+  const handleSubmit = async (values) => {
+    if (!ticket_id) {
+      setError('No ticket ID provided');
       return;
     }
     
-    setUpdating(true);
     try {
-      await api.patch(`/tickets/${ticket_id}/status`, { status: newStatus });
-      await fetchTicketData();
+      const response = await api.put(`/tickets/${ticket_id}`, values);
+      setTicket(response || {});
+      setSuccessMessage('Ticket updated successfully!');
+      setEditDialog(false);
+      setError(null);
     } catch (err) {
-      setError('Failed to update ticket status');
-      console.error('Error updating ticket:', err);
-    } finally {
-      setUpdating(false);
+      setError('Failed to update ticket');
     }
   };
 
-  const handleApprovalSubmit = async () => {
-    setUpdating(true);
-    try {
-      const updatedTicket = {
-        status: 'approved',
-        notes: `${ticket.notes || ''}\n\n--- CLOSURE APPROVAL ---\nCustomer Satisfaction: ${approvalData.customerSatisfaction}/5\nWork Completed: ${approvalData.workCompleted ? 'Yes' : 'No'}\nParts Used: ${approvalData.partsUsed ? 'Yes' : 'No'}\nApproval Notes: ${approvalData.notes}\nApproved: ${approvalData.approved ? 'Yes' : 'No'}\nApproved by: ${user.name}\nApproved on: ${new Date().toLocaleString()}`,
-        date_closed: new Date().toISOString().split('T')[0]
-      };
-
-      await api.put(`/tickets/${ticket_id}`, updatedTicket);
-      setApprovalDialog(false);
-      setApprovalData({
-        customerSatisfaction: 0,
-        workCompleted: false,
-        partsUsed: false,
-        notes: '',
-        approved: false
-      });
-      await fetchTicketData();
-    } catch (err) {
-      setError('Failed to approve ticket closure');
-      console.error('Error approving ticket:', err);
-    } finally {
-      setUpdating(false);
-    }
+  const handleDelete = () => {
+    setDeleteDialog(true);
   };
 
-  const handleClaim = async (selectedUser, notes) => {
-    setUpdating(true);
-    try {
-      const updatedTicket = {
-        status: 'in_progress',
-        assigned_user_id: selectedUser,
-        notes: notes ? `${ticket.notes || ''}\n\n--- CLAIMED ---\n${notes}` : ticket.notes
-      };
-
-      await api.put(`/tickets/${ticket_id}`, updatedTicket);
-      setClaimDialog(false);
-      await fetchTicketData();
-    } catch (err) {
-      setError('Failed to claim ticket');
-      console.error('Error claiming ticket:', err);
-    } finally {
-      setUpdating(false);
+  const handleDeleteConfirm = async () => {
+    if (!ticket_id) {
+      setError('No ticket ID provided');
+      return;
     }
-  };
-
-  const handleDelete = async () => {
-    setUpdating(true);
+    
     try {
-      await api.delete(`/tickets/${ticket_id}`);
+      await api.delete(`/tickets/${ticket_id}`, { data: {} });
       navigate('/tickets');
     } catch (err) {
       setError('Failed to delete ticket');
-      console.error('Error deleting ticket:', err);
-      setUpdating(false);
     }
   };
 
-  const getStatusColor = (status) => {
+  const handleStatusChange = async (newStatus) => {
+    if (!ticket_id) {
+      setError('No ticket ID provided');
+      return;
+    }
+    
+    try {
+      const response = await api.patch(`/tickets/${ticket_id}/status`, { status: newStatus });
+      setTicket(response || {});
+      setSuccessMessage(`Status updated to ${newStatus}!`);
+      setError(null);
+    } catch (err) {
+      setError('Failed to update status');
+    }
+  };
+
+  const handleClaim = async () => {
+    if (!ticket_id) {
+      setError('No ticket ID provided');
+      return;
+    }
+    
+    try {
+      const response = await api.put(`/tickets/${ticket_id}`, {
+        status: 'in_progress',
+        assigned_user_id: user.user_id,
+        workflow_step: 'assigned'
+      });
+      setTicket(response || {});
+      setSuccessMessage('Ticket claimed successfully!');
+      setError(null);
+    } catch (err) {
+      setError('Failed to claim ticket');
+    }
+  };
+
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
+
+  const getSLAStatus = () => {
+    if (!ticket) return 'unknown';
+    
+    const now = dayjs();
+    const created = dayjs(ticket.date_created);
+    const hoursSinceCreated = now.diff(created, 'hour');
+    
+    if (hoursSinceCreated > (ticket.sla_breach_hours || 48)) return 'breached';
+    if (hoursSinceCreated > (ticket.sla_target_hours || 24)) return 'warning';
+    return 'on_track';
+  };
+
+  const getSLAStatusColor = (status) => {
     switch (status) {
-      case 'closed': return 'success';
-      case 'in_progress': return 'warning';
-      case 'open': return 'primary';
-      case 'pending': return 'default';
+      case 'breached': return 'error';
+      case 'warning': return 'warning';
+      case 'on_track': return 'success';
       default: return 'default';
     }
   };
 
-  const getStatusIcon = (status) => {
+  const getSLAStatusText = (status) => {
     switch (status) {
-      case 'closed': return <CheckCircle />;
-      case 'in_progress': return <PlayArrow />;
-      case 'open': return <Assignment />;
-      case 'pending': return <Pause />;
-      default: return <Assignment />;
+      case 'breached': return 'SLA Breached';
+      case 'warning': return 'SLA Warning';
+      case 'on_track': return 'On Track';
+      default: return 'Unknown';
     }
   };
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+      <Box sx={{ p: 3, display: 'flex', justifyContent: 'center' }}>
         <CircularProgress />
       </Box>
     );
@@ -214,460 +236,465 @@ function TicketDetail() {
 
   if (error) {
     return (
-      <Alert severity="error" sx={{ mb: 2 }}>
-        {error}
-      </Alert>
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error">{error}</Alert>
+      </Box>
     );
   }
 
   if (!ticket) {
     return (
-      <Alert severity="warning">
-        Ticket not found
-      </Alert>
+      <Box sx={{ p: 3 }}>
+        <Alert severity="warning">Ticket not found</Alert>
+      </Box>
     );
   }
 
-  const assignedUser = users.find(u => u.user_id === ticket.assigned_user_id);
-  const site = sites.find(s => s.site_id === ticket.site_id);
-  const isOverdue = ticket.status !== 'closed' && dayjs().diff(dayjs(ticket.date_created), 'day') > 1;
-
   return (
-    <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 600 }}>
-          Ticket Details
-        </Typography>
+    <Box sx={{ p: 3, backgroundColor: '#fafafa', minHeight: '100vh' }}>
+      {/* Header */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <IconButton onClick={() => navigate('/tickets')}>
+            <ArrowBack />
+          </IconButton>
+          <Box>
+            <Typography variant="h4" component="h1" fontWeight="bold">
+              Ticket {ticket.ticket_id}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {ticket.inc_number && `INC: ${ticket.inc_number}`}
+              {ticket.so_number && ` • SO: ${ticket.so_number}`}
+            </Typography>
+          </Box>
+        </Box>
         
-        <Box display="flex" gap={1}>
-          {!ticket.assigned_user_id && (
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          {ticket.assigned_user_id !== user?.user_id && ticket.status === 'open' && (
             <Button
               variant="contained"
-              color="primary"
-              startIcon={<Person />}
-              onClick={() => setClaimDialog(true)}
+              startIcon={<Assignment />}
+              onClick={handleClaim}
             >
               Claim Ticket
             </Button>
           )}
-          
-          {isAdminOrDispatcher && (
-            <>
-              <Button
-                variant="outlined"
-                startIcon={<Edit />}
-                component={Link}
-                to={`/tickets/${ticket_id}/edit`}
-              >
-                Edit
-              </Button>
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<Delete />}
-                onClick={() => setDeleteDialog(true)}
-              >
-                Delete
-              </Button>
-            </>
-          )}
-          
           <Button
             variant="outlined"
-            component={Link}
-            to="/tickets"
+            startIcon={<Edit />}
+            onClick={handleEdit}
           >
-            Back to Tickets
+            Edit
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<Delete />}
+            onClick={handleDelete}
+          >
+            Delete
           </Button>
         </Box>
       </Box>
 
+      {/* Alerts */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      {successMessage && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccessMessage(null)}>
+          {successMessage}
+        </Alert>
+      )}
+
+      {/* Main Content */}
       <Grid container spacing={3}>
-        {/* Main Ticket Information */}
+        {/* Left Column - Ticket Details */}
         <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 3, mb: 3, borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
-            <Box display="flex" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 3 }}>
-              <Box>
-                <Typography variant="h5" gutterBottom sx={{ fontWeight: 600 }}>
-                  {ticket.ticket_id}
+          {/* Basic Information */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Business color="primary" />
+                  Basic Information
                 </Typography>
-                <Typography variant="body1" color="text.secondary">
-                  {ticket.inc_number && `Incident: ${ticket.inc_number}`}
-                  {ticket.so_number && ` • Service Order: ${ticket.so_number}`}
-                </Typography>
+                <IconButton onClick={() => toggleSection('basic')}>
+                  {expandedSections.basic ? <ExpandLess /> : <ExpandMore />}
+                </IconButton>
               </Box>
               
-              <Chip
-                icon={getStatusIcon(ticket.status)}
-                label={ticket.status.replace('_', ' ')}
-                color={getStatusColor(ticket.status)}
-                size="large"
-                sx={{ fontWeight: 600 }}
-              />
-            </Box>
-
-            <Grid container spacing={3}>
-              <Grid item xs={12} sm={6}>
-                <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                      Site Information
+              {expandedSections.basic && (
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="subtitle2" color="text.secondary">Site</Typography>
+                    <Typography variant="body1" sx={{ mb: 2 }}>
+                      {ticket.site_id} - {ticket.site?.location || 'Unknown Site'}
                     </Typography>
-                    <Box display="flex" alignItems="center" sx={{ mb: 1 }}>
-                      <Store sx={{ mr: 1, color: 'primary.main' }} />
-                      <Button
-                        component={Link}
-                        to={`/sites/${ticket.site_id}/edit`}
-                        sx={{ textTransform: 'none', p: 0, minWidth: 'auto' }}
-                      >
-                        <Typography variant="body1" sx={{ textDecoration: 'underline' }}>
-                          {ticket.site_id}
-                        </Typography>
-                      </Button>
-                    </Box>
-                    {site && (
-                      <Typography variant="body2" color="text.secondary">
-                        {site.location}
-                      </Typography>
-                    )}
-                  </CardContent>
-                </Card>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                      Assignment
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="subtitle2" color="text.secondary">Type</Typography>
+                    <Chip 
+                      label={ticket.type} 
+                      size="small" 
+                      sx={{ mb: 2 }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="subtitle2" color="text.secondary">Status</Typography>
+                    <Chip 
+                      label={ticket.status} 
+                      size="small" 
+                      color="primary"
+                      sx={{ mb: 2 }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="subtitle2" color="text.secondary">Priority</Typography>
+                    <Chip 
+                      label={ticket.priority || 'Not Set'} 
+                      size="small" 
+                      variant="outlined"
+                      sx={{ mb: 2 }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="subtitle2" color="text.secondary">Assigned To</Typography>
+                    <Typography variant="body1" sx={{ mb: 2 }}>
+                      {ticket.assigned_user?.name || 'Unassigned'}
                     </Typography>
-                    {assignedUser ? (
-                      <Box display="flex" alignItems="center">
-                        <Person sx={{ mr: 1, color: 'primary.main' }} />
-                        <Box>
-                          <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                            {assignedUser.name}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            {assignedUser.email} • {assignedUser.role}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    ) : (
-                      <Typography variant="body1" color="text.secondary">
-                        No user assigned
-                      </Typography>
-                    )}
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
-
-            <Divider sx={{ my: 3 }} />
-
-            <Grid container spacing={3}>
-              <Grid item xs={12} sm={6}>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                  Ticket Details
-                </Typography>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="body2" color="text.secondary">Type</Typography>
-                  <Chip label={ticket.type} size="small" color="primary" sx={{ fontWeight: 500 }} />
-                </Box>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="body2" color="text.secondary">Priority</Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                    {ticket.priority || 'Not set'}
-                  </Typography>
-                </Box>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="body2" color="text.secondary">Category</Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                    {ticket.category || 'Not set'}
-                  </Typography>
-                </Box>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                  Timeline
-                </Typography>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="body2" color="text.secondary">Created</Typography>
-                  <Box display="flex" alignItems="center">
-                    <Schedule sx={{ mr: 1, fontSize: 'small' }} />
-                    <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="subtitle2" color="text.secondary">Created</Typography>
+                    <Typography variant="body1" sx={{ mb: 2 }}>
                       {dayjs(ticket.date_created).format('MMM DD, YYYY HH:mm')}
                     </Typography>
-                  </Box>
-                </Box>
-                {ticket.date_scheduled && (
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary">Scheduled</Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                      {dayjs(ticket.date_scheduled).format('MMM DD, YYYY HH:mm')}
-                    </Typography>
-                  </Box>
-                )}
-                {ticket.date_closed && (
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary">Closed</Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                      {dayjs(ticket.date_closed).format('MMM DD, YYYY HH:mm')}
-                    </Typography>
-                  </Box>
-                )}
-                {ticket.time_spent && (
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary">Time Spent</Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                      {ticket.time_spent} minutes
-                    </Typography>
-                  </Box>
-                )}
-              </Grid>
-            </Grid>
+                  </Grid>
+                  {ticket.notes && (
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle2" color="text.secondary">Notes</Typography>
+                      <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                        {ticket.notes}
+                      </Typography>
+                    </Grid>
+                  )}
+                </Grid>
+              )}
+            </CardContent>
+          </Card>
 
-            {ticket.notes && (
-              <>
-                <Divider sx={{ my: 3 }} />
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                  Notes
-                </Typography>
-                <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                    {ticket.notes}
+          {/* Customer Information */}
+          {(ticket.customer_name || ticket.customer_phone || ticket.customer_email || ticket.is_vip || ticket.is_urgent) && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Person color="primary" />
+                    Customer Information
                   </Typography>
-                </Paper>
-              </>
-            )}
-          </Paper>
+                  <IconButton onClick={() => toggleSection('customer')}>
+                    {expandedSections.customer ? <ExpandLess /> : <ExpandMore />}
+                  </IconButton>
+                </Box>
+                
+                {expandedSections.customer && (
+                  <Grid container spacing={2}>
+                    {ticket.customer_name && (
+                      <Grid item xs={12} md={6}>
+                        <Typography variant="subtitle2" color="text.secondary">Name</Typography>
+                        <Typography variant="body1" sx={{ mb: 2 }}>
+                          {ticket.customer_name}
+                        </Typography>
+                      </Grid>
+                    )}
+                    {ticket.customer_phone && (
+                      <Grid item xs={12} md={6}>
+                        <Typography variant="subtitle2" color="text.secondary">Phone</Typography>
+                        <Typography variant="body1" sx={{ mb: 2 }}>
+                          {ticket.customer_phone}
+                        </Typography>
+                      </Grid>
+                    )}
+                    {ticket.customer_email && (
+                      <Grid item xs={12} md={6}>
+                        <Typography variant="subtitle2" color="text.secondary">Email</Typography>
+                        <Typography variant="body1" sx={{ mb: 2 }}>
+                          {ticket.customer_email}
+                        </Typography>
+                      </Grid>
+                    )}
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="subtitle2" color="text.secondary">Special Flags</Typography>
+                      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                        {ticket.is_vip && (
+                          <Chip icon={<Star />} label="VIP" size="small" color="warning" />
+                        )}
+                        {ticket.is_urgent && (
+                          <Chip icon={<Warning />} label="Urgent" size="small" color="error" />
+                        )}
+                      </Box>
+                    </Grid>
+                    {ticket.customer_satisfaction && (
+                      <Grid item xs={12}>
+                        <Typography variant="subtitle2" color="text.secondary">Customer Satisfaction</Typography>
+                        <Rating value={ticket.customer_satisfaction} readOnly size="small" />
+                      </Grid>
+                    )}
+                  </Grid>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Equipment & Parts */}
+          {(ticket.equipment_affected || ticket.parts_needed || ticket.parts_ordered || ticket.parts_received) && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <BuildIcon color="primary" />
+                    Equipment & Parts
+                  </Typography>
+                  <IconButton onClick={() => toggleSection('equipment')}>
+                    {expandedSections.equipment ? <ExpandLess /> : <ExpandMore />}
+                  </IconButton>
+                </Box>
+                
+                {expandedSections.equipment && (
+                  <Grid container spacing={2}>
+                    {ticket.equipment_affected && (
+                      <Grid item xs={12}>
+                        <Typography variant="subtitle2" color="text.secondary">Equipment Affected</Typography>
+                        <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
+                          {ticket.equipment_affected}
+                        </Typography>
+                      </Grid>
+                    )}
+                    {ticket.parts_needed && (
+                      <Grid item xs={12}>
+                        <Typography variant="subtitle2" color="text.secondary">Parts Needed</Typography>
+                        <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
+                          {ticket.parts_needed}
+                        </Typography>
+                      </Grid>
+                    )}
+                    <Grid item xs={12} md={6}>
+                      <FormControlLabel
+                        control={<Switch checked={ticket.parts_ordered || false} disabled />}
+                        label="Parts Ordered"
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <FormControlLabel
+                        control={<Switch checked={ticket.parts_received || false} disabled />}
+                        label="Parts Received"
+                      />
+                    </Grid>
+                  </Grid>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Quality & Follow-up */}
+          {(ticket.quality_score || ticket.follow_up_required || ticket.follow_up_notes) && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CheckCircleIcon color="primary" />
+                    Quality & Follow-up
+                  </Typography>
+                  <IconButton onClick={() => toggleSection('quality')}>
+                    {expandedSections.quality ? <ExpandLess /> : <ExpandMore />}
+                  </IconButton>
+                </Box>
+                
+                {expandedSections.quality && (
+                  <Grid container spacing={2}>
+                    {ticket.quality_score && (
+                      <Grid item xs={12} md={6}>
+                        <Typography variant="subtitle2" color="text.secondary">Quality Score</Typography>
+                        <Rating value={ticket.quality_score} readOnly size="small" />
+                      </Grid>
+                    )}
+                    <Grid item xs={12} md={6}>
+                      <FormControlLabel
+                        control={<Switch checked={ticket.follow_up_required || false} disabled />}
+                        label="Follow-up Required"
+                      />
+                    </Grid>
+                    {ticket.follow_up_date && (
+                      <Grid item xs={12} md={6}>
+                        <Typography variant="subtitle2" color="text.secondary">Follow-up Date</Typography>
+                        <Typography variant="body1" sx={{ mb: 2 }}>
+                          {dayjs(ticket.follow_up_date).format('MMM DD, YYYY')}
+                        </Typography>
+                      </Grid>
+                    )}
+                    {ticket.follow_up_notes && (
+                      <Grid item xs={12}>
+                        <Typography variant="subtitle2" color="text.secondary">Follow-up Notes</Typography>
+                        <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                          {ticket.follow_up_notes}
+                        </Typography>
+                      </Grid>
+                    )}
+                  </Grid>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </Grid>
 
-        {/* Actions and Status */}
+        {/* Right Column - Actions & Workflow */}
         <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3, mb: 3, borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
-            <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-              Quick Actions
-            </Typography>
-            
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Change Status
+          {/* SLA Status */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <Speed color="primary" />
+                SLA Status
               </Typography>
-              <Box display="flex" flexDirection="column" gap={1}>
-                {['open', 'in_progress', 'pending', 'closed'].map((status) => (
-                  <Button
-                    key={status}
-                    variant={ticket.status === status ? 'contained' : 'outlined'}
-                    size="small"
-                    onClick={() => handleStatusChange(status)}
-                    disabled={updating}
-                    startIcon={getStatusIcon(status)}
-                    sx={{ 
-                      justifyContent: 'flex-start',
-                      textTransform: 'none',
-                      fontWeight: ticket.status === status ? 600 : 400
-                    }}
-                  >
-                    {status.replace('_', ' ')}
-                  </Button>
-                ))}
-              </Box>
-            </Box>
-
-            {isOverdue && (
-              <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
-                This ticket is overdue (created {dayjs().diff(dayjs(ticket.date_created), 'day')} days ago)
-              </Alert>
-            )}
-
-            {ticket.color_flag && (
-              <Chip 
-                label={`Flag: ${ticket.color_flag}`} 
-                color="warning" 
-                sx={{ mb: 1, fontWeight: 500 }}
+              <Chip
+                label={getSLAStatusText(getSLAStatus())}
+                color={getSLAStatusColor(getSLAStatus())}
+                icon={<Speed />}
+                sx={{ mb: 2 }}
               />
-            )}
+              <Typography variant="body2" color="text.secondary">
+                Target: {ticket.sla_target_hours || 24}h | Breach: {ticket.sla_breach_hours || 48}h
+              </Typography>
+            </CardContent>
+          </Card>
 
-            {ticket.special_flag && (
-              <Chip 
-                label={`Special: ${ticket.special_flag}`} 
-                color="error" 
-                sx={{ mb: 1, fontWeight: 500 }}
+          {/* Time Tracking */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <Timer color="primary" />
+                Time Tracking
+              </Typography>
+              <Grid container spacing={2}>
+                {ticket.estimated_hours && (
+                  <Grid item xs={6}>
+                    <Typography variant="subtitle2" color="text.secondary">Estimated</Typography>
+                    <Typography variant="h6">{ticket.estimated_hours}h</Typography>
+                  </Grid>
+                )}
+                {ticket.actual_hours && (
+                  <Grid item xs={6}>
+                    <Typography variant="subtitle2" color="text.secondary">Actual</Typography>
+                    <Typography variant="h6" color="success.main">{ticket.actual_hours}h</Typography>
+                  </Grid>
+                )}
+                <Grid item xs={12}>
+                  <FormControlLabel
+                    control={<Switch checked={ticket.is_billable || false} disabled />}
+                    label="Billable"
+                  />
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+
+          {/* Workflow Automation */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <AutoAwesome color="primary" />
+                Workflow
+              </Typography>
+              <Chip
+                label={ticket.workflow_step || 'created'}
+                variant="outlined"
+                sx={{ mb: 2 }}
               />
-            )}
-          </Paper>
-
-          {/* Audit Trail */}
-          <Paper sx={{ p: 3, borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
-            <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-              Recent Activity
-            </Typography>
-            <List dense>
-              {audits.slice(0, 5).map((audit) => (
-                <ListItem key={audit.audit_id} sx={{ px: 0 }}>
-                  <ListItemIcon sx={{ minWidth: 32 }}>
-                    <History fontSize="small" color="action" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={audit.field_changed}
-                    secondary={`${dayjs(audit.change_time).format('MMM DD, HH:mm')} by ${audit.user_id}`}
-                    primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500 }}
-                    secondaryTypographyProps={{ fontSize: '0.75rem' }}
-                  />
-                </ListItem>
-              ))}
-              {audits.length === 0 && (
-                <ListItem sx={{ px: 0 }}>
-                  <ListItemText
-                    secondary="No recent activity"
-                    secondaryTypographyProps={{ fontSize: '0.875rem' }}
-                  />
-                </ListItem>
+              {ticket.next_action_required && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Next: {ticket.next_action_required}
+                </Typography>
               )}
-            </List>
-          </Paper>
+              {ticket.due_date && (
+                <Typography variant="body2" color="text.secondary">
+                  Due: {dayjs(ticket.due_date).format('MMM DD, HH:mm')}
+                </Typography>
+              )}
+            </CardContent>
+          </Card>
         </Grid>
       </Grid>
 
-      {/* Approval Dialog */}
-      <Dialog open={approvalDialog} onClose={() => setApprovalDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontWeight: 600 }}>Close Ticket - Approval Required</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={3} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                Customer Satisfaction
-              </Typography>
-              <Rating
-                value={approvalData.customerSatisfaction}
-                onChange={(event, newValue) => {
-                  setApprovalData(prev => ({ ...prev, customerSatisfaction: newValue }));
-                }}
-                size="large"
+      {/* Tabs for Interactive Features */}
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Tabs value={selectedTab} onChange={(e, newValue) => setSelectedTab(newValue)}>
+            <Tab label="Time Tracker" icon={<Timer />} />
+            <Tab label="Comments" icon={<Comment />} />
+            <Tab label="Workflow" icon={<AutoAwesome />} />
+          </Tabs>
+          
+          <Box sx={{ mt: 2 }}>
+            {selectedTab === 0 && (
+              <TimeTracker 
+                ticketId={ticket_id} 
+                onTimeUpdate={fetchTicket}
               />
-            </Grid>
-            
-            <Grid item xs={12} sm={6}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={approvalData.workCompleted}
-                    onChange={(e) => setApprovalData(prev => ({ ...prev, workCompleted: e.target.checked }))}
-                  />
-                }
-                label="Work Completed Successfully"
+            )}
+            {selectedTab === 1 && (
+              <TicketComments 
+                ticketId={ticket_id} 
+                onCommentUpdate={fetchTicket}
               />
-            </Grid>
-            
-            <Grid item xs={12} sm={6}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={approvalData.partsUsed}
-                    onChange={(e) => setApprovalData(prev => ({ ...prev, partsUsed: e.target.checked }))}
-                  />
-                }
-                label="Parts Were Used"
+            )}
+            {selectedTab === 2 && (
+              <WorkflowAutomation 
+                ticket={ticket} 
+                onWorkflowUpdate={fetchTicket}
               />
-            </Grid>
-            
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                multiline
-                rows={4}
-                label="Closure Notes"
-                placeholder="Describe the work completed, any issues resolved, and final status..."
-                value={approvalData.notes}
-                onChange={(e) => setApprovalData(prev => ({ ...prev, notes: e.target.value }))}
-              />
-            </Grid>
-            
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={approvalData.approved}
-                    onChange={(e) => setApprovalData(prev => ({ ...prev, approved: e.target.checked }))}
-                  />
-                }
-                label="I approve closing this ticket"
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setApprovalDialog(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            onClick={handleApprovalSubmit}
-            disabled={updating || !approvalData.approved}
-            startIcon={<CheckCircle />}
-          >
-            {updating ? 'Approving...' : 'Approve & Close'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+            )}
+          </Box>
+        </CardContent>
+      </Card>
 
-      {/* Claim Dialog */}
-      <Dialog open={claimDialog} onClose={() => setClaimDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 600 }}>Claim Ticket</DialogTitle>
-        <DialogContent>
-          <Typography variant="body1" sx={{ mb: 2 }}>
-            Assign this ticket to a user to claim it.
-          </Typography>
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>Assign to User</InputLabel>
-            <Select
-              value={user?.user_id || ''}
-              label="Assign to User"
-              onChange={() => {}}
-            >
-              {users.map((u) => (
-                <MenuItem key={u.user_id} value={u.user_id}>
-                  {u.name} ({u.role})
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <TextField
-            fullWidth
-            multiline
-            rows={3}
-            label="Notes (Optional)"
-            placeholder="Add any notes about claiming this ticket..."
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setClaimDialog(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            onClick={() => handleClaim(user?.user_id, '')}
-            disabled={updating}
-          >
-            {updating ? 'Claiming...' : 'Claim Ticket'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Edit Dialog */}
+      {editDialog && (
+        <Dialog 
+          open={editDialog} 
+          onClose={handleCloseEdit} 
+          maxWidth="md" 
+          fullWidth
+          PaperProps={{
+            sx: { borderRadius: 2 }
+          }}
+        >
+          <DialogTitle>Edit Ticket</DialogTitle>
+          <DialogContent sx={{ p: 0 }}>
+            <Box sx={{ p: 2 }}>
+              <TicketForm
+                initialValues={ticket}
+                onSubmit={handleSubmit}
+                isEdit={true}
+              />
+            </Box>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
-        <DialogTitle sx={{ fontWeight: 600 }}>Delete Ticket</DialogTitle>
+        <DialogTitle>Delete Ticket</DialogTitle>
         <DialogContent>
-          <Typography variant="body1">
+          <Typography>
             Are you sure you want to delete ticket {ticket.ticket_id}? This action cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialog(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            color="error" 
-            onClick={handleDelete}
-            disabled={updating}
-          >
-            {updating ? 'Deleting...' : 'Delete Ticket'}
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

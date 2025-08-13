@@ -1,27 +1,31 @@
-from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Body
+from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Body, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
-from app import models, schemas, crud
-from app.database import SessionLocal, engine
-from typing import List
+import models, schemas, crud
+from database import SessionLocal, engine
+from typing import List, Optional
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import asyncio
 import random
 import string
+import csv
+import io
+import uuid
 
 app = FastAPI()
 
 # CORS middleware must be added immediately after creating the app
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow any origin for local network access
+    allow_origins=["http://192.168.43.50:3000", "http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 SECRET_KEY = "supersecretkey"  # TODO: Move to env var
@@ -60,9 +64,6 @@ def verify_refresh_token(token: str):
             return None
         return payload
     except JWTError:
-
-
-        
         return None
 
 def get_user_by_email(db, email: str):
@@ -72,11 +73,10 @@ def authenticate_user(db, email: str, password: str):
     user = get_user_by_email(db, email)
     if not user:
         return None
-    # Password is stored in preferences as 'hashed_password:<hash>'
-    if not user.preferences or not user.preferences.startswith('hashed_password:'):
+    # Use dedicated hashed_password field
+    if not user.hashed_password:
         return None
-    hashed = user.preferences.split('hashed_password:')[1]
-    if not verify_password(password, hashed):
+    if not verify_password(password, user.hashed_password):
         return None
     return user
 
@@ -122,6 +122,10 @@ def generate_temp_password(length=10):
 def read_root():
     return {"message": "Ticketing System API is running."}
 
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
 @app.get("/test-cors")
 def test_cors():
     return {"message": "CORS test endpoint", "cors_enabled": True}
@@ -135,7 +139,8 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db), current
     # Always generate a temp password for new users (ignore any password from frontend)
     temp_password = generate_temp_password()
     hashed_password = get_password_hash(temp_password)
-    user.preferences = f"hashed_password:{hashed_password}"
+    user.hashed_password = hashed_password
+    user.preferences = "{}"
     # Set must_change_password True for new users
     user.must_change_password = True
     result = crud.create_user(db=db, user=user)
@@ -213,7 +218,7 @@ def change_password(user_id: str, password_data: dict = Body(...), db: Session =
     if not new_password:
         raise HTTPException(status_code=400, detail="new_password is required")
     
-    db_user.preferences = f"hashed_password:{get_password_hash(new_password)}"
+    db_user.hashed_password = get_password_hash(new_password)
     db_user.must_change_password = False
     db.commit()
     db.refresh(db_user)
@@ -227,7 +232,7 @@ def reset_password(user_id: str, db: Session = Depends(get_db), current_user: mo
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     temp_password = generate_temp_password()
-    db_user.preferences = f"hashed_password:{get_password_hash(temp_password)}"
+    db_user.hashed_password = get_password_hash(temp_password)
     db_user.must_change_password = True
     db.commit()
     db.refresh(db_user)
@@ -568,6 +573,72 @@ def delete_inventory_item(item_id: str, db: Session = Depends(get_db), current_u
     asyncio.create_task(manager.broadcast('{"type": "inventory", "action": "delete"}'))
     return result
 
+@app.post("/inventory/scan")
+def scan_inventory_item(scan_data: dict = Body(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Handle barcode scanning for inventory items"""
+    barcode = scan_data.get("barcode")
+    scan_type = scan_data.get("type", "in")
+    user_id = scan_data.get("user_id")
+    
+    if not barcode:
+        raise HTTPException(status_code=400, detail="Barcode is required")
+    
+    # Find item by barcode
+    item = db.query(models.InventoryItem).filter(models.InventoryItem.barcode == barcode).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found with this barcode")
+    
+    # Create inventory transaction
+    transaction = models.InventoryTransaction(
+        transaction_id=str(uuid.uuid4()),
+        item_id=item.item_id,
+        user_id=user_id,
+        date=datetime.now().date(),
+        quantity=1,
+        type=models.InventoryTransactionType.in_ if scan_type == "in" else models.InventoryTransactionType.out,
+        notes=f"Scanned {scan_type} - {barcode}"
+    )
+    
+    # Update item quantity
+    if scan_type == "in":
+        item.quantity_on_hand += 1
+    else:
+        if item.quantity_on_hand > 0:
+            item.quantity_on_hand -= 1
+        else:
+            raise HTTPException(status_code=400, detail="Cannot scan out - no quantity available")
+    
+    db.add(transaction)
+    db.commit()
+    db.refresh(item)
+    db.refresh(transaction)
+    
+    # Create audit log
+    audit = schemas.TicketAuditCreate(
+        ticket_id=None,
+        user_id=current_user.user_id,
+        change_time=datetime.utcnow(),
+        field_changed="inventory_scan",
+        old_value=f"Qty: {item.quantity_on_hand - (1 if scan_type == 'in' else -1)}",
+        new_value=f"Qty: {item.quantity_on_hand} - {scan_type} scan"
+    )
+    crud.create_ticket_audit(db, audit)
+    
+    return {
+        "success": True,
+        "item": {
+            "item_id": item.item_id,
+            "name": item.name,
+            "quantity_on_hand": item.quantity_on_hand,
+            "barcode": item.barcode
+        },
+        "transaction": {
+            "transaction_id": transaction.transaction_id,
+            "type": transaction.type.value,
+            "quantity": transaction.quantity
+        }
+    }
+
 # --- FieldTech Endpoints ---
 @app.post("/fieldtechs/", response_model=schemas.FieldTechOut)
 def create_field_tech(tech: schemas.FieldTechCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -623,6 +694,80 @@ def delete_field_tech(field_tech_id: str, db: Session = Depends(get_db), current
     )
     crud.create_ticket_audit(db, audit)
     return result
+
+@app.post("/fieldtechs/import-csv")
+def import_field_techs_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Import field techs from CSV file"""
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="File must be a CSV")
+    
+    try:
+        # Read CSV content
+        content = file.file.read().decode('utf-8')
+        csv_reader = csv.DictReader(io.StringIO(content))
+        
+        imported_count = 0
+        errors = []
+        
+        for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 because row 1 is headers
+            try:
+                # Map CSV columns to field tech fields
+                # Expected columns: Name, Phone, Email, Region, City, State, Zip, Notes
+                field_tech_data = {
+                    "field_tech_id": str(uuid.uuid4()),
+                    "name": row.get('Name', '').strip(),
+                    "phone": row.get('Phone', '').strip(),
+                    "email": row.get('Email', '').strip(),
+                    "region": row.get('Region', '').strip(),
+                    "city": row.get('City', '').strip(),
+                    "state": row.get('State', '').strip(),
+                    "zip": row.get('Zip', '').strip(),
+                    "notes": row.get('Notes', '').strip()
+                }
+                
+                # Validate required fields
+                if not field_tech_data["name"]:
+                    errors.append(f"Row {row_num}: Name is required")
+                    continue
+                
+                # Create field tech
+                field_tech = models.FieldTech(**field_tech_data)
+                db.add(field_tech)
+                imported_count += 1
+                
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
+        
+        # Commit all successful imports
+        if imported_count > 0:
+            db.commit()
+        
+        # Create audit log
+        audit = schemas.TicketAuditCreate(
+            ticket_id=None,
+            user_id=current_user.user_id,
+            change_time=datetime.utcnow(),
+            field_changed="field_techs_imported",
+            old_value="",
+            new_value=f"Imported {imported_count} field techs from CSV"
+        )
+        crud.create_ticket_audit(db, audit)
+        
+        return {
+            "message": f"Successfully imported {imported_count} field techs",
+            "imported_count": imported_count,
+            "errors": errors,
+            "total_rows_processed": len(list(csv.DictReader(io.StringIO(content))))
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error processing CSV: {str(e)}")
+    finally:
+        file.file.close()
 
 # --- Task Endpoints ---
 @app.post("/tasks/", response_model=schemas.TaskOut)
@@ -821,7 +966,20 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text()  # Keep alive, ignore content
+            data = await websocket.receive_text()
+            try:
+                # Parse the received data
+                import json
+                message = json.loads(data)
+                
+                # Handle ping messages
+                if message.get("type") == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+                    continue
+                    
+            except json.JSONDecodeError:
+                # If it's not JSON, just ignore it (keep alive)
+                pass
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
@@ -1036,7 +1194,43 @@ def get_user_performance_analytics(db: Session = Depends(get_db)):
             }
         }
     
-    return user_performance 
+    return user_performance
+
+@app.get("/search")
+def search_endpoint(q: str, db: Session = Depends(get_db)):
+    """Search across tickets, sites, and users"""
+    if not q or len(q.strip()) < 2:
+        return {"tickets": [], "sites": [], "users": []}
+    
+    search_term = f"%{q.strip()}%"
+    
+    # Search tickets
+    tickets = db.query(models.Ticket).filter(
+        models.Ticket.inc_number.ilike(search_term) |
+        models.Ticket.so_number.ilike(search_term) |
+        models.Ticket.notes.ilike(search_term) |
+        models.Ticket.customer_name.ilike(search_term)
+    ).limit(10).all()
+    
+    # Search sites
+    sites = db.query(models.Site).filter(
+        models.Site.site_id.ilike(search_term) |
+        models.Site.location.ilike(search_term) |
+        models.Site.brand.ilike(search_term) |
+        models.Site.notes.ilike(search_term)
+    ).limit(10).all()
+    
+    # Search users
+    users = db.query(models.User).filter(
+        models.User.name.ilike(search_term) |
+        models.User.email.ilike(search_term)
+    ).limit(10).all()
+    
+    return {
+        "tickets": [{"ticket_id": t.ticket_id, "inc_number": t.inc_number, "type": t.type, "status": t.status} for t in tickets],
+        "sites": [{"site_id": s.site_id, "location": s.location, "brand": s.brand} for s in sites],
+        "users": [{"user_id": u.user_id, "name": u.name, "email": u.email} for u in users]
+    } 
 
 # SLA Rule Endpoints
 
@@ -1136,3 +1330,427 @@ def get_matching_sla_rule(
         "sla_breach_hours": rule.sla_breach_hours,
         "escalation_levels": rule.escalation_levels
     } 
+
+# Time Entries endpoints
+@app.post("/tickets/{ticket_id}/time-entries/", response_model=schemas.TimeEntryOut)
+def create_time_entry(
+    ticket_id: str, 
+    time_entry: schemas.TimeEntryCreate, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    """Create a new time entry for a ticket"""
+    ticket = crud.get_ticket(db, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    time_entry_data = time_entry.dict()
+    time_entry_data["ticket_id"] = ticket_id
+    time_entry_data["user_id"] = current_user.user_id
+    
+    db_time_entry = crud.create_time_entry(db, time_entry_data)
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"time_entry_created:{ticket_id}"))
+    
+    return db_time_entry
+
+@app.get("/tickets/{ticket_id}/time-entries/", response_model=List[schemas.TimeEntryOut])
+def get_time_entries(
+    ticket_id: str, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get all time entries for a ticket"""
+    ticket = crud.get_ticket(db, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    return crud.get_time_entries_by_ticket(db, ticket_id)
+
+@app.put("/tickets/{ticket_id}/time-entries/{entry_id}", response_model=schemas.TimeEntryOut)
+def update_time_entry(
+    ticket_id: str, 
+    entry_id: str, 
+    time_entry: schemas.TimeEntryUpdate, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    """Update a time entry"""
+    db_time_entry = crud.get_time_entry(db, entry_id)
+    if not db_time_entry:
+        raise HTTPException(status_code=404, detail="Time entry not found")
+    
+    if db_time_entry.ticket_id != ticket_id:
+        raise HTTPException(status_code=400, detail="Time entry does not belong to this ticket")
+    
+    updated_entry = crud.update_time_entry(db, entry_id, time_entry.dict(exclude_unset=True))
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"time_entry_updated:{ticket_id}"))
+    
+    return updated_entry
+
+@app.delete("/tickets/{ticket_id}/time-entries/{entry_id}")
+def delete_time_entry(
+    ticket_id: str, 
+    entry_id: str, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    """Delete a time entry"""
+    db_time_entry = crud.get_time_entry(db, entry_id)
+    if not db_time_entry:
+        raise HTTPException(status_code=404, detail="Time entry not found")
+    
+    if db_time_entry.ticket_id != ticket_id:
+        raise HTTPException(status_code=400, detail="Time entry does not belong to this ticket")
+    
+    crud.delete_time_entry(db, entry_id)
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"time_entry_deleted:{ticket_id}"))
+    
+    return {"message": "Time entry deleted"}
+
+# Comments endpoints
+@app.post("/tickets/{ticket_id}/comments/", response_model=schemas.TicketCommentOut)
+def create_comment(
+    ticket_id: str, 
+    comment: schemas.TicketCommentCreate, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    """Create a new comment for a ticket"""
+    ticket = crud.get_ticket(db, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    comment_data = comment.dict()
+    comment_data["ticket_id"] = ticket_id
+    comment_data["user_id"] = current_user.user_id
+    
+    db_comment = crud.create_ticket_comment(db, comment_data)
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"comment_created:{ticket_id}"))
+    
+    return db_comment
+
+@app.get("/tickets/{ticket_id}/comments/", response_model=List[schemas.TicketCommentOut])
+def get_comments(
+    ticket_id: str, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get all comments for a ticket"""
+    ticket = crud.get_ticket(db, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    return crud.get_comments_by_ticket(db, ticket_id)
+
+@app.put("/tickets/{ticket_id}/comments/{comment_id}", response_model=schemas.TicketCommentOut)
+def update_comment(
+    ticket_id: str, 
+    comment_id: str, 
+    comment: schemas.TicketCommentUpdate, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    """Update a comment"""
+    db_comment = crud.get_ticket_comment(db, comment_id)
+    if not db_comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    if db_comment.ticket_id != ticket_id:
+        raise HTTPException(status_code=400, detail="Comment does not belong to this ticket")
+    
+    updated_comment = crud.update_ticket_comment(db, comment_id, comment.dict(exclude_unset=True))
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"comment_updated:{ticket_id}"))
+    
+    return updated_comment
+
+@app.delete("/tickets/{ticket_id}/comments/{comment_id}")
+def delete_comment(
+    ticket_id: str, 
+    comment_id: str, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    """Delete a comment"""
+    db_comment = crud.get_ticket_comment(db, comment_id)
+    if not db_comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    if db_comment.ticket_id != ticket_id:
+        raise HTTPException(status_code=400, detail="Comment does not belong to this ticket")
+    
+    crud.delete_ticket_comment(db, comment_id)
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"comment_deleted:{ticket_id}"))
+    
+    return {"message": "Comment deleted"}
+
+# Enhanced Ticket Operations
+
+@app.put("/tickets/{ticket_id}/claim")
+def claim_ticket(
+    ticket_id: str,
+    claim_data: schemas.TicketClaim,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Claim a ticket for in-house tech work"""
+    result = crud.claim_ticket(db, ticket_id, claim_data.claimed_by)
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"ticket_claimed:{ticket_id}"))
+    
+    return result
+
+@app.put("/tickets/{ticket_id}/check-in")
+def check_in_ticket(
+    ticket_id: str,
+    check_in_data: schemas.TicketCheckIn,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Check in a field tech for onsite work"""
+    result = crud.check_in_ticket(db, ticket_id, check_in_data.onsite_tech_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"ticket_checked_in:{ticket_id}"))
+    
+    return result
+
+@app.put("/tickets/{ticket_id}/check-out")
+def check_out_ticket(
+    ticket_id: str,
+    check_out_data: schemas.TicketCheckOut,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Check out a field tech from onsite work"""
+    result = crud.check_out_ticket(db, ticket_id, check_out_data.dict())
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"ticket_checked_out:{ticket_id}"))
+    
+    return result
+
+@app.get("/tickets/daily/{date}")
+def get_daily_tickets(
+    date: date,
+    ticket_type: Optional[str] = None,
+    priority: Optional[str] = None,
+    status: Optional[str] = None,
+    assigned_user_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get tickets for daily operations dashboard"""
+    tickets = crud.get_daily_tickets(
+        db, 
+        date=date, 
+        ticket_type=ticket_type, 
+        priority=priority, 
+        status=status, 
+        assigned_user_id=assigned_user_id
+    )
+    return tickets
+
+@app.put("/tickets/{ticket_id}/costs")
+def update_ticket_costs(
+    ticket_id: str,
+    cost_data: schemas.TicketCostUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Update ticket cost information"""
+    result = crud.update_ticket_costs(db, ticket_id, cost_data.dict(exclude_unset=True))
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"ticket_costs_updated:{ticket_id}"))
+    
+    return result
+
+# Site Equipment Endpoints
+
+@app.post("/sites/{site_id}/equipment", response_model=schemas.SiteEquipmentOut)
+def create_site_equipment(
+    site_id: str,
+    equipment: schemas.SiteEquipmentCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Add equipment to a site"""
+    equipment.site_id = site_id
+    result = crud.create_site_equipment(db, equipment)
+    
+    # Create audit log
+    audit = schemas.TicketAuditCreate(
+        ticket_id=None,
+        user_id=current_user.user_id,
+        change_time=datetime.utcnow(),
+        field_changed="site_equipment_create",
+        old_value=None,
+        new_value=str(result.equipment_id)
+    )
+    crud.create_ticket_audit(db, audit)
+    
+    return result
+
+@app.get("/sites/{site_id}/equipment", response_model=List[schemas.SiteEquipmentOut])
+def get_site_equipment(
+    site_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get all equipment for a site"""
+    return crud.get_site_equipment_by_site(db, site_id)
+
+@app.get("/equipment/{equipment_id}", response_model=schemas.SiteEquipmentOut)
+def get_equipment(
+    equipment_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get specific equipment"""
+    equipment = crud.get_site_equipment(db, equipment_id)
+    if not equipment:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    return equipment
+
+@app.put("/equipment/{equipment_id}", response_model=schemas.SiteEquipmentOut)
+def update_equipment(
+    equipment_id: str,
+    equipment: schemas.SiteEquipmentUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Update equipment"""
+    result = crud.update_site_equipment(db, equipment_id, equipment)
+    if not result:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    
+    # Create audit log
+    audit = schemas.TicketAuditCreate(
+        ticket_id=None,
+        user_id=current_user.user_id,
+        change_time=datetime.utcnow(),
+        field_changed="site_equipment_update",
+        old_value=str(equipment_id),
+        new_value=str(equipment_id)
+    )
+    crud.create_ticket_audit(db, audit)
+    
+    return result
+
+@app.delete("/equipment/{equipment_id}")
+def delete_equipment(
+    equipment_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Delete equipment"""
+    result = crud.delete_site_equipment(db, equipment_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    
+    # Create audit log
+    audit = schemas.TicketAuditCreate(
+        ticket_id=None,
+        user_id=current_user.user_id,
+        change_time=datetime.utcnow(),
+        field_changed="site_equipment_delete",
+        old_value=str(equipment_id),
+        new_value=None
+    )
+    crud.create_ticket_audit(db, audit)
+    
+    return {"message": "Equipment deleted"}
+
+# Ticket Attachment Endpoints
+
+@app.post("/tickets/{ticket_id}/attachments", response_model=schemas.TicketAttachmentOut)
+def create_ticket_attachment(
+    ticket_id: str,
+    attachment: schemas.TicketAttachmentCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Upload a file attachment to a ticket"""
+    attachment.ticket_id = ticket_id
+    attachment.uploaded_by = current_user.user_id
+    
+    result = crud.create_ticket_attachment(db, attachment)
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"attachment_uploaded:{ticket_id}"))
+    
+    return result
+
+@app.get("/tickets/{ticket_id}/attachments", response_model=List[schemas.TicketAttachmentOut])
+def get_ticket_attachments(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get all attachments for a ticket"""
+    return crud.get_ticket_attachments(db, ticket_id)
+
+@app.get("/attachments/{attachment_id}", response_model=schemas.TicketAttachmentOut)
+def get_attachment(
+    attachment_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get specific attachment"""
+    attachment = crud.get_ticket_attachment(db, attachment_id)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return attachment
+
+@app.put("/attachments/{attachment_id}", response_model=schemas.TicketAttachmentOut)
+def update_attachment(
+    attachment_id: str,
+    attachment: schemas.TicketAttachmentUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Update attachment"""
+    result = crud.update_ticket_attachment(db, attachment_id, attachment)
+    if not result:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"attachment_updated:{result.ticket_id}"))
+    
+    return result
+
+@app.delete("/attachments/{attachment_id}")
+def delete_attachment(
+    attachment_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Delete attachment"""
+    attachment = crud.get_ticket_attachment(db, attachment_id)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    
+    result = crud.delete_ticket_attachment(db, attachment_id)
+    
+    # Broadcast update
+    asyncio.create_task(manager.broadcast(f"attachment_deleted:{attachment.ticket_id}"))
+    
+    return {"message": "Attachment deleted"}

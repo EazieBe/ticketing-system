@@ -2,16 +2,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
-import Dashboard from './Dashboard';
-import Sites from './Sites';
-import Tickets from './Tickets';
-import Shipments from './Shipments';
-import Inventory from './Inventory';
-import FieldTechs from './FieldTechs';
-import Tasks from './Tasks';
-import Equipment from './Equipment';
-import Audit from './Audit';
-import Users from './Users';
 import * as serviceWorkerRegistration from './serviceWorkerRegistration';
 import reportWebVitals from './reportWebVitals';
 

@@ -1,81 +1,32 @@
 import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  Box,
-  Typography,
-  Paper,
-  Button,
-  Grid,
-  Card,
-  CardContent,
-  Chip,
-  Alert,
-  CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  IconButton,
-  Tooltip,
-  Badge,
-  Tabs,
-  Tab,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Pagination,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Snackbar,
-  ToggleButton,
-  ToggleButtonGroup,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Divider,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails
+  Container, Typography, Box, Grid, Button, IconButton,
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl, InputLabel,
+  Select, MenuItem, CircularProgress, Divider, Accordion, AccordionSummary,
+  AccordionDetails, List, ListItem, ListItemText, ListItemIcon, Badge, Tooltip,
+  CardActions, Person, Save, Close, ExpandMore, TrendingUp, Error, Info, Phone, LocationOn,
+  Paper, Tabs, Tab, ToggleButton, ToggleButtonGroup,
+  Table, TableContainer, TableHead, TableRow, TableCell, TableBody, Pagination,
+  Alert, Card, CardContent, Chip, Snackbar
 } from '@mui/material';
 import {
-  Store,
-  Assignment,
-  Edit,
-  Add,
-  Visibility,
-  Person,
-  Schedule,
-  Search,
-  Save,
-  Close,
-  ExpandMore,
-  FilterList,
-  Sort,
-  CalendarToday,
-  TrendingUp,
-  Warning,
-  CheckCircle,
-  Error,
-  Info,
-  LocalShipping,
-  Phone,
-  LocationOn,
-  Business
+  Edit, Delete, Visibility, Business, Schedule, CheckCircle, Cancel, Warning,
+  LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
+  Notifications, ExpandMore as ExpandMoreIcon, Store, Assignment, Sort, Search, CalendarToday
 } from '@mui/icons-material';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import api from './axiosConfig';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
 import dayjs from 'dayjs';
 import SiteForm from './SiteForm';
 
 function SiteDetail() {
-  const { site_id } = useParams();
+  const { siteId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [site, setSite] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [shipments, setShipments] = useState([]);
@@ -124,16 +75,16 @@ function SiteDetail() {
     try {
       setLoading(true);
       const [siteResponse, ticketsResponse, shipmentsResponse, equipmentResponse] = await Promise.all([
-        api.get(`/sites/${site_id}`),
-        api.get(`/tickets/?site_id=${site_id}`),
-        api.get(`/shipments/?site_id=${site_id}`),
-        api.get(`/equipment/?site_id=${site_id}`)
+        api.get(`/sites/${siteId}`),
+        api.get(`/tickets/?site_id=${siteId}`),
+        api.get(`/shipments/?site_id=${siteId}`),
+        api.get(`/equipment/?site_id=${siteId}`)
       ]);
       
-      setSite(siteResponse.data);
-      setTickets(ticketsResponse.data);
-      setShipments(shipmentsResponse.data);
-      setEquipment(equipmentResponse.data);
+      setSite(siteResponse || {});
+      setTickets(ticketsResponse || []);
+      setShipments(shipmentsResponse || []);
+      setEquipment(equipmentResponse || []);
     } catch (err) {
       setError('Failed to load site data');
       console.error('Error fetching site data:', err);
@@ -144,7 +95,7 @@ function SiteDetail() {
 
   useEffect(() => {
     fetchSiteData();
-  }, [site_id]);
+  }, [siteId]);
 
   const getStatusColor = (status) => {
     switch (status) {

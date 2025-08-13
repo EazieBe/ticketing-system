@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { InputBase, Paper, List, ListItem, ListItemText, ListSubheader, Popper, ClickAwayListener, IconButton } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
-import api from './axiosConfig';
+import useApi from './hooks/useApi';
 import { useNavigate } from 'react-router-dom';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import Tooltip from '@mui/material/Tooltip';
@@ -22,6 +22,7 @@ function GlobalSearch() {
   const [highlight, setHighlight] = useState(0);
   const anchorRef = useRef();
   const navigate = useNavigate();
+  const api = useApi();
   const [copyFeedback, setCopyFeedback] = useState('');
 
   const handleChange = async (e) => {
@@ -30,7 +31,7 @@ function GlobalSearch() {
     if (val.length >= 2) {
       try {
         const res = await api.get(`/search?q=${encodeURIComponent(val)}`);
-        setResults(res.data.results);
+        setResults(res?.results || []);
         setOpen(true);
         setHighlight(0);
       } catch {

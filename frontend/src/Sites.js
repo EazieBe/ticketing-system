@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, 
   Typography, CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent, 
@@ -21,9 +21,14 @@ import BusinessIcon from '@mui/icons-material/Business';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import SiteForm from './SiteForm';
 import { Link } from 'react-router-dom';
-import api from './axiosConfig';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
 
 function Sites() {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -80,28 +85,31 @@ function Sites() {
     }
   };
 
-  const fetchSites = () => {
-    setLoading(true);
-    setError(null);
-    api.get('/sites/')
-      .then(res => {
-        setSites(res.data);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error('Fetch sites error:', err);
-        if (err.response?.status === 401) {
-          setError('Authentication failed. Please log in again.');
-        } else {
-          setError(`Failed to fetch sites: ${err.response?.data?.detail || err.message}`);
-        }
-        setLoading(false);
-      });
-  };
+  const fetchSites = useCallback(async () => {
+    try {
+      console.log('Fetching sites...');
+      const response = await api.get('/sites/');
+      console.log('Raw response:', response);
+      console.log('Response data:', response.data);
+      // The response itself is the sites array
+      const sitesArray = Array.isArray(response) ? response : 
+                        Array.isArray(response.data) ? response.data : [];
+      console.log('Fetched sites:', sitesArray.length, 'sites');
+      console.log('First site:', sitesArray[0]);
+      setSites(sitesArray);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching sites:', err);
+      console.error('Error response:', err.response);
+      setError('Failed to load sites');
+      setSites([]);
+      setLoading(false);
+    }
+  }, [api]);
 
   useEffect(() => {
     fetchSites();
-  }, []);
+  }, [fetchSites]);
 
   const handleAdd = () => {
     setEditSite(null);
@@ -361,23 +369,25 @@ function Sites() {
     }
   };
 
-  const filteredSites = sites.filter(site => {
+  const filteredSites = (Array.isArray(sites) ? sites : []).filter(site => {
+    if (!site || typeof site !== 'object') return false;
+    
     const matchesRegion = !filterRegion || site.region === filterRegion;
     const matchesSearch = !searchTerm || 
-      site.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      site.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      site.state?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      site.site_id.toLowerCase().includes(searchTerm.toLowerCase());
+      (site.location && site.location.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (site.city && site.city.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (site.state && site.state.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (site.site_id && site.site_id.toLowerCase().includes(searchTerm.toLowerCase()));
     
     return matchesRegion && matchesSearch;
   }).sort((a, b) => {
     // Sort by site_id numerically
-    const aNum = parseInt(a.site_id.replace(/\D/g, '')) || 0;
-    const bNum = parseInt(b.site_id.replace(/\D/g, '')) || 0;
+    const aNum = parseInt((a.site_id || '').replace(/\D/g, '')) || 0;
+    const bNum = parseInt((b.site_id || '').replace(/\D/g, '')) || 0;
     return aNum - bNum;
   });
 
-  const regions = [...new Set(sites.map(site => site.region).filter(Boolean))];
+  const regions = [...new Set((Array.isArray(sites) ? sites : []).map(site => site?.region).filter(Boolean))];
 
   if (loading) return <CircularProgress />;
   if (error) return <Alert severity="error" action={<Button color="inherit" size="small" onClick={fetchSites}>Retry</Button>}>{error}</Alert>;
@@ -783,10 +793,9 @@ function Sites() {
         autoHideDuration={2000}
         onClose={() => setCopySuccess('')}
         message={`IP address ${copySuccess} copied to clipboard!`}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       />
     </Box>
   );
 }
 
-export default Sites; 
+export default Sites;

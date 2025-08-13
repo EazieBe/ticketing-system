@@ -29,7 +29,17 @@ import {
   Fab,
   SpeedDial,
   SpeedDialAction,
-  SpeedDialIcon
+  SpeedDialIcon,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Grid,
+  Card,
+  CardContent,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -64,11 +74,18 @@ import {
   SupervisorAccount,
   Engineering,
   AccountCircle,
-  KeyboardArrowDown
+  KeyboardArrowDown,
+  Palette,
+  Clear,
+  CheckCircle,
+  Warning,
+  Error,
+  Info
 } from '@mui/icons-material';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
+import ThemePreview from './components/ThemePreview';
 import Login from './Login';
 import Dashboard from './Dashboard';
 import Tickets from './Tickets';
@@ -81,6 +98,8 @@ import Users from './Users';
 import UserForm from './UserForm';
 import FieldTechMap from './FieldTechMap';
 import SLAManagement from './SLAManagement';
+import DailyOperationsDashboard from './components/DailyOperationsDashboard';
+import ShippingManagement from './components/ShippingManagement';
 import Shipments from './Shipments';
 import Inventory from './Inventory';
 import FieldTechs from './FieldTechs';
@@ -91,25 +110,45 @@ import Reports from './Reports';
 import TicketClaim from './TicketClaim';
 import SettingsPage from './Settings';
 import Profile from './Profile';
-import api from './axiosConfig';
+import useApi from './hooks/useApi';
 import ChangePassword from './ChangePassword';
 
 const drawerWidth = 280;
 
+// Color theme options
+const colorThemes = {
+  blue: {
+    primary: { main: '#1976d2', light: '#42a5f5', dark: '#1565c0' },
+    secondary: { main: '#dc004e', light: '#ff5983', dark: '#9a0036' }
+  },
+  green: {
+    primary: { main: '#2e7d32', light: '#4caf50', dark: '#1b5e20' },
+    secondary: { main: '#ff6f00', light: '#ff9800', dark: '#e65100' }
+  },
+  purple: {
+    primary: { main: '#7b1fa2', light: '#9c27b0', dark: '#4a148c' },
+    secondary: { main: '#ff5722', light: '#ff7043', dark: '#d84315' }
+  },
+  orange: {
+    primary: { main: '#f57c00', light: '#ff9800', dark: '#e65100' },
+    secondary: { main: '#1976d2', light: '#42a5f5', dark: '#1565c0' }
+  },
+  teal: {
+    primary: { main: '#00796b', light: '#009688', dark: '#004d40' },
+    secondary: { main: '#ff4081', light: '#f50057', dark: '#c51162' }
+  },
+  indigo: {
+    primary: { main: '#3f51b5', light: '#5c6bc0', dark: '#303f9f' },
+    secondary: { main: '#ff9800', light: '#ffb74d', dark: '#f57c00' }
+  }
+};
+
 // Modern theme with better colors and spacing
-const createAppTheme = (darkMode) => createTheme({
+const createAppTheme = (darkMode, colorTheme = 'blue') => createTheme({
   palette: {
     mode: darkMode ? 'dark' : 'light',
-    primary: {
-      main: '#1976d2',
-      light: '#42a5f5',
-      dark: '#1565c0',
-    },
-    secondary: {
-      main: '#dc004e',
-      light: '#ff5983',
-      dark: '#9a0036',
-    },
+    primary: colorThemes[colorTheme].primary,
+    secondary: colorThemes[colorTheme].secondary,
     background: {
       default: darkMode ? '#121212' : '#fafafa',
       paper: darkMode ? '#1e1e1e' : '#ffffff',
@@ -171,75 +210,75 @@ const createAppTheme = (darkMode) => createTheme({
 
 const navigationItems = [
   {
-    title: 'Dashboard',
+    title: 'Daily Operations',
     path: '/',
-    icon: <DashboardIcon />,
+    icon: <DashboardIcon sx={{ color: '#1976d2' }} />,
     badge: null
   },
   {
     title: 'Tickets',
     path: '/tickets',
-    icon: <Assignment />,
+    icon: <Assignment sx={{ color: '#dc004e' }} />,
     badge: null
   },
   {
     title: 'Sites',
     path: '/sites',
-    icon: <Business />,
+    icon: <Business sx={{ color: '#2e7d32' }} />,
     badge: null
   },
   {
-    title: 'Shipments',
+    title: 'Shipping',
     path: '/shipments',
-    icon: <LocalShipping />,
+    icon: <LocalShipping sx={{ color: '#f57c00' }} />,
     badge: null
   },
   {
     title: 'Inventory',
     path: '/inventory',
-    icon: <Build />,
+    icon: <Build sx={{ color: '#7b1fa2' }} />,
     badge: null
   },
   {
     title: 'Field Techs',
     path: '/fieldtechs',
-    icon: <Engineering />,
+    icon: <Engineering sx={{ color: '#00796b' }} />,
     badge: null
   },
   {
     title: 'Tasks',
     path: '/tasks',
-    icon: <Assessment />,
+    icon: <Assessment sx={{ color: '#3f51b5' }} />,
     badge: null
   },
   {
     title: 'Equipment',
     path: '/equipment',
-    icon: <Build />,
+    icon: <Build sx={{ color: '#ff6f00' }} />,
     badge: null
   },
   {
     title: 'Audit',
     path: '/audit',
-    icon: <Security />,
+    icon: <Security sx={{ color: '#d32f2f' }} />,
     badge: null
   },
   {
     title: 'Users',
     path: '/users',
-    icon: <Person />,
+    icon: <Person sx={{ color: '#388e3c' }} />,
     badge: null
   },
   {
     title: 'Field Tech Map',
     path: '/map',
-    icon: <Map />,
+    icon: <Map sx={{ color: '#1976d2' }} />,
     badge: null
   },
   {
     title: 'SLA Management',
     path: '/sla',
-    icon: <Speed />,
+    icon: <Speed sx={{ color: '#ff9800' }} />,
     badge: null
   }
 ];
@@ -248,27 +287,54 @@ const adminItems = [
   {
     title: 'Reports',
     path: '/reports',
-    icon: <Assessment />,
+    icon: <Assessment sx={{ color: '#9c27b0' }} />,
     badge: null
   },
   {
     title: 'Settings',
     path: '/settings',
-    icon: <Settings />,
+    icon: <Settings sx={{ color: '#607d8b' }} />,
     badge: null
   }
 ];
 
 function AppLayout() {
-  const { user, loading, darkMode, toggleDarkMode, logout } = useAuth();
+  const { user, logout, loading } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState(null);
   const [notificationsAnchor, setNotificationsAnchor] = useState(null);
   const [expandedItems, setExpandedItems] = useState(new Set(['main']));
+  const [themeDialogOpen, setThemeDialogOpen] = useState(false);
+  const [notifications, setNotifications] = useState([
+    { id: 1, message: 'New ticket assigned', type: 'info', read: false },
+    { id: 2, message: 'Site maintenance scheduled', type: 'warning', read: false },
+    { id: 3, message: 'Inventory low on parts', type: 'error', read: false }
+  ]);
+  
+  // Load theme preferences from localStorage
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    return saved ? JSON.parse(saved) : false;
+  });
+  
+  const [selectedColorTheme, setSelectedColorTheme] = useState(() => {
+    const saved = localStorage.getItem('colorTheme');
+    return saved || 'blue';
+  });
+
   const location = useLocation();
   const navigate = useNavigate();
 
-  const theme = createAppTheme(darkMode);
+  const theme = createAppTheme(darkMode, selectedColorTheme);
+
+  // Save theme preferences to localStorage
+  useEffect(() => {
+    localStorage.setItem('darkMode', JSON.stringify(darkMode));
+  }, [darkMode]);
+
+  useEffect(() => {
+    localStorage.setItem('colorTheme', selectedColorTheme);
+  }, [selectedColorTheme]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -289,6 +355,32 @@ function AppLayout() {
   const handleNotificationsClose = () => {
     setNotificationsAnchor(null);
   };
+
+  const handleClearAllNotifications = () => {
+    setNotifications([]);
+    setNotificationsAnchor(null);
+  };
+
+  const handleMarkAsRead = (notificationId) => {
+    setNotifications(prev => 
+      prev.map(notif => 
+        notif.id === notificationId 
+          ? { ...notif, read: true }
+          : notif
+      )
+    );
+  };
+
+  const handleThemeChange = (newTheme) => {
+    setSelectedColorTheme(newTheme);
+    setThemeDialogOpen(false);
+  };
+
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode);
+  };
+
+  const unreadNotifications = notifications.filter(n => !n.read).length;
 
   const toggleExpanded = (section) => {
     const newExpanded = new Set(expandedItems);
@@ -562,9 +654,19 @@ function AppLayout() {
                   onClick={handleNotificationsOpen}
                   sx={{ position: 'relative' }}
                 >
-                  <Badge badgeContent={3} color="error">
+                  <Badge badgeContent={unreadNotifications} color="error">
                     <Notifications />
                   </Badge>
+                </IconButton>
+              </Tooltip>
+
+              {/* Theme Customization */}
+              <Tooltip title="Customize theme">
+                <IconButton
+                  color="inherit"
+                  onClick={() => setThemeDialogOpen(true)}
+                >
+                  <Palette />
                 </IconButton>
               </Tooltip>
 
@@ -642,19 +744,20 @@ function AppLayout() {
           component="main"
           sx={{
             flexGrow: 1,
+            p: 3,
             width: { sm: `calc(100% - ${drawerWidth}px)` },
-            backgroundColor: 'background.default'
+            mt: 8
           }}
         >
-          <Toolbar /> {/* Spacer for AppBar */}
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<DailyOperationsDashboard />} />
             <Route path="/tickets" element={<Tickets />} />
+            <Route path="/tickets/new" element={<TicketForm />} />
             <Route path="/tickets/:ticket_id" element={<TicketDetail />} />
             <Route path="/tickets/:ticket_id/claim" element={<TicketClaim />} />
             <Route path="/sites" element={<Sites />} />
             <Route path="/sites/:site_id" element={<SiteDetail />} />
-            <Route path="/shipments" element={<Shipments />} />
+            <Route path="/shipments" element={<ShippingManagement />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/fieldtechs" element={<FieldTechs />} />
             <Route path="/tasks" element={<Tasks />} />
@@ -713,25 +816,93 @@ function AppLayout() {
           open={Boolean(notificationsAnchor)}
           onClose={handleNotificationsClose}
           PaperProps={{
-            sx: { minWidth: 300, mt: 1 }
+            sx: { minWidth: 350, mt: 1, maxHeight: 400 }
           }}
         >
-          <MenuItem>
-            <Typography variant="body2">
-              New ticket assigned to you
-            </Typography>
-          </MenuItem>
-          <MenuItem>
-            <Typography variant="body2">
-              Site status updated
-            </Typography>
-          </MenuItem>
-          <MenuItem>
-            <Typography variant="body2">
-              SLA breach warning
-            </Typography>
-          </MenuItem>
+          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6">Notifications</Typography>
+              {notifications.length > 0 && (
+                <IconButton size="small" onClick={handleClearAllNotifications}>
+                  <Clear fontSize="small" />
+                </IconButton>
+              )}
+            </Box>
+          </Box>
+          
+          {notifications.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                No notifications
+              </Typography>
+            </Box>
+          ) : (
+            notifications.map((notification) => (
+              <MenuItem 
+                key={notification.id}
+                onClick={() => handleMarkAsRead(notification.id)}
+                sx={{ 
+                  opacity: notification.read ? 0.6 : 1,
+                  borderBottom: 1, 
+                  borderColor: 'divider',
+                  '&:last-child': { borderBottom: 0 }
+                }}
+              >
+                <ListItemIcon>
+                  {notification.type === 'info' && <Info color="primary" />}
+                  {notification.type === 'warning' && <Warning color="warning" />}
+                  {notification.type === 'error' && <Error color="error" />}
+                  {notification.type === 'success' && <CheckCircle color="success" />}
+                </ListItemIcon>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="body2">
+                    {notification.message}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {notification.read ? 'Read' : 'Unread'}
+                  </Typography>
+                </Box>
+              </MenuItem>
+            ))
+          )}
         </Menu>
+
+        {/* Theme Customization Dialog */}
+        <Dialog 
+          open={themeDialogOpen} 
+          onClose={() => setThemeDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Palette />
+              Customize Theme
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Choose your preferred color theme for the application
+            </Typography>
+            <Grid container spacing={2}>
+              {Object.entries(colorThemes).map(([themeName, colors]) => (
+                <Grid item xs={6} sm={4} key={themeName}>
+                  <ThemePreview
+                    themeName={themeName}
+                    colors={colors}
+                    isSelected={selectedColorTheme === themeName}
+                    onClick={() => handleThemeChange(themeName)}
+                  />
+                </Grid>
+              ))}
+            </Grid>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setThemeDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </ThemeProvider>
   );

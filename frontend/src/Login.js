@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, TextField, Button, Typography, CircularProgress, Alert, Paper, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
-import { useNavigate } from 'react-router-dom';
-import api from './axiosConfig';
+import useApi from './hooks/useApi';
 
 function Login() {
   const { login, loading } = useAuth();
+  const api = useApi();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -30,27 +31,28 @@ function Login() {
     }
   };
 
-  const handleResetSubmit = () => {
-    api.get(`/users/?email=${resetEmail}`)
-      .then(res => {
-        const user = res.data.find(u => u.email === resetEmail);
-        if (!user) {
-          setResetMsg('User not found');
-          return;
-        }
-        api.put(`/users/${user.user_id}`, { 
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          phone: user.phone,
-          region: user.region,
-          preferences: user.preferences,
-          password: resetPassword
-        })
-          .then(() => setResetMsg('Password reset successful!'))
-          .catch(() => setResetMsg('Failed to reset password'));
-      })
-      .catch(() => setResetMsg('Failed to find user'));
+  const handleResetSubmit = async () => {
+    try {
+      const users = await api.get(`/users/?email=${resetEmail}`);
+      const user = users.find(u => u.email === resetEmail);
+      if (!user) {
+        setResetMsg('User not found');
+        return;
+      }
+      
+      await api.put(`/users/${user.user_id}`, { 
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        region: user.region,
+        preferences: user.preferences,
+        password: resetPassword
+      });
+      setResetMsg('Password reset successful!');
+    } catch (err) {
+      setResetMsg('Failed to reset password');
+    }
   };
 
   return (

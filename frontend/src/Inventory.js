@@ -1,54 +1,77 @@
-import React, { useEffect, useState, useRef } from 'react';
-import api from './axiosConfig';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Stack, Box, Snackbar, TextField } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import InventoryForm from './InventoryForm';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Container, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  IconButton, Chip, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
+  CircularProgress, FormControl, InputLabel, Select, MenuItem, Grid, Card, CardContent,
+  Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider, Snackbar, Stack
+} from '@mui/material';
+import {
+  Add, Edit, Delete, Visibility, Inventory as InventoryIcon, Schedule, CheckCircle, Cancel, Warning,
+  LocalShipping, Build, Flag, FlagOutlined, Star, StarBorder, Notifications, NotificationsOff,
+  ExpandMore, ExpandLess, FilterList, Sort, DragIndicator, Speed, AutoAwesome, Add as AddIcon
+} from '@mui/icons-material';
 import { useAuth } from './AuthContext';
-// import BarcodeScannerComponent from 'react-qr-barcode-scanner';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
+import dayjs from 'dayjs';
+import { useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 import html2canvas from 'html2canvas';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import NoteAddIcon from '@mui/icons-material/NoteAdd';
-import Tooltip from '@mui/material/Tooltip';
-
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import InventoryForm from './InventoryForm';
 
 
 function Inventory() {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [open, setOpen] = useState(false);
+  const [editDialog, setEditDialog] = useState(false);
   const [editItem, setEditItem] = useState(null);
-  const { user, lastUpdate } = useAuth();
-  const isAdminOrDispatcherOrBilling = user && (user.role === 'admin' || user.role === 'dispatcher' || user.role === 'billing');
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [deleteItem, setDeleteItem] = useState(null);
+  const [scanFeedback, setScanFeedback] = useState('');
+  const [lastUpdate, setLastUpdate] = useState(Date.now());
+  const [labelDialog, setLabelDialog] = useState(false);
+  const [labelItem, setLabelItem] = useState(null);
   const [scanDialog, setScanDialog] = useState(false);
   const [scanType, setScanType] = useState('in');
   const [scannedBarcode, setScannedBarcode] = useState('');
-  const [scanFeedback, setScanFeedback] = useState('');
-  const [labelDialog, setLabelDialog] = useState(false);
-  const [labelItem, setLabelItem] = useState(null);
-  const barcodeRef = useRef();
   const [noteDialog, setNoteDialog] = useState(false);
   const [noteItem, setNoteItem] = useState(null);
   const [noteText, setNoteText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
-  const [deleteDialog, setDeleteDialog] = useState(false);
-  const [deleteItem, setDeleteItem] = useState(null);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState(null);
+  const barcodeRef = useRef(null);
+
+
+  const isAdminOrDispatcherOrBilling = user?.role === 'admin' || user?.role === 'dispatcher' || user?.role === 'billing';
+
+  const fetchItems = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/inventory/');
+      setItems(response || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching inventory:', err);
+      setError('Failed to fetch inventory');
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
 
   useEffect(() => {
     if (!isAdminOrDispatcherOrBilling) return;
-    api.get('/inventory/')
-      .then(res => {
-        setItems(res.data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError('Failed to fetch inventory');
-        setLoading(false);
-      });
-  }, [isAdminOrDispatcherOrBilling, lastUpdate]);
+    fetchItems();
+  }, [isAdminOrDispatcherOrBilling, lastUpdate, fetchItems]);
 
   useEffect(() => {
     if (labelDialog && labelItem && barcodeRef.current) {
@@ -58,40 +81,37 @@ function Inventory() {
 
   const handleAdd = () => {
     setEditItem(null);
-    setOpen(true);
+    setEditDialog(true);
   };
 
   const handleEdit = (item) => {
     setEditItem(item);
-    setOpen(true);
+    setEditDialog(true);
   };
 
   const handleClose = () => {
-    setOpen(false);
+    setEditDialog(false);
     setEditItem(null);
   };
 
-  const handleSubmit = (values) => {
-    if (editItem) {
-      api.put(`/inventory/${editItem.item_id}`, values)
-        .then((response) => {
-          // Update the inventory item in the local state immediately
-          setItems(prevItems => prevItems.map(i => 
-            i.item_id === editItem.item_id ? response.data : i
-          ));
-          handleClose();
-          setError(null);
-        })
-        .catch(() => setError('Failed to update inventory item'));
-    } else {
-      api.post('/inventory/', values)
-        .then((response) => {
-          // Add the new inventory item to the local state immediately
-          setItems(prevItems => [...prevItems, response.data]);
-          handleClose();
-          setError(null);
-        })
-        .catch(() => setError('Failed to add inventory item'));
+  const handleSubmit = async (values) => {
+    try {
+      if (editItem) {
+        const response = await api.put(`/inventory/${editItem.item_id}`, values);
+        setItems(prevItems => prevItems.map(i => 
+          i.item_id === editItem.item_id ? response : i
+        ));
+        showToast('Inventory item updated successfully', 'success');
+      } else {
+        const response = await api.post('/inventory/', values);
+        setItems(prevItems => [...prevItems, response]);
+        showToast('Inventory item added successfully', 'success');
+      }
+      handleClose();
+    } catch (err) {
+      console.error('Error submitting inventory item:', err);
+      setError('Failed to save inventory item');
+      showToast('Failed to save inventory item', 'error');
     }
   };
 
@@ -205,8 +225,8 @@ function Inventory() {
   if (!isAdminOrDispatcherOrBilling) {
     return <Alert severity="warning">You do not have permission to view inventory data.</Alert>;
   }
-  if (loading) return <CircularProgress />;
-  if (error) return <Alert severity="error">{error}</Alert>;
+  if (inventoryLoading) return <CircularProgress />;
+  if (inventoryError) return <Alert severity="error">{inventoryError}</Alert>;
 
   return (
     <>
@@ -271,7 +291,7 @@ function Inventory() {
           </TableBody>
         </Table>
       </TableContainer>
-      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <Dialog open={editDialog} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle>{editItem ? 'Edit Inventory Item' : 'Add Inventory Item'}</DialogTitle>
         <DialogContent>
           <InventoryForm initialValues={editItem} onSubmit={handleSubmit} isEdit={!!editItem} />

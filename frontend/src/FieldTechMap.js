@@ -1,45 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Box, 
-  Typography, 
-  Paper, 
-  FormControl, 
-  InputLabel, 
-  Select, 
-  MenuItem, 
-  TextField, 
-  Button, 
-  Chip, 
-  Card, 
-  CardContent, 
-  Grid,
-  IconButton,
-  Tooltip,
-  Alert,
-  CircularProgress,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Box, Typography, Paper, Card, CardContent, Chip, IconButton, Dialog, DialogTitle,
+  DialogContent, DialogActions, TextField, Button, Alert, CircularProgress, Grid,
+  List, ListItem, ListItemText, ListItemAvatar, Avatar, Badge, Tooltip, Stack,
+  FormControl, InputLabel, Select, MenuItem, Divider
 } from '@mui/material';
 import {
-  LocationOn,
-  Phone,
-  Email,
-  Person,
-  FilterList,
-  Refresh,
-  Directions,
-  Info,
-  MyLocation,
-  ZoomIn,
-  ZoomOut
+  LocationOn, Phone, Email, Person, Schedule, CheckCircle, Cancel, Warning,
+  LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
+  Notifications, NotificationsOff, ExpandMore, ExpandLess, FilterList, Sort,
+  DragIndicator, Speed, AutoAwesome, Info, Business, Assignment, ZoomIn, ZoomOut, MyLocation, Refresh, Directions
 } from '@mui/icons-material';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
+import dayjs from 'dayjs';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './FieldTechMap.css';
-import api from './axiosConfig';
 
 // Fix for default markers in Leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -111,16 +90,20 @@ function MapBoundsUpdater({ techsWithCoords, mapCenter, mapZoom }) {
 }
 
 function FieldTechMap() {
+  const { user } = useAuth();
+  const api = useApi();
+  const { showToast } = useToast();
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filterRegion, setFilterRegion] = useState('');
-  const [filterState, setFilterState] = useState('');
+  const [filterRegion, setFilterRegion] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTech, setSelectedTech] = useState(null);
-  const [mapCenter, setMapCenter] = useState({ lat: 39.8283, lng: -98.5795 }); // Center of US
+  const [mapCenter, setMapCenter] = useState([39.8283, -98.5795]); // Center of US
   const [mapZoom, setMapZoom] = useState(4);
   const [mapRef, setMapRef] = useState(null);
+  const [filterState, setFilterState] = useState('');
 
   useEffect(() => {
     fetchTechs();
@@ -131,7 +114,7 @@ function FieldTechMap() {
     try {
       const response = await api.get('/fieldtechs/');
       const techsWithCoords = await Promise.all(
-        response.data.map(async (tech) => {
+        (response || []).map(async (tech) => {
           if (tech.city && tech.state) {
             try {
               const coords = await geocodeAddress(`${tech.city}, ${tech.state}`);
@@ -149,6 +132,7 @@ function FieldTechMap() {
     } catch (err) {
       setError('Failed to fetch field techs');
       console.error('Error fetching techs:', err);
+      setTechs([]);
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -66,18 +66,18 @@ function SLAManagement() {
   const { get, post, put, delete: del, loading, error } = useApi();
   const { success, error: showError } = useToast();
 
-  useEffect(() => {
-    fetchSLARules();
-  }, []);
-
-  const fetchSLARules = async () => {
+  const fetchSLARules = useCallback(async () => {
     try {
       const rules = await get('/sla-rules/');
       setSlaRules(rules);
     } catch (err) {
       showError('Failed to fetch SLA rules');
     }
-  };
+  }, [get, showError]);
+
+  useEffect(() => {
+    fetchSLARules();
+  }, [fetchSLARules]);
 
   const handleAddRule = () => {
     setEditingRule(null);

@@ -96,33 +96,32 @@ class EquipmentOut(EquipmentBase):
 class TicketType(str, enum.Enum):
     inhouse = 'inhouse'
     onsite = 'onsite'
-    shipping = 'shipping'
     projects = 'projects'
-    nro = 'nro'
     misc = 'misc'
 
 class TicketStatus(str, enum.Enum):
     open = 'open'
+    scheduled = 'scheduled'
+    checked_in = 'checked_in'
     in_progress = 'in_progress'
     pending = 'pending'
-    closed = 'closed'
-    approved = 'approved'
-    checked_in = 'checked_in'
-    return_visit = 'return'
-    shipped = 'shipped'
-    delivered = 'delivered'
-    planning = 'planning'
-    review = 'review'
+    needs_parts = 'needs_parts'
+    go_back_scheduled = 'go_back_scheduled'
     completed = 'completed'
-    archived = 'archived'
+    closed = 'closed'
+
+class TicketPriority(str, enum.Enum):
+    normal = 'normal'
+    critical = 'critical'
+    emergency = 'emergency'
 
 class TicketBase(BaseModel):
     site_id: str
     inc_number: Optional[str] = None
     so_number: Optional[str] = None
-    type: TicketType
+    type: TicketType = TicketType.onsite
     status: Optional[TicketStatus] = TicketStatus.open
-    priority: Optional[str] = None
+    priority: Optional[TicketPriority] = TicketPriority.normal
     category: Optional[str] = None
     assigned_user_id: Optional[str] = None
     onsite_tech_id: Optional[str] = None
@@ -136,7 +135,27 @@ class TicketBase(BaseModel):
     last_updated_by: Optional[str] = None
     last_updated_at: Optional[datetime] = None
     
-    # SLA Management Fields
+    # New Ticket Type System Fields
+    claimed_by: Optional[str] = None
+    claimed_at: Optional[datetime] = None
+    check_in_time: Optional[datetime] = None
+    check_out_time: Optional[datetime] = None
+    onsite_duration_minutes: Optional[int] = None
+    billing_rate: Optional[float] = 0.0
+    total_cost: Optional[float] = 0.0
+    
+    # Enhanced Workflow Fields
+    estimated_hours: Optional[int] = None
+    actual_hours: Optional[int] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    is_billable: Optional[bool] = True
+    requires_approval: Optional[bool] = False
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    
+    # Enhanced SLA Management Fields
     sla_target_hours: Optional[int] = 24
     sla_breach_hours: Optional[int] = 48
     first_response_time: Optional[datetime] = None
@@ -145,6 +164,29 @@ class TicketBase(BaseModel):
     escalation_notified: Optional[bool] = False
     customer_impact: Optional[ImpactLevel] = ImpactLevel.medium
     business_priority: Optional[BusinessPriority] = BusinessPriority.medium
+    
+    # New Workflow Fields
+    workflow_step: Optional[str] = 'created'
+    next_action_required: Optional[str] = None
+    due_date: Optional[datetime] = None
+    is_urgent: Optional[bool] = False
+    is_vip: Optional[bool] = False
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_email: Optional[str] = None
+    
+    # Equipment and Parts
+    equipment_affected: Optional[str] = None
+    parts_needed: Optional[str] = None
+    parts_ordered: Optional[bool] = False
+    parts_received: Optional[bool] = False
+    
+    # Quality and Follow-up
+    quality_score: Optional[int] = None
+    customer_satisfaction: Optional[int] = None
+    follow_up_required: Optional[bool] = False
+    follow_up_date: Optional[date] = None
+    follow_up_notes: Optional[str] = None
 
 class TicketCreate(TicketBase):
     pass
@@ -155,7 +197,7 @@ class TicketUpdate(BaseModel):
     so_number: Optional[str] = None
     type: Optional[TicketType] = None
     status: Optional[TicketStatus] = None
-    priority: Optional[str] = None
+    priority: Optional[TicketPriority] = None
     category: Optional[str] = None
     assigned_user_id: Optional[str] = None
     onsite_tech_id: Optional[str] = None
@@ -168,7 +210,28 @@ class TicketUpdate(BaseModel):
     special_flag: Optional[str] = None
     last_updated_by: Optional[str] = None
     last_updated_at: Optional[datetime] = None
-    # SLA Management Fields
+    
+    # New Ticket Type System Fields
+    claimed_by: Optional[str] = None
+    claimed_at: Optional[datetime] = None
+    check_in_time: Optional[datetime] = None
+    check_out_time: Optional[datetime] = None
+    onsite_duration_minutes: Optional[int] = None
+    billing_rate: Optional[float] = None
+    total_cost: Optional[float] = None
+    
+    # Enhanced Workflow Fields
+    estimated_hours: Optional[int] = None
+    actual_hours: Optional[int] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    is_billable: Optional[bool] = None
+    requires_approval: Optional[bool] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    
+    # Enhanced SLA Management Fields
     sla_target_hours: Optional[int] = None
     sla_breach_hours: Optional[int] = None
     first_response_time: Optional[datetime] = None
@@ -177,6 +240,29 @@ class TicketUpdate(BaseModel):
     escalation_notified: Optional[bool] = None
     customer_impact: Optional[ImpactLevel] = None
     business_priority: Optional[BusinessPriority] = None
+    
+    # New Workflow Fields
+    workflow_step: Optional[str] = None
+    next_action_required: Optional[str] = None
+    due_date: Optional[datetime] = None
+    is_urgent: Optional[bool] = None
+    is_vip: Optional[bool] = None
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_email: Optional[str] = None
+    
+    # Equipment and Parts
+    equipment_affected: Optional[str] = None
+    parts_needed: Optional[str] = None
+    parts_ordered: Optional[bool] = None
+    parts_received: Optional[bool] = None
+    
+    # Quality and Follow-up
+    quality_score: Optional[int] = None
+    customer_satisfaction: Optional[int] = None
+    follow_up_required: Optional[bool] = None
+    follow_up_date: Optional[date] = None
+    follow_up_notes: Optional[str] = None
 
 class TicketOut(TicketBase):
     ticket_id: str
@@ -208,6 +294,13 @@ class ShipmentBase(BaseModel):
     date_shipped: Optional[date] = None
     date_returned: Optional[date] = None
     notes: Optional[str] = None
+    
+    # Enhanced Shipping Integration Fields
+    source_ticket_type: Optional[str] = None
+    shipping_priority: Optional[str] = 'normal'
+    parts_cost: Optional[float] = 0.0
+    total_cost: Optional[float] = 0.0
+    status: Optional[str] = 'pending'
 
 class ShipmentCreate(ShipmentBase):
     pass
@@ -271,6 +364,48 @@ class TaskCreate(TaskBase):
 class TaskOut(TaskBase):
     task_id: str 
 
+class TicketCommentBase(BaseModel):
+    ticket_id: str
+    user_id: str
+    comment: str
+    is_internal: Optional[bool] = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+class TicketCommentCreate(TicketCommentBase):
+    pass
+
+class TicketCommentUpdate(BaseModel):
+    comment: Optional[str] = None
+    is_internal: Optional[bool] = None
+
+class TicketCommentOut(TicketCommentBase):
+    comment_id: str
+
+class TimeEntryBase(BaseModel):
+    ticket_id: str
+    user_id: str
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    description: Optional[str] = None
+    is_billable: Optional[bool] = True
+    created_at: Optional[datetime] = None
+
+class TimeEntryCreate(TimeEntryBase):
+    pass
+
+class TimeEntryUpdate(BaseModel):
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    description: Optional[str] = None
+    is_billable: Optional[bool] = None
+    hourly_rate: Optional[float] = None
+
+class TimeEntryOut(TimeEntryBase):
+    entry_id: str
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
@@ -287,6 +422,34 @@ class RefreshTokenRequest(BaseModel):
 
 class StatusUpdate(BaseModel):
     status: TicketStatus
+
+class TicketClaim(BaseModel):
+    claimed_by: str
+
+class TicketCheckIn(BaseModel):
+    check_in_time: datetime
+    onsite_tech_id: str
+
+class TicketCheckOut(BaseModel):
+    check_out_time: datetime
+    time_spent: Optional[int] = None
+    parts_used: Optional[str] = None
+    notes: Optional[str] = None
+    needs_shipping: Optional[bool] = False
+    is_completed: Optional[bool] = True
+
+class DailyTicketFilter(BaseModel):
+    date: Optional[date] = None
+    ticket_type: Optional[TicketType] = None
+    priority: Optional[TicketPriority] = None
+    status: Optional[TicketStatus] = None
+    assigned_user_id: Optional[str] = None
+
+class TicketCostUpdate(BaseModel):
+    billing_rate: Optional[float] = None
+    parts_cost: Optional[float] = None
+    shipping_cost: Optional[float] = None
+    total_cost: Optional[float] = None
 
 class TokenData(BaseModel):
     user_id: Optional[str] = None
@@ -312,4 +475,56 @@ class SLARuleUpdate(SLARuleBase):
 class SLARuleOut(SLARuleBase):
     rule_id: str
     created_at: datetime
-    updated_at: datetime 
+    updated_at: datetime
+
+# Site Equipment Schemas
+class SiteEquipmentBase(BaseModel):
+    site_id: str
+    equipment_type: Optional[str] = None
+    model: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    installation_date: Optional[date] = None
+    maintenance_notes: Optional[str] = None
+    rack_location: Optional[str] = None
+    additional_details: Optional[str] = None
+
+class SiteEquipmentCreate(SiteEquipmentBase):
+    pass
+
+class SiteEquipmentUpdate(BaseModel):
+    equipment_type: Optional[str] = None
+    model: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    installation_date: Optional[date] = None
+    maintenance_notes: Optional[str] = None
+    rack_location: Optional[str] = None
+    additional_details: Optional[str] = None
+
+class SiteEquipmentOut(SiteEquipmentBase):
+    equipment_id: str
+    created_at: datetime
+    updated_at: datetime
+
+# Ticket Attachment Schemas
+class TicketAttachmentBase(BaseModel):
+    ticket_id: str
+    file_name: str
+    file_type: Optional[str] = None
+    file_size: Optional[int] = None
+    external_url: Optional[str] = None
+    description: Optional[str] = None
+
+class TicketAttachmentCreate(TicketAttachmentBase):
+    pass
+
+class TicketAttachmentUpdate(BaseModel):
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None
+    description: Optional[str] = None
+
+class TicketAttachmentOut(TicketAttachmentBase):
+    attachment_id: str
+    uploaded_by: str
+    uploaded_at: datetime 
