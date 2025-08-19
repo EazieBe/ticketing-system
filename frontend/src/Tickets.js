@@ -11,7 +11,7 @@ import {
   Add, Edit, Delete, Visibility, Person, Schedule, CheckCircle, Cancel, Warning,
   LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
   Notifications, NotificationsOff, ExpandMore, ExpandLess, FilterList, Sort,
-  Emergency, PriorityHigh, Business, Assignment, Phone, Refresh, Search, Clear,
+  Error, PriorityHigh, Business, Assignment, Phone, Refresh, Search, Clear,
   ViewList, ViewModule, MoreVert
 } from '@mui/icons-material';
 import { useAuth } from './AuthContext';
@@ -231,7 +231,7 @@ function Tickets() {
 
   const getPriorityLabel = (priority) => {
     switch (priority) {
-      case 'emergency': return 'Emergency';
+              case 'emergency': return 'Error';
       case 'critical': return 'Critical';
       case 'normal': return 'Normal';
       default: return priority;
@@ -281,7 +281,7 @@ function Tickets() {
 
   const getPriorityIcon = (priority) => {
     switch (priority) {
-      case 'emergency': return <Emergency fontSize="small" />;
+              case 'emergency': return <Error fontSize="small" />;
       case 'critical': return <PriorityHigh fontSize="small" />;
       default: return null;
     }
