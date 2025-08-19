@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Container, Typography, Paper, Box, Button, TextField, FormControl, InputLabel,
@@ -30,11 +30,7 @@ function TicketClaim() {
   const [selectedUser, setSelectedUser] = useState('');
   const [notes, setNotes] = useState('');
 
-  useEffect(() => {
-    fetchTicketAndUsers();
-  }, [ticket_id]);
-
-  const fetchTicketAndUsers = async () => {
+  const fetchTicketAndUsers = useCallback(async () => {
     try {
       setLoading(true);
       const [ticketRes, usersRes] = await Promise.all([
@@ -51,7 +47,11 @@ function TicketClaim() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [ticket_id]);
+
+  useEffect(() => {
+    fetchTicketAndUsers();
+  }, [ticket_id, fetchTicketAndUsers]);
 
   const handleClaim = async () => {
     if (!selectedUser) {

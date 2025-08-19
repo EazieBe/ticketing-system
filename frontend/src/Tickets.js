@@ -56,7 +56,7 @@ function Tickets() {
   });
 
   // WebSocket setup
-  const wsUrl = `ws://${window.location.hostname}:8000/ws/updates`;
+  const wsUrl = `ws://192.168.43.50:8000/ws/updates`;
   const { sendMessage } = useWebSocket(wsUrl, handleWebSocketMessage, handleWebSocketError, handleWebSocketOpen, handleWebSocketClose);
 
   function handleWebSocketMessage(data) {
@@ -357,7 +357,7 @@ function Tickets() {
     });
 
     return filtered;
-  }, [tickets, filters]);
+  }, [tickets, filters, sites]);
 
   const handleChangePage = (event, newPage) => {
     setPage(newPage);

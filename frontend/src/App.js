@@ -19,27 +19,16 @@ import {
   Menu,
   MenuItem,
   Badge,
-  Chip,
   Tooltip,
   Breadcrumbs,
   Link,
   CircularProgress,
-  Alert,
-  Snackbar,
-  Fab,
-  SpeedDial,
-  SpeedDialAction,
-  SpeedDialIcon,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   Button,
-  Grid,
-  Card,
-  CardContent,
-  Switch,
-  FormControlLabel
+  Grid
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -52,26 +41,17 @@ import {
   Settings,
   Logout,
   Notifications,
-  NotificationsOff,
   Brightness4,
   Brightness7,
-  Add,
-  Search,
-  FilterList,
-  Refresh,
   ExpandLess,
   ExpandMore,
   ChevronRight,
   Home,
-  Analytics,
-  Timeline,
   Map,
   Assessment,
   Speed,
   Security,
-  Support,
   AdminPanelSettings,
-  SupervisorAccount,
   Engineering,
   AccountCircle,
   KeyboardArrowDown,
@@ -110,7 +90,7 @@ import Reports from './Reports';
 import TicketClaim from './TicketClaim';
 import SettingsPage from './Settings';
 import Profile from './Profile';
-import useApi from './hooks/useApi';
+
 import ChangePassword from './ChangePassword';
 
 const drawerWidth = 280;

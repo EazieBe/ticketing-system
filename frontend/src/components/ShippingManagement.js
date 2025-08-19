@@ -71,7 +71,7 @@ function ShippingManagement() {
   const { success, error: showError } = useToast();
 
   // WebSocket for real-time updates
-  const { isConnected } = useWebSocket(`ws://${window.location.hostname}:8000/ws/updates`, {
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, {
     onMessage: (data) => {
       try {
         const message = JSON.parse(data);

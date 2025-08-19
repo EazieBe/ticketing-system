@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box, Typography, Paper, Card, CardContent, Chip, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, Button, Alert, CircularProgress, Grid,
@@ -105,11 +105,7 @@ function FieldTechMap() {
   const [mapRef, setMapRef] = useState(null);
   const [filterState, setFilterState] = useState('');
 
-  useEffect(() => {
-    fetchTechs();
-  }, []);
-
-  const fetchTechs = async () => {
+  const fetchTechs = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.get('/fieldtechs/');
@@ -136,7 +132,11 @@ function FieldTechMap() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchTechs();
+  }, [fetchTechs]);
 
   const geocodeAddress = async (address) => {
     try {

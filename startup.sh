@@ -24,7 +24,9 @@ source venv/bin/activate
 
 # Run database migrations
 echo "Running database migrations..."
+cd app
 alembic upgrade head
+cd ..
 
 # Create environment file for frontend if it doesn't exist
 if [ ! -f frontend/.env ]; then

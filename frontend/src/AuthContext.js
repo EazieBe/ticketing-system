@@ -149,7 +149,7 @@ export const AuthProvider = ({ children }) => {
       console.log('No access token found');
       setLoading(false);
     }
-  }, [accessToken, user]); // Removed refreshAccessToken and clearAuth from dependencies
+  }, [accessToken, user, loading, refreshAccessToken]);
 
   // Cleanup on unmount
   useEffect(() => {

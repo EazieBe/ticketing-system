@@ -56,7 +56,7 @@ import {
   ViewWeek,
   CalendarViewMonth,
   CalendarMonth,
-  Emergency,
+  Error,
   PriorityHigh,
   Timer,
   Add
@@ -175,7 +175,7 @@ function Dashboard() {
 
   const getPriorityIcon = (priority) => {
     switch (priority) {
-      case 'emergency': return <Emergency fontSize="small" />;
+      case 'emergency': return <Error fontSize="small" />;
       case 'critical': return <PriorityHigh fontSize="small" />;
       default: return null;
     }

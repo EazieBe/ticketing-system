@@ -1,19 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Container, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  IconButton, Chip, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
-  CircularProgress, FormControl, InputLabel, Select, MenuItem, Grid, Card, CardContent,
-  Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider, Snackbar, Stack
+  Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  IconButton, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
+  CircularProgress, Tooltip, Stack
 } from '@mui/material';
 import {
-  Add, Edit, Delete, Visibility, Inventory as InventoryIcon, Schedule, CheckCircle, Cancel, Warning,
-  LocalShipping, Build, Flag, FlagOutlined, Star, StarBorder, Notifications, NotificationsOff,
-  ExpandMore, ExpandLess, FilterList, Sort, DragIndicator, Speed, AutoAwesome, Add as AddIcon
+  Add as AddIcon
 } from '@mui/icons-material';
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
-import dayjs from 'dayjs';
 import { useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 import html2canvas from 'html2canvas';
@@ -35,7 +31,6 @@ function Inventory() {
   const [editItem, setEditItem] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [deleteItem, setDeleteItem] = useState(null);
-  const [scanFeedback, setScanFeedback] = useState('');
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [labelDialog, setLabelDialog] = useState(false);
   const [labelItem, setLabelItem] = useState(null);
@@ -46,8 +41,7 @@ function Inventory() {
   const [noteItem, setNoteItem] = useState(null);
   const [noteText, setNoteText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
-  const [inventoryLoading, setInventoryLoading] = useState(false);
-  const [inventoryError, setInventoryError] = useState(null);
+
   const barcodeRef = useRef(null);
 
 
@@ -119,22 +113,9 @@ function Inventory() {
     setScanType(type);
     setScanDialog(true);
     setScannedBarcode('');
-    setScanFeedback('');
   };
 
-  const handleScanResult = (err, result) => {
-    if (result && result.text !== scannedBarcode) {
-      setScannedBarcode(result.text);
-      // Log transaction (scan in/out)
-              api.post('/inventory/scan', { barcode: result.text, type: scanType, user_id: user.user_id })
-        .then(() => {
-          setScanFeedback('Scan successful!');
-          setLoading(true);
-        })
-        .catch(() => setScanFeedback('Failed to log scan'));
-      setTimeout(() => setScanDialog(false), 1200);
-    }
-  };
+
 
   const handleLabel = (item) => {
     setLabelItem(item);
@@ -225,8 +206,7 @@ function Inventory() {
   if (!isAdminOrDispatcherOrBilling) {
     return <Alert severity="warning">You do not have permission to view inventory data.</Alert>;
   }
-  if (inventoryLoading) return <CircularProgress />;
-  if (inventoryError) return <Alert severity="error">{inventoryError}</Alert>;
+
 
   return (
     <>
@@ -303,9 +283,9 @@ function Inventory() {
       <Dialog open={scanDialog} onClose={() => setScanDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Scan Barcode ({scanType === 'in' ? 'Scan In' : 'Scan Out'})</DialogTitle>
         <DialogContent>
-          {/* <BarcodeScannerComponent width={400} height={200} onUpdate={handleScanResult} /> */}
+          {/* <BarcodeScannerComponent width={400} height={200} onUpdate={} /> */}
           {/* {scannedBarcode && <Typography sx={{ mt: 2 }}>Scanned: {scannedBarcode}</Typography>} */}
-          {/* {scanFeedback && <Alert severity={scanFeedback.includes('success') ? 'success' : 'error'} sx={{ mt: 2 }}>{scanFeedback}</Alert>} */}
+          {/* {scanFeedback && <Alert severity={scanFeedback.includes('success') ? 'success' : 'error'} sx={{ mt: 2 }}>{}</Alert>} */}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setScanDialog(false)}>Close</Button>

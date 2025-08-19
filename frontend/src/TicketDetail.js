@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -94,11 +94,7 @@ function TicketDetail() {
     quality: false
   });
 
-  useEffect(() => {
-    fetchTicket();
-  }, [ticket_id]);
-
-  const fetchTicket = async () => {
+  const fetchTicket = useCallback(async () => {
     try {
       const response = await api.get(`/tickets/${ticket_id}`);
       setTicket(response || {});
@@ -108,7 +104,11 @@ function TicketDetail() {
       setError('Failed to load ticket');
       setLoading(false);
     }
-  };
+  }, [ticket_id]);
+
+  useEffect(() => {
+    fetchTicket();
+  }, [ticket_id, fetchTicket]);
 
   const handleEdit = () => {
     setEditDialog(true);

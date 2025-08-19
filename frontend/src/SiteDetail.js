@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Container, Typography, Box, Grid, Button, IconButton,
@@ -71,7 +71,7 @@ function SiteDetail() {
     }
   };
 
-  const fetchSiteData = async () => {
+  const fetchSiteData = useCallback(async () => {
     try {
       setLoading(true);
       const [siteResponse, ticketsResponse, shipmentsResponse, equipmentResponse] = await Promise.all([
@@ -91,11 +91,11 @@ function SiteDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [siteId]);
 
   useEffect(() => {
     fetchSiteData();
-  }, [siteId]);
+  }, [siteId, fetchSiteData]);
 
   const getStatusColor = (status) => {
     switch (status) {

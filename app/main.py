@@ -23,6 +23,8 @@ origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://192.168.43.50:3000",
+    "http://localhost:41417",  # For development server
+    "http://127.0.0.1:41417",  # For development server
     # Add your production frontend domain here
     # "https://your-frontend-domain.com"
 ]

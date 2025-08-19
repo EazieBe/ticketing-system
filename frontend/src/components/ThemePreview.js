@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Card, CardContent, Typography, Chip, Avatar } from '@mui/material';
+import { Box, Card, CardContent, Typography, Chip } from '@mui/material';
 import { 
   Dashboard as DashboardIcon, 
   Assignment, 

@@ -8,6 +8,20 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
   const reconnectDelay = 2000; // Increased from 1000ms
   const isConnecting = useRef(false);
   const pingInterval = useRef(null);
+  
+  // Store callback functions in refs to avoid dependency issues
+  const onMessageRef = useRef(onMessage);
+  const onErrorRef = useRef(onError);
+  const onOpenRef = useRef(onOpen);
+  const onCloseRef = useRef(onClose);
+  
+  // Update refs when callbacks change
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+    onErrorRef.current = onError;
+    onOpenRef.current = onOpen;
+    onCloseRef.current = onClose;
+  }, [onMessage, onError, onOpen, onClose]);
 
   const connect = useCallback(() => {
     if (isConnecting.current || (ws.current && ws.current.readyState === WebSocket.CONNECTING)) {
@@ -30,7 +44,7 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
           }
         }, 30000); // Send ping every 30 seconds
         
-        if (onOpen) onOpen();
+        if (onOpenRef.current) onOpenRef.current();
       };
 
       ws.current.onmessage = (event) => {
@@ -40,7 +54,7 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
           if (data.type === 'ping' || data.type === 'pong') {
             return;
           }
-          if (onMessage) onMessage(data);
+          if (onMessageRef.current) onMessageRef.current(data);
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
         }
@@ -49,7 +63,7 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
       ws.current.onerror = (error) => {
         console.error('WebSocket error:', error);
         isConnecting.current = false;
-        if (onError) onError(error);
+        if (onErrorRef.current) onErrorRef.current(error);
       };
 
       ws.current.onclose = (event) => {
@@ -62,7 +76,7 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
           pingInterval.current = null;
         }
         
-        if (onClose) onClose(event);
+        if (onCloseRef.current) onCloseRef.current(event);
         
         // Only attempt to reconnect for unexpected closures and not too many times
         if (event.code !== 1000 && event.code !== 1001 && reconnectAttempts.current < maxReconnectAttempts) {
@@ -82,7 +96,7 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
       console.error('Error creating WebSocket connection:', error);
       isConnecting.current = false;
     }
-  }, [url, onMessage, onError, onOpen, onClose]);
+  }, [url]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeout.current) {
