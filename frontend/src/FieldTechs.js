@@ -47,7 +47,7 @@ function FieldTechs() {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, []);
 
   useEffect(() => {
     fetchTechs();

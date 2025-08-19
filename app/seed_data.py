@@ -99,6 +99,43 @@ def seed():
         last_updated_at=None
     )
     db.add_all([ticket1, ticket2])
+    
+    # Field Techs
+    field_tech1 = models.FieldTech(
+        field_tech_id=str(uuid.uuid4()),
+        name="John Smith",
+        phone="555-3000",
+        email="john.smith@company.com",
+        region="East",
+        city="Springfield",
+        state="IL",
+        zip="62701",
+        notes="Senior field technician"
+    )
+    field_tech2 = models.FieldTech(
+        field_tech_id=str(uuid.uuid4()),
+        name="Sarah Johnson",
+        phone="555-3001",
+        email="sarah.johnson@company.com",
+        region="West",
+        city="Shelbyville",
+        state="IL",
+        zip="62565",
+        notes="Network specialist"
+    )
+    field_tech3 = models.FieldTech(
+        field_tech_id=str(uuid.uuid4()),
+        name="Mike Wilson",
+        phone="555-3002",
+        email="mike.wilson@company.com",
+        region="North",
+        city="Chicago",
+        state="IL",
+        zip="60601",
+        notes="Hardware expert"
+    )
+    db.add_all([field_tech1, field_tech2, field_tech3])
+    
     db.commit()
     db.close()
 

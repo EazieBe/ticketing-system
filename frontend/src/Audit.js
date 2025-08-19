@@ -44,7 +44,7 @@ function Audit() {
   const fetchAudits = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await api.get('/audit/');
+      const response = await api.get('/audits/');
       setAudits(response || []);
       setError(null);
     } catch (err) {
@@ -54,7 +54,7 @@ function Audit() {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, []);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -64,7 +64,7 @@ function Audit() {
       console.error('Error fetching users:', err);
       setUsers([]);
     }
-  }, [api]);
+  }, []);
 
   useEffect(() => {
     fetchAudits();

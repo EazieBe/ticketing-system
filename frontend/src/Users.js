@@ -65,7 +65,7 @@ function Users() {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, []);
 
   useEffect(() => {
     fetchUsers();
