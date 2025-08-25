@@ -109,7 +109,7 @@ function Dashboard() {
 
   const handleClaim = async (ticketId) => {
     try {
-      await api.put(`/tickets/${ticketId}/claim`);
+      await api.put(`/tickets/${ticketId}/claim`, { claimed_by: user.user_id });
       showToast('Ticket claimed successfully', 'success');
       fetchDailyTickets(); // Refresh data
     } catch (err) {

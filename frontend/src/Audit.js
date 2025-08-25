@@ -14,6 +14,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useWebSocket from './hooks/useWebSocket';
 import dayjs from 'dayjs';
 
 function Audit() {
@@ -41,6 +42,8 @@ function Audit() {
     dateTo: ''
   });
 
+  // WebSocket setup - will be configured after fetchAudits is defined
+
   const fetchAudits = useCallback(async () => {
     try {
       setLoading(true);
@@ -56,6 +59,25 @@ function Audit() {
     }
   }, []);
 
+  // WebSocket callback functions - defined after fetchAudits
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'audit_update' || message.type === 'audit_created') {
+        // Use a timeout to avoid calling fetchAudits before it's defined
+        setTimeout(() => {
+          if (typeof fetchAudits === 'function') {
+            fetchAudits();
+          }
+        }, 100);
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, []);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
+
   const fetchUsers = useCallback(async () => {
     try {
       const response = await api.get('/users/');
@@ -69,7 +91,7 @@ function Audit() {
   useEffect(() => {
     fetchAudits();
     fetchUsers();
-  }, [fetchAudits, fetchUsers]);
+  }, []);
 
   const getEntityIcon = (entityType) => {
     switch (entityType) {
@@ -116,7 +138,8 @@ function Audit() {
       audit.field_changed?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       audit.old_value?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       audit.new_value?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      audit.user_id?.toLowerCase().includes(searchTerm.toLowerCase());
+      audit.user_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      getUserName(audit.user_id).toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesUser = !filterUser || audit.user_id === filterUser;
     const matchesEntity = !filterEntity || audit.ticket_id?.includes(filterEntity) || 
@@ -138,16 +161,35 @@ function Audit() {
   const uniqueFields = [...new Set(audits.map(audit => audit.field_changed).filter(Boolean))];
   const uniqueEntities = [...new Set(audits.map(audit => audit.ticket_id).filter(Boolean))];
 
+  // Function to get user name from user ID
+  const getUserName = (userId) => {
+    if (!userId) return 'System';
+    const user = users.find(u => u.user_id === userId);
+    return user ? user.name : userId;
+  };
+
+  // Function to format old/new values for better display
+  const formatValue = (value, fieldChanged) => {
+    if (!value) return '-';
+    
+    // For user-related fields, try to show user names
+    if (fieldChanged === 'user_delete' || fieldChanged === 'user_create' || fieldChanged === 'user_update') {
+      return getUserName(value);
+    }
+    
+    return value;
+  };
+
   const handleExport = () => {
     const csvContent = [
       ['Timestamp', 'User', 'Entity', 'Field', 'Old Value', 'New Value', 'Change Type'],
       ...filteredAudits.map(audit => [
         dayjs(audit.change_time).format('YYYY-MM-DD HH:mm:ss'),
-        audit.user_id,
+        getUserName(audit.user_id),
         audit.ticket_id || 'N/A',
         audit.field_changed,
-        audit.old_value || '',
-        audit.new_value || '',
+        formatValue(audit.old_value, audit.field_changed),
+        formatValue(audit.new_value, audit.field_changed),
         getChangeType(audit.old_value, audit.new_value)
       ])
     ].map(row => row.join(',')).join('\n');
@@ -365,7 +407,7 @@ function Audit() {
                     <TableCell>
                       <Box display="flex" alignItems="center">
                         <Person sx={{ mr: 1, fontSize: 'small' }} />
-                        {audit.user_id}
+                        {getUserName(audit.user_id)}
                       </Box>
                     </TableCell>
                     <TableCell>
@@ -392,12 +434,12 @@ function Audit() {
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2" noWrap sx={{ maxWidth: 150 }}>
-                        {audit.old_value || '-'}
+                        {formatValue(audit.old_value, audit.field_changed)}
                       </Typography>
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2" noWrap sx={{ maxWidth: 150 }}>
-                        {audit.new_value || '-'}
+                        {formatValue(audit.new_value, audit.field_changed)}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -461,7 +503,7 @@ function Audit() {
                         </Grid>
                         <Grid item xs={6}>
                           <Typography variant="body2" color="text.secondary">User</Typography>
-                          <Typography variant="body1">{selectedAudit.user_id}</Typography>
+                          <Typography variant="body1">{getUserName(selectedAudit.user_id)}</Typography>
                         </Grid>
                         <Grid item xs={6}>
                           <Typography variant="body2" color="text.secondary">Entity</Typography>

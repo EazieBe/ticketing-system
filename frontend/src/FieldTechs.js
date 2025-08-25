@@ -13,6 +13,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useWebSocket from './hooks/useWebSocket';
 import dayjs from 'dayjs';
 import FieldTechForm from './FieldTechForm';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -34,6 +35,8 @@ function FieldTechs() {
   const [deleteTech, setDeleteTech] = useState(null);
   const [importDialog, setImportDialog] = useState(false);
 
+  // WebSocket setup - will be configured after fetchTechs is defined
+
   const fetchTechs = useCallback(async () => {
     try {
       setLoading(true);
@@ -48,6 +51,20 @@ function FieldTechs() {
       setLoading(false);
     }
   }, []);
+
+  // WebSocket callback functions - defined after fetchTechs
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'fieldtech_update' || message.type === 'fieldtech_created' || message.type === 'fieldtech_deleted') {
+        fetchTechs(); // Refresh field techs when there's an update
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, [fetchTechs]);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
 
   useEffect(() => {
     fetchTechs();

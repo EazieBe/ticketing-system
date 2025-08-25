@@ -1,7 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Body, UploadFile, File
+import os
+from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Body, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import text, or_
 from passlib.context import CryptContext
 import models, schemas, crud
 from database import SessionLocal, engine
@@ -18,15 +20,40 @@ import uuid
 
 app = FastAPI()
 
+# === Settings ===
+SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_ME_IN_ENV")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "1"))
+
+# === Enum helpers ===
+def _as_ticket_status(val):
+    # Normalize DB string ↔ Pydantic/SQLAlchemy Enum
+    try:
+        return schemas.TicketStatus(val) if not isinstance(val, schemas.TicketStatus) else val
+    except Exception:
+        # fall back—don't crash if legacy data exists
+        return schemas.TicketStatus.open
+
+def _status_equals(a, b):
+    return _as_ticket_status(a) == _as_ticket_status(b)
+
+def _as_role(val):
+    try:
+        return models.UserRole(val) if not isinstance(val, models.UserRole) else val
+    except Exception:
+        return models.UserRole.tech  # safe default
+
+def _role_value(obj):
+    return getattr(obj, "value", obj)  # works for Enum or str
+
 # CORS middleware must be added immediately after creating the app
 origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
+    "http://localhost:3000", "http://127.0.0.1:3000",
     "http://192.168.43.50:3000",
-    "http://localhost:41417",  # For development server
-    "http://127.0.0.1:41417",  # For development server
-    # Add your production frontend domain here
-    # "https://your-frontend-domain.com"
+    "http://localhost:41417", "http://127.0.0.1:41417",
+    "http://localhost:5173", "http://127.0.0.1:5173",
+    "http://192.168.43.50:5173",
 ]
 
 app.add_middleware(
@@ -38,12 +65,11 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-SECRET_KEY = "supersecretkey"  # TODO: Move to env var
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Short-lived access tokens
-REFRESH_TOKEN_EXPIRE_DAYS = 1     # Long-lived refresh tokens (24 hours)
+# Remove duplicate settings - now defined above
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -76,6 +102,9 @@ def verify_refresh_token(token: str):
     except JWTError:
         return None
 
+def _enqueue_broadcast(background_tasks: BackgroundTasks, payload: str):
+    background_tasks.add_task(manager.broadcast, payload)
+
 def get_user_by_email(db, email: str):
     return crud.get_user_by_email(db, email=email)
 
@@ -97,6 +126,22 @@ def get_db():
     finally:
         db.close()
 
+# Optional authentication for endpoints that don't require auth
+def get_optional_user(token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            return None
+        role = payload.get("role")
+        token_data = schemas.TokenData(user_id=user_id, role=_role_value(role))
+    except JWTError:
+        return None
+    user = crud.get_user(db, user_id=token_data.user_id)
+    return user
+
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -109,7 +154,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         if user_id is None:
             raise credentials_exception
         role = payload.get("role")
-        token_data = schemas.TokenData(user_id=user_id, role=role)
+        token_data = schemas.TokenData(user_id=user_id, role=_role_value(role))
     except JWTError:
         raise credentials_exception
     user = crud.get_user(db, user_id=token_data.user_id)
@@ -119,7 +164,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 
 def require_role(required_roles):
     def role_checker(user=Depends(get_current_user)):
-        if user.role not in required_roles:
+        if _role_value(user.role) not in required_roles:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return user
     return role_checker
@@ -138,7 +183,6 @@ def health_check():
     try:
         # Test database connectivity
         db = SessionLocal()
-        from sqlalchemy import text
         db.execute(text("SELECT 1"))
         db.close()
         db_status = "connected"
@@ -162,22 +206,33 @@ def test_cors():
 
 # --- User Endpoints ---
 @app.post("/users/", response_model=schemas.UserOut)
-def create_user(user: schemas.UserCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def create_user(
+    user: schemas.UserCreate, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value]))
+):
     db_user = crud.get_user_by_email(db, email=user.email)
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     # Always generate a temp password for new users (ignore any password from frontend)
     temp_password = generate_temp_password()
     hashed_password = get_password_hash(temp_password)
-    user.hashed_password = hashed_password
-    user.preferences = "{}"
-    # Set must_change_password True for new users
-    user.must_change_password = True
-    result = crud.create_user(db=db, user=user)
+    
+    # Create a new user object with the hashed password
+    user_data = user.dict()
+    user_data['hashed_password'] = hashed_password
+    user_data['preferences'] = "{}"  # Set to empty JSON string for TEXT column
+    user_data['must_change_password'] = True
+    
+    # Create a new UserCreate object with the additional fields
+    from types import SimpleNamespace
+    user_with_password = SimpleNamespace(**user_data)
+    
+    result = crud.create_user(db=db, user=user_with_password)
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="user_create",
         old_value=None,
         new_value=str(result.user_id)
@@ -205,16 +260,26 @@ def get_user(user_id: str, db: Session = Depends(get_db), current_user: models.U
     return db_user
 
 @app.get("/users/", response_model=List[schemas.UserOut])
-def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def list_users(
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value]))
+):
     return crud.get_users(db, skip=skip, limit=limit)
 
 @app.put("/users/{user_id}", response_model=schemas.UserOut)
-def update_user(user_id: str, user: schemas.UserCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def update_user(
+    user_id: str, 
+    user: schemas.UserCreate, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value]))
+):
     result = crud.update_user(db, user_id=user_id, user=user)
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="user_update",
         old_value=None,
         new_value=str(result.user_id)
@@ -223,18 +288,25 @@ def update_user(user_id: str, user: schemas.UserCreate, db: Session = Depends(ge
     return result
 
 @app.delete("/users/{user_id}")
-def delete_user(user_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def delete_user(
+    user_id: str, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value]))
+):
     result = crud.delete_user(db, user_id=user_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="User not found")
+    
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="user_delete",
         old_value=str(user_id),
         new_value=None
     )
     crud.create_ticket_audit(db, audit)
-    return result
+    return {"success": True, "message": "User deleted successfully"}
 
 @app.post("/users/{user_id}/change_password")
 def change_password(user_id: str, password_data: dict = Body(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -255,9 +327,11 @@ def change_password(user_id: str, password_data: dict = Body(...), db: Session =
     return {"success": True}
 
 @app.post("/users/{user_id}/reset_password")
-def reset_password(user_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    if current_user.role != models.UserRole.admin:
-        raise HTTPException(status_code=403, detail="Only admins can reset passwords")
+def reset_password(
+    user_id: str, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value]))
+):
     db_user = crud.get_user(db, user_id=user_id)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -275,7 +349,7 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db), current
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="site_create",
         old_value=None,
         new_value=str(result.site_id)
@@ -284,7 +358,11 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db), current
     return result
 
 @app.get("/sites/{site_id}", response_model=schemas.SiteOut)
-def get_site(site_id: str, db: Session = Depends(get_db)):
+def get_site(
+    site_id: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     db_site = crud.get_site(db, site_id=site_id)
     if not db_site:
         raise HTTPException(status_code=404, detail="Site not found")
@@ -301,7 +379,7 @@ def update_site(site_id: str, site: schemas.SiteCreate, db: Session = Depends(ge
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="site_update",
         old_value=str(prev),
         new_value=str(result)
@@ -321,7 +399,7 @@ def delete_site(site_id: str, db: Session = Depends(get_db), current_user: model
     audit = schemas.TicketAuditCreate(
         ticket_id=None,  # Site deletion doesn't have a specific ticket
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="site_delete",
         old_value=f"Site {site_id}: {prev.location}",
         new_value=None
@@ -331,17 +409,18 @@ def delete_site(site_id: str, db: Session = Depends(get_db), current_user: model
 
 # --- Ticket Endpoints ---
 @app.post("/tickets/", response_model=schemas.TicketOut)
-def create_ticket(ticket: schemas.TicketCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def create_ticket(ticket: schemas.TicketCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user), background_tasks: BackgroundTasks = None):
     result = crud.create_ticket(db=db, ticket=ticket)
-    try:
-        asyncio.create_task(manager.broadcast('{"type": "ticket", "action": "create"}'))
-    except RuntimeError:
-        # Handle case where no event loop is running
-        pass
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"create"}')
     return result
 
 @app.get("/tickets/{ticket_id}", response_model=schemas.TicketOut)
-def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
+def get_ticket(
+    ticket_id: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     db_ticket = crud.get_ticket(db, ticket_id=ticket_id)
     if not db_ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -352,48 +431,43 @@ def list_tickets(skip: int = 0, limit: int = 100, db: Session = Depends(get_db),
     return crud.get_tickets(db, skip=skip, limit=limit)
 
 @app.put("/tickets/{ticket_id}", response_model=schemas.TicketOut)
-def update_ticket(ticket_id: str, ticket: schemas.TicketUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # If non-admin/dispatcher tries to close, set to pending approval
-    is_admin_or_dispatcher = current_user.role in ('admin', 'dispatcher')
+def update_ticket(ticket_id: str, ticket: schemas.TicketUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user), background_tasks: BackgroundTasks = None):
     prev_ticket = crud.get_ticket(db, ticket_id)
-    
     if not prev_ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    
-    # Handle status change logic
-    if ticket.status and ticket.status != prev_ticket.status:
-        new_status = ticket.status
-        if new_status == schemas.TicketStatus.closed and not is_admin_or_dispatcher:
+
+    if ticket.status is not None:
+        requested = _as_ticket_status(ticket.status)
+        prev = _as_ticket_status(prev_ticket.status)
+        new_status = requested
+        if requested == schemas.TicketStatus.closed and _as_role(current_user.role) not in (models.UserRole.admin, models.UserRole.dispatcher):
             new_status = schemas.TicketStatus.pending
-        ticket.status = new_status
-    
-    # Set update metadata
+        ticket.status = new_status.value  # store value consistently as string
+
+    # metadata
     ticket.last_updated_by = current_user.user_id
-    ticket.last_updated_at = datetime.utcnow()
+    ticket.last_updated_at = datetime.now(timezone.utc)
     
     result = crud.update_ticket(db, ticket_id=ticket_id, ticket=ticket)
     
-    # Audit log for status changes
-    if prev_ticket and ticket.status and prev_ticket.status != ticket.status:
+    # Audit comparisons
+    if ticket.status is not None and not _status_equals(prev_ticket.status, ticket.status):
         audit = schemas.TicketAuditCreate(
             ticket_id=ticket_id,
             user_id=current_user.user_id,
-            change_time=datetime.utcnow(),
+            change_time=datetime.now(timezone.utc),
             field_changed="status",
-            old_value=prev_ticket.status,
-            new_value=ticket.status
+            old_value=_as_ticket_status(prev_ticket.status).value,
+            new_value=_as_ticket_status(ticket.status).value,
         )
         crud.create_ticket_audit(db, audit)
     
-    try:
-        asyncio.create_task(manager.broadcast('{"type": "ticket", "action": "update"}'))
-    except RuntimeError:
-        # Handle case where no event loop is running
-        pass
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"update"}')
     return result
 
 @app.patch("/tickets/{ticket_id}/status", response_model=schemas.TicketOut)
-def update_ticket_status(ticket_id: str, status_update: schemas.StatusUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def update_ticket_status(ticket_id: str, status_update: schemas.StatusUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user), background_tasks: BackgroundTasks = None):
     """Quick endpoint for status changes only"""
     prev_ticket = crud.get_ticket(db, ticket_id)
     
@@ -401,77 +475,65 @@ def update_ticket_status(ticket_id: str, status_update: schemas.StatusUpdate, db
         raise HTTPException(status_code=404, detail="Ticket not found")
     
     # Handle status change logic
-    is_admin_or_dispatcher = current_user.role in ('admin', 'dispatcher')
-    new_status = status_update.status
-    if new_status == schemas.TicketStatus.closed and not is_admin_or_dispatcher:
-        new_status = schemas.TicketStatus.pending
-    
-    # Create update object
+    requested = _as_ticket_status(status_update.status)
+    is_admin_or_dispatcher = _as_role(current_user.role) in (models.UserRole.admin, models.UserRole.dispatcher)
+    new_status = requested if not (requested == schemas.TicketStatus.closed and not is_admin_or_dispatcher) else schemas.TicketStatus.pending
+
     ticket_update = schemas.TicketUpdate(
-        status=new_status,
+        status=new_status.value,
         last_updated_by=current_user.user_id,
-        last_updated_at=datetime.utcnow()
+        last_updated_at=datetime.now(timezone.utc),
     )
     
     result = crud.update_ticket(db, ticket_id=ticket_id, ticket=ticket_update)
     
     # Audit log
-    if prev_ticket.status != new_status:
+    if not _status_equals(prev_ticket.status, new_status):
         audit = schemas.TicketAuditCreate(
             ticket_id=ticket_id,
             user_id=current_user.user_id,
-            change_time=datetime.utcnow(),
+            change_time=datetime.now(timezone.utc),
             field_changed="status",
-            old_value=prev_ticket.status,
-            new_value=new_status
+            old_value=_as_ticket_status(prev_ticket.status).value,
+            new_value=_as_ticket_status(new_status).value
         )
         crud.create_ticket_audit(db, audit)
     
-    try:
-        asyncio.create_task(manager.broadcast('{"type": "ticket", "action": "update"}'))
-    except RuntimeError:
-        pass
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"update"}')
     return result
 
 @app.post("/tickets/{ticket_id}/approve")
-def approve_ticket(ticket_id: str, approve: bool, db: Session = Depends(get_db), current_user: models.User = Depends(require_role(['admin', 'dispatcher']))):
+def approve_ticket(ticket_id: str, approve: bool, db: Session = Depends(get_db), current_user: models.User = Depends(require_role([models.UserRole.admin.value, models.UserRole.dispatcher.value])), background_tasks: BackgroundTasks = None):
     ticket = crud.get_ticket(db, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    if ticket.status != schemas.TicketStatus.closed:
+    if _as_ticket_status(ticket.status) != schemas.TicketStatus.closed:
         raise HTTPException(status_code=400, detail="Ticket is not closed and ready for approval")
-    prev_status = ticket.status
-    if approve:
-        ticket.status = schemas.TicketStatus.approved
-    else:
-        ticket.status = schemas.TicketStatus.in_progress  # or previous status if tracked
+
+    prev_status = _as_ticket_status(ticket.status)
+    ticket.status = (schemas.TicketStatus.approved if approve else schemas.TicketStatus.in_progress).value
     db.commit()
     db.refresh(ticket)
     # Audit log
     audit = schemas.TicketAuditCreate(
         ticket_id=ticket_id,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="approval",
         old_value=prev_status,
         new_value=ticket.status
     )
     crud.create_ticket_audit(db, audit)
-    try:
-        asyncio.create_task(manager.broadcast('{"type": "ticket", "action": "approval"}'))
-    except RuntimeError:
-        # Handle case where no event loop is running
-        pass
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"approval"}')
     return ticket
 
 @app.delete("/tickets/{ticket_id}")
-def delete_ticket(ticket_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def delete_ticket(ticket_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user), background_tasks: BackgroundTasks = None):
     result = crud.delete_ticket(db, ticket_id=ticket_id)
-    try:
-        asyncio.create_task(manager.broadcast('{"type": "ticket", "action": "delete"}'))
-    except RuntimeError:
-        # Handle case where no event loop is running
-        pass
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"delete"}')
     return result
 
 # --- Shipment Endpoints ---
@@ -481,7 +543,7 @@ def create_shipment(shipment: schemas.ShipmentCreate, db: Session = Depends(get_
     audit = schemas.TicketAuditCreate(
         ticket_id=shipment.ticket_id,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="shipment_create",
         old_value=None,
         new_value=str(result.shipment_id)
@@ -512,7 +574,7 @@ def update_shipment(shipment_id: str, shipment: schemas.ShipmentCreate, db: Sess
     audit = schemas.TicketAuditCreate(
         ticket_id=shipment.ticket_id,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="shipment_update",
         old_value=str(prev),
         new_value=str(result)
@@ -532,7 +594,7 @@ def delete_shipment(shipment_id: str, db: Session = Depends(get_db), current_use
     audit = schemas.TicketAuditCreate(
         ticket_id=prev.ticket_id if prev else None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="shipment_delete",
         old_value=str(prev),
         new_value=None
@@ -542,65 +604,73 @@ def delete_shipment(shipment_id: str, db: Session = Depends(get_db), current_use
 
 # --- InventoryItem Endpoints ---
 @app.post("/inventory/", response_model=schemas.InventoryItemOut)
-def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def create_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user), background_tasks: BackgroundTasks = None):
     result = crud.create_inventory_item(db=db, item=item)
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="inventory_create",
         old_value=None,
         new_value=str(result.item_id)
     )
     crud.create_ticket_audit(db, audit)
-    try:
-        asyncio.create_task(manager.broadcast('{"type": "inventory", "action": "create"}'))
-    except RuntimeError:
-        # Handle case where no event loop is running
-        pass
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"inventory","action":"create"}')
     return result
 
 @app.get("/inventory/{item_id}", response_model=schemas.InventoryItemOut)
-def get_inventory_item(item_id: str, db: Session = Depends(get_db)):
+def get_inventory_item(
+    item_id: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     db_item = crud.get_inventory_item(db, item_id=item_id)
     if not db_item:
         raise HTTPException(status_code=404, detail="Inventory item not found")
     return db_item
 
 @app.get("/inventory/", response_model=List[schemas.InventoryItemOut])
-def list_inventory_items(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_inventory_items(
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     return crud.get_inventory_items(db, skip=skip, limit=limit)
 
 @app.put("/inventory/{item_id}", response_model=schemas.InventoryItemOut)
-def update_inventory_item(item_id: str, item: schemas.InventoryItemCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def update_inventory_item(item_id: str, item: schemas.InventoryItemCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user), background_tasks: BackgroundTasks = None):
     prev = crud.get_inventory_item(db, item_id)
     result = crud.update_inventory_item(db, item_id=item_id, item=item)
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="inventory_update",
         old_value=str(prev),
         new_value=str(result)
     )
     crud.create_ticket_audit(db, audit)
-    asyncio.create_task(manager.broadcast('{"type": "inventory", "action": "update"}'))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"inventory","action":"update"}')
     return result
 
 @app.delete("/inventory/{item_id}")
-def delete_inventory_item(item_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def delete_inventory_item(item_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user), background_tasks: BackgroundTasks = None):
     prev = crud.get_inventory_item(db, item_id)
     result = crud.delete_inventory_item(db, item_id=item_id)
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="inventory_delete",
         old_value=str(prev),
         new_value=None
     )
     crud.create_ticket_audit(db, audit)
-    asyncio.create_task(manager.broadcast('{"type": "inventory", "action": "delete"}'))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"inventory","action":"delete"}')
     return result
 
 @app.post("/inventory/scan")
@@ -623,7 +693,7 @@ def scan_inventory_item(scan_data: dict = Body(...), db: Session = Depends(get_d
         transaction_id=str(uuid.uuid4()),
         item_id=item.item_id,
         user_id=user_id,
-        date=datetime.now().date(),
+        date=datetime.now(timezone.utc).date(),
         quantity=1,
         type=models.InventoryTransactionType.in_ if scan_type == "in" else models.InventoryTransactionType.out,
         notes=f"Scanned {scan_type} - {barcode}"
@@ -644,13 +714,16 @@ def scan_inventory_item(scan_data: dict = Body(...), db: Session = Depends(get_d
     db.refresh(transaction)
     
     # Create audit log
+    before_qty = item.quantity_on_hand
+    # ... mutate qty ...
+    after_qty = item.quantity_on_hand
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="inventory_scan",
-        old_value=f"Qty: {item.quantity_on_hand - (1 if scan_type == 'in' else -1)}",
-        new_value=f"Qty: {item.quantity_on_hand} - {scan_type} scan"
+        old_value=f"Qty: {before_qty}",
+        new_value=f"Qty: {after_qty} - {scan_type} scan"
     )
     crud.create_ticket_audit(db, audit)
     
@@ -676,7 +749,7 @@ def create_field_tech(tech: schemas.FieldTechCreate, db: Session = Depends(get_d
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="fieldtech_create",
         old_value=None,
         new_value=str(result.field_tech_id)
@@ -685,14 +758,23 @@ def create_field_tech(tech: schemas.FieldTechCreate, db: Session = Depends(get_d
     return result
 
 @app.get("/fieldtechs/{field_tech_id}", response_model=schemas.FieldTechOut)
-def get_field_tech(field_tech_id: str, db: Session = Depends(get_db)):
+def get_field_tech(
+    field_tech_id: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     db_tech = crud.get_field_tech(db, field_tech_id=field_tech_id)
     if not db_tech:
         raise HTTPException(status_code=404, detail="Field tech not found")
     return db_tech
 
 @app.get("/fieldtechs/", response_model=List[schemas.FieldTechOut])
-def list_field_techs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_field_techs(
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     return crud.get_field_techs(db, skip=skip, limit=limit)
 
 @app.put("/fieldtechs/{field_tech_id}", response_model=schemas.FieldTechOut)
@@ -702,7 +784,7 @@ def update_field_tech(field_tech_id: str, tech: schemas.FieldTechCreate, db: Ses
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="fieldtech_update",
         old_value=str(prev),
         new_value=str(result)
@@ -717,7 +799,7 @@ def delete_field_tech(field_tech_id: str, db: Session = Depends(get_db), current
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="fieldtech_delete",
         old_value=str(prev),
         new_value=None
@@ -780,7 +862,7 @@ def import_field_techs_csv(
         audit = schemas.TicketAuditCreate(
             ticket_id=None,
             user_id=current_user.user_id,
-            change_time=datetime.utcnow(),
+            change_time=datetime.now(timezone.utc),
             field_changed="field_techs_imported",
             old_value="",
             new_value=f"Imported {imported_count} field techs from CSV"
@@ -806,7 +888,7 @@ def create_task(task: schemas.TaskCreate, db: Session = Depends(get_db), current
     audit = schemas.TicketAuditCreate(
         ticket_id=task.ticket_id,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="task_create",
         old_value=None,
         new_value=str(result.task_id)
@@ -815,14 +897,23 @@ def create_task(task: schemas.TaskCreate, db: Session = Depends(get_db), current
     return result
 
 @app.get("/tasks/{task_id}", response_model=schemas.TaskOut)
-def get_task(task_id: str, db: Session = Depends(get_db)):
+def get_task(
+    task_id: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     db_task = crud.get_task(db, task_id=task_id)
     if not db_task:
         raise HTTPException(status_code=404, detail="Task not found")
     return db_task
 
 @app.get("/tasks/", response_model=List[schemas.TaskOut])
-def list_tasks(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_tasks(
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     return crud.get_tasks(db, skip=skip, limit=limit)
 
 @app.put("/tasks/{task_id}", response_model=schemas.TaskOut)
@@ -832,7 +923,7 @@ def update_task(task_id: str, task: schemas.TaskCreate, db: Session = Depends(ge
     audit = schemas.TicketAuditCreate(
         ticket_id=task.ticket_id,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="task_update",
         old_value=str(prev),
         new_value=str(result)
@@ -847,7 +938,7 @@ def delete_task(task_id: str, db: Session = Depends(get_db), current_user: model
     audit = schemas.TicketAuditCreate(
         ticket_id=prev.ticket_id if prev else None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="task_delete",
         old_value=str(prev),
         new_value=None
@@ -862,7 +953,7 @@ def create_equipment(equipment: schemas.EquipmentCreate, db: Session = Depends(g
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="equipment_create",
         old_value=None,
         new_value=str(result.equipment_id)
@@ -871,14 +962,23 @@ def create_equipment(equipment: schemas.EquipmentCreate, db: Session = Depends(g
     return result
 
 @app.get("/equipment/{equipment_id}", response_model=schemas.EquipmentOut)
-def get_equipment(equipment_id: str, db: Session = Depends(get_db)):
+def get_equipment(
+    equipment_id: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     db_equipment = crud.get_equipment(db, equipment_id=equipment_id)
     if not db_equipment:
         raise HTTPException(status_code=404, detail="Equipment not found")
     return db_equipment
 
 @app.get("/equipment/", response_model=List[schemas.EquipmentOut])
-def list_equipments(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_equipments(
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     return crud.get_equipments(db, skip=skip, limit=limit)
 
 @app.put("/equipment/{equipment_id}", response_model=schemas.EquipmentOut)
@@ -888,7 +988,7 @@ def update_equipment(equipment_id: str, equipment: schemas.EquipmentCreate, db: 
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="equipment_update",
         old_value=str(prev),
         new_value=str(result)
@@ -903,7 +1003,7 @@ def delete_equipment(equipment_id: str, db: Session = Depends(get_db), current_u
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="equipment_delete",
         old_value=str(prev),
         new_value=None
@@ -917,14 +1017,23 @@ def create_ticket_audit(audit: schemas.TicketAuditCreate, db: Session = Depends(
     return crud.create_ticket_audit(db=db, audit=audit)
 
 @app.get("/audits/{audit_id}", response_model=schemas.TicketAuditOut)
-def get_ticket_audit(audit_id: str, db: Session = Depends(get_db)):
+def get_ticket_audit(
+    audit_id: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     db_audit = crud.get_ticket_audit(db, audit_id=audit_id)
     if not db_audit:
         raise HTTPException(status_code=404, detail="Audit not found")
     return db_audit
 
 @app.get("/audits/", response_model=List[schemas.TicketAuditOut])
-def list_ticket_audits(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_ticket_audits(
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     return crud.get_ticket_audits(db, skip=skip, limit=limit)
 
 @app.post("/login", response_model=schemas.Token)
@@ -932,14 +1041,12 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(status_code=400, detail="Incorrect email or password")
-    access_token = create_access_token(data={"sub": user.user_id, "role": user.role.value})
-    refresh_token = create_refresh_token(data={"sub": user.user_id, "role": user.role.value})
     return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
+        "access_token": create_access_token(data={"sub": user.user_id, "role": _role_value(user.role)}),
+        "refresh_token": create_refresh_token(data={"sub": user.user_id, "role": _role_value(user.role)}),
         "token_type": "bearer",
-        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # Convert to seconds
-        "must_change_password": getattr(user, 'must_change_password', False)
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        "must_change_password": bool(getattr(user, 'must_change_password', False)),
     }
 
 @app.post("/refresh", response_model=schemas.Token)
@@ -949,7 +1056,6 @@ def refresh_token(refresh_request: schemas.RefreshTokenRequest, db: Session = De
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     
     user_id = payload.get("sub")
-    role = payload.get("role")
     
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
@@ -960,14 +1066,14 @@ def refresh_token(refresh_request: schemas.RefreshTokenRequest, db: Session = De
         raise HTTPException(status_code=401, detail="User not found")
     
     # Create new tokens
-    access_token = create_access_token(data={"sub": user.user_id, "role": user.role.value})
-    refresh_token = create_refresh_token(data={"sub": user.user_id, "role": user.role.value})
-    
+    access_token = create_access_token(data={"sub": user.user_id, "role": _role_value(user.role)})
+    refresh_token = create_refresh_token(data={"sub": user.user_id, "role": _role_value(user.role)})
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
-        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert to seconds
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     }
 
 # In-memory set of connected WebSocket clients
@@ -992,68 +1098,93 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 @app.websocket("/ws/updates")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
+    # Try bearer token if provided; ignore errors to allow public dashboards
+    if token:
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            # you could use payload['sub'] here if you want to tag connections
+        except JWTError:
+            # Reject if token present but invalid (safer)
+            await websocket.close(code=1008)
+            return
+
     await manager.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
             try:
-                # Parse the received data
-                import json
-                message = json.loads(data)
-                
-                # Handle ping messages
-                if message.get("type") == "ping":
-                    await websocket.send_text(json.dumps({"type": "pong"}))
-                    continue
-                    
-            except json.JSONDecodeError:
-                # If it's not JSON, just ignore it (keep alive)
-                pass
+                data = await websocket.receive_text()
+                try:
+                    import json
+                    message = json.loads(data)
+                    if message.get("type") == "ping":
+                        await websocket.send_text(json.dumps({"type": "pong"}))
+                except json.JSONDecodeError:
+                    pass
+            except Exception as e:
+                print(f"WebSocket error: {e}")
+                break
     except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        print(f"WebSocket connection error: {e}")
         manager.disconnect(websocket)
 
 # Demo endpoint to broadcast a message to all clients
 @app.post("/broadcast_update")
-def broadcast_update(message: str):
-    import asyncio
-    asyncio.create_task(manager.broadcast(message))
+def broadcast_update(message: str, background_tasks: BackgroundTasks):
+    _enqueue_broadcast(background_tasks, message)
     return {"status": "broadcasted"}
 
 @app.get("/reports/ticket-status")
-def report_ticket_status(db: Session = Depends(get_db)):
+def report_ticket_status(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     from sqlalchemy import func
     result = db.query(models.Ticket.status, func.count(models.Ticket.ticket_id)).group_by(models.Ticket.status).all()
-    return {"status_counts": dict(result)}
+    return {"status_counts": { _as_ticket_status(k).value if k else "unknown": v for (k, v) in result }}
 
 @app.get("/reports/time-spent")
-def report_time_spent(db: Session = Depends(get_db)):
+def report_time_spent(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     from sqlalchemy import func
     result = db.query(models.Ticket.assigned_user_id, func.sum(models.Ticket.time_spent)).group_by(models.Ticket.assigned_user_id).all()
     return {"time_spent_by_user": dict(result)}
 
 @app.get("/reports/shipments")
-def report_shipments(db: Session = Depends(get_db)):
+def report_shipments(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     from sqlalchemy import func
     count = db.query(func.count(models.Shipment.shipment_id)).scalar()
     total_cost = db.query(func.sum(models.Shipment.charges_out)).scalar() or 0
     return {"shipment_count": count, "total_shipping_cost": total_cost}
 
 @app.get("/reports/inventory")
-def report_inventory(db: Session = Depends(get_db)):
+def report_inventory(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     from sqlalchemy import func
     total_items = db.query(func.sum(models.InventoryItem.quantity_on_hand)).scalar() or 0
     by_item = db.query(models.InventoryItem.name, func.sum(models.InventoryItem.quantity_on_hand)).group_by(models.InventoryItem.name).all()
     return {"total_items": total_items, "by_item": dict(by_item)} 
 
 @app.get("/analytics/performance")
-def get_performance_analytics(db: Session = Depends(get_db)):
+def get_performance_analytics(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     """Get performance analytics including response times, resolution times, and SLA compliance"""
     tickets = crud.get_tickets(db)
     
     # Calculate performance metrics
     total_tickets = len(tickets)
-    closed_tickets = [t for t in tickets if t.status == 'closed']
+    closed_tickets = [t for t in tickets if _status_equals(t.status, schemas.TicketStatus.closed)]
     avg_resolution_time = 0
     sla_compliance_rate = 0
     
@@ -1078,28 +1209,32 @@ def get_performance_analytics(db: Session = Depends(get_db)):
     return {
         "total_tickets": total_tickets,
         "closed_tickets": len(closed_tickets),
-        "open_tickets": len([t for t in tickets if t.status != 'closed']),
+        "open_tickets": len([t for t in tickets if not _status_equals(t.status, schemas.TicketStatus.closed)]),
         "avg_resolution_time_hours": round(avg_resolution_time, 2),
         "sla_compliance_rate": round(sla_compliance_rate, 2),
         "tickets_by_status": {
-            "open": len([t for t in tickets if t.status == 'open']),
-            "in_progress": len([t for t in tickets if t.status == 'in_progress']),
-            "pending": len([t for t in tickets if t.status == 'pending']),
+            "open": len([t for t in tickets if _status_equals(t.status, schemas.TicketStatus.open)]),
+            "in_progress": len([t for t in tickets if _status_equals(t.status, schemas.TicketStatus.in_progress)]),
+            "pending": len([t for t in tickets if _status_equals(t.status, schemas.TicketStatus.pending)]),
             "closed": len(closed_tickets),
-            "approved": len([t for t in tickets if t.status == 'approved'])
+            "approved": len([t for t in tickets if _status_equals(t.status, schemas.TicketStatus.approved)])
         },
         "tickets_by_priority": {
-            "low": len([t for t in tickets if t.priority == 'Low']),
-            "medium": len([t for t in tickets if t.priority == 'Medium']),
-            "high": len([t for t in tickets if t.priority == 'High']),
-            "urgent": len([t for t in tickets if t.priority == 'Urgent'])
+            "low": len([t for t in tickets if (t.priority or '').lower() == 'low']),
+            "medium": len([t for t in tickets if (t.priority or '').lower() == 'medium']),
+            "high": len([t for t in tickets if (t.priority or '').lower() == 'high']),
+            "urgent": len([t for t in tickets if (t.priority or '').lower() == 'urgent'])
         }
     }
 
 @app.get("/analytics/trends")
-def get_trend_analytics(db: Session = Depends(get_db), days: int = 30):
+def get_trend_analytics(
+    db: Session = Depends(get_db), 
+    days: int = 30,
+    current_user: models.User = Depends(get_current_user)
+):
     """Get trend analytics for the specified number of days"""
-    end_date = datetime.now()
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
     
     tickets = crud.get_tickets(db)
@@ -1126,7 +1261,7 @@ def get_trend_analytics(db: Session = Depends(get_db), days: int = 30):
         
         daily_stats[date_str]["created"] += 1
         
-        if ticket.status == 'closed':
+        if _status_equals(ticket.status, schemas.TicketStatus.closed):
             daily_stats[date_str]["closed"] += 1
         
         # Count by type
@@ -1144,7 +1279,10 @@ def get_trend_analytics(db: Session = Depends(get_db), days: int = 30):
     }
 
 @app.get("/analytics/site-performance")
-def get_site_performance_analytics(db: Session = Depends(get_db)):
+def get_site_performance_analytics(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     """Get performance analytics by site"""
     sites = crud.get_sites(db)
     tickets = crud.get_tickets(db)
@@ -1153,7 +1291,7 @@ def get_site_performance_analytics(db: Session = Depends(get_db)):
     
     for site in sites:
         site_tickets = [t for t in tickets if t.site_id == site.site_id]
-        closed_tickets = [t for t in site_tickets if t.status == 'closed']
+        closed_tickets = [t for t in site_tickets if _status_equals(t.status, schemas.TicketStatus.closed)]
         
         avg_resolution_time = 0
         if closed_tickets:
@@ -1170,7 +1308,7 @@ def get_site_performance_analytics(db: Session = Depends(get_db)):
         site_performance[site.site_id] = {
             "site_name": site.location,
             "total_tickets": len(site_tickets),
-            "open_tickets": len([t for t in site_tickets if t.status != 'closed']),
+            "open_tickets": len([t for t in site_tickets if not _status_equals(t.status, schemas.TicketStatus.closed)]),
             "closed_tickets": len(closed_tickets),
             "avg_resolution_time_hours": round(avg_resolution_time, 2),
             "tickets_by_type": {
@@ -1186,7 +1324,10 @@ def get_site_performance_analytics(db: Session = Depends(get_db)):
     return site_performance
 
 @app.get("/analytics/user-performance")
-def get_user_performance_analytics(db: Session = Depends(get_db)):
+def get_user_performance_analytics(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     """Get performance analytics by user"""
     users = crud.get_users(db)
     tickets = crud.get_tickets(db)
@@ -1195,7 +1336,7 @@ def get_user_performance_analytics(db: Session = Depends(get_db)):
     
     for user in users:
         assigned_tickets = [t for t in tickets if t.assigned_user_id == user.user_id]
-        closed_tickets = [t for t in assigned_tickets if t.status == 'closed']
+        closed_tickets = [t for t in assigned_tickets if _status_equals(t.status, schemas.TicketStatus.closed)]
         
         avg_resolution_time = 0
         if closed_tickets:
@@ -1216,18 +1357,22 @@ def get_user_performance_analytics(db: Session = Depends(get_db)):
             "closed_tickets": len(closed_tickets),
             "avg_resolution_time_hours": round(avg_resolution_time, 2),
             "tickets_by_status": {
-                "open": len([t for t in assigned_tickets if t.status == 'open']),
-                "in_progress": len([t for t in assigned_tickets if t.status == 'in_progress']),
-                "pending": len([t for t in assigned_tickets if t.status == 'pending']),
-                "closed": len(closed_tickets),
-                "approved": len([t for t in assigned_tickets if t.status == 'approved'])
+                            "open": len([t for t in assigned_tickets if _status_equals(t.status, schemas.TicketStatus.open)]),
+            "in_progress": len([t for t in assigned_tickets if _status_equals(t.status, schemas.TicketStatus.in_progress)]),
+            "pending": len([t for t in assigned_tickets if _status_equals(t.status, schemas.TicketStatus.pending)]),
+            "closed": len(closed_tickets),
+            "approved": len([t for t in assigned_tickets if _status_equals(t.status, schemas.TicketStatus.approved)])
             }
         }
     
     return user_performance
 
 @app.get("/search")
-def search_endpoint(q: str, db: Session = Depends(get_db)):
+def search_endpoint(
+    q: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     """Search across tickets, sites, and users"""
     if not q or len(q.strip()) < 2:
         return {"tickets": [], "sites": [], "users": []}
@@ -1235,26 +1380,26 @@ def search_endpoint(q: str, db: Session = Depends(get_db)):
     search_term = f"%{q.strip()}%"
     
     # Search tickets
-    tickets = db.query(models.Ticket).filter(
-        models.Ticket.inc_number.ilike(search_term) |
-        models.Ticket.so_number.ilike(search_term) |
-        models.Ticket.notes.ilike(search_term) |
-        models.Ticket.customer_name.ilike(search_term)
-    ).limit(10).all()
+    tickets = db.query(models.Ticket).filter(or_(
+        models.Ticket.inc_number.ilike(search_term),
+        models.Ticket.so_number.ilike(search_term),
+        models.Ticket.notes.ilike(search_term),
+        models.Ticket.customer_name.ilike(search_term),
+    )).limit(10).all()
     
     # Search sites
-    sites = db.query(models.Site).filter(
-        models.Site.site_id.ilike(search_term) |
-        models.Site.location.ilike(search_term) |
-        models.Site.brand.ilike(search_term) |
-        models.Site.notes.ilike(search_term)
-    ).limit(10).all()
+    sites = db.query(models.Site).filter(or_(
+        models.Site.site_id.ilike(search_term),
+        models.Site.location.ilike(search_term),
+        models.Site.brand.ilike(search_term),
+        models.Site.notes.ilike(search_term),
+    )).limit(10).all()
     
     # Search users
-    users = db.query(models.User).filter(
-        models.User.name.ilike(search_term) |
-        models.User.email.ilike(search_term)
-    ).limit(10).all()
+    users = db.query(models.User).filter(or_(
+        models.User.name.ilike(search_term),
+        models.User.email.ilike(search_term),
+    )).limit(10).all()
     
     return {
         "tickets": [{"ticket_id": t.ticket_id, "inc_number": t.inc_number, "type": t.type, "status": t.status} for t in tickets],
@@ -1273,7 +1418,7 @@ def create_sla_rule(rule: schemas.SLARuleCreate, db: Session = Depends(get_db), 
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="sla_rule_create",
         old_value=None,
         new_value=str(result.rule_id)
@@ -1283,7 +1428,11 @@ def create_sla_rule(rule: schemas.SLARuleCreate, db: Session = Depends(get_db), 
     return result
 
 @app.get("/sla-rules/{rule_id}", response_model=schemas.SLARuleOut)
-def get_sla_rule(rule_id: str, db: Session = Depends(get_db)):
+def get_sla_rule(
+    rule_id: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     """Get a specific SLA rule"""
     rule = crud.get_sla_rule(db, rule_id=rule_id)
     if not rule:
@@ -1291,7 +1440,12 @@ def get_sla_rule(rule_id: str, db: Session = Depends(get_db)):
     return rule
 
 @app.get("/sla-rules/", response_model=List[schemas.SLARuleOut])
-def list_sla_rules(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_sla_rules(
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     """List all SLA rules"""
     return crud.get_sla_rules(db, skip=skip, limit=limit)
 
@@ -1306,7 +1460,7 @@ def update_sla_rule(rule_id: str, rule: schemas.SLARuleUpdate, db: Session = Dep
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="sla_rule_update",
         old_value=str(rule_id),
         new_value=str(rule_id)
@@ -1326,7 +1480,7 @@ def delete_sla_rule(rule_id: str, db: Session = Depends(get_db), current_user: m
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="sla_rule_delete",
         old_value=str(rule_id),
         new_value=None
@@ -1340,7 +1494,8 @@ def get_matching_sla_rule(
     ticket_type: str = None,
     customer_impact: str = None,
     business_priority: str = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
     """Get the matching SLA rule for given criteria"""
     rule = crud.get_matching_sla_rule(
@@ -1367,7 +1522,8 @@ def create_time_entry(
     ticket_id: str, 
     time_entry: schemas.TimeEntryCreate, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Create a new time entry for a ticket"""
     ticket = crud.get_ticket(db, ticket_id)
@@ -1381,7 +1537,8 @@ def create_time_entry(
     db_time_entry = crud.create_time_entry(db, time_entry_data)
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"time_entry_created:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"time_entry_created:{ticket_id}")
     
     return db_time_entry
 
@@ -1404,7 +1561,8 @@ def update_time_entry(
     entry_id: str, 
     time_entry: schemas.TimeEntryUpdate, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Update a time entry"""
     db_time_entry = crud.get_time_entry(db, entry_id)
@@ -1417,7 +1575,8 @@ def update_time_entry(
     updated_entry = crud.update_time_entry(db, entry_id, time_entry.dict(exclude_unset=True))
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"time_entry_updated:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"time_entry_updated:{ticket_id}")
     
     return updated_entry
 
@@ -1426,7 +1585,8 @@ def delete_time_entry(
     ticket_id: str, 
     entry_id: str, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Delete a time entry"""
     db_time_entry = crud.get_time_entry(db, entry_id)
@@ -1439,7 +1599,8 @@ def delete_time_entry(
     crud.delete_time_entry(db, entry_id)
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"time_entry_deleted:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"time_entry_deleted:{ticket_id}")
     
     return {"message": "Time entry deleted"}
 
@@ -1449,7 +1610,8 @@ def create_comment(
     ticket_id: str, 
     comment: schemas.TicketCommentCreate, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Create a new comment for a ticket"""
     ticket = crud.get_ticket(db, ticket_id)
@@ -1463,7 +1625,8 @@ def create_comment(
     db_comment = crud.create_ticket_comment(db, comment_data)
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"comment_created:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"comment_created:{ticket_id}")
     
     return db_comment
 
@@ -1486,7 +1649,8 @@ def update_comment(
     comment_id: str, 
     comment: schemas.TicketCommentUpdate, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Update a comment"""
     db_comment = crud.get_ticket_comment(db, comment_id)
@@ -1499,7 +1663,8 @@ def update_comment(
     updated_comment = crud.update_ticket_comment(db, comment_id, comment.dict(exclude_unset=True))
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"comment_updated:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"comment_updated:{ticket_id}")
     
     return updated_comment
 
@@ -1508,7 +1673,8 @@ def delete_comment(
     ticket_id: str, 
     comment_id: str, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Delete a comment"""
     db_comment = crud.get_ticket_comment(db, comment_id)
@@ -1521,7 +1687,8 @@ def delete_comment(
     crud.delete_ticket_comment(db, comment_id)
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"comment_deleted:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"comment_deleted:{ticket_id}")
     
     return {"message": "Comment deleted"}
 
@@ -1532,7 +1699,8 @@ def claim_ticket(
     ticket_id: str,
     claim_data: schemas.TicketClaim,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Claim a ticket for in-house tech work"""
     result = crud.claim_ticket(db, ticket_id, claim_data.claimed_by)
@@ -1540,7 +1708,8 @@ def claim_ticket(
         raise HTTPException(status_code=404, detail="Ticket not found")
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"ticket_claimed:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"ticket_claimed:{ticket_id}")
     
     return result
 
@@ -1549,7 +1718,8 @@ def check_in_ticket(
     ticket_id: str,
     check_in_data: schemas.TicketCheckIn,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Check in a field tech for onsite work"""
     result = crud.check_in_ticket(db, ticket_id, check_in_data.onsite_tech_id)
@@ -1557,7 +1727,8 @@ def check_in_ticket(
         raise HTTPException(status_code=404, detail="Ticket not found")
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"ticket_checked_in:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"ticket_checked_in:{ticket_id}")
     
     return result
 
@@ -1566,7 +1737,8 @@ def check_out_ticket(
     ticket_id: str,
     check_out_data: schemas.TicketCheckOut,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Check out a field tech from onsite work"""
     result = crud.check_out_ticket(db, ticket_id, check_out_data.dict())
@@ -1574,7 +1746,8 @@ def check_out_ticket(
         raise HTTPException(status_code=404, detail="Ticket not found")
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"ticket_checked_out:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"ticket_checked_out:{ticket_id}")
     
     return result
 
@@ -1604,7 +1777,8 @@ def update_ticket_costs(
     ticket_id: str,
     cost_data: schemas.TicketCostUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Update ticket cost information"""
     result = crud.update_ticket_costs(db, ticket_id, cost_data.dict(exclude_unset=True))
@@ -1612,7 +1786,8 @@ def update_ticket_costs(
         raise HTTPException(status_code=404, detail="Ticket not found")
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"ticket_costs_updated:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"ticket_costs_updated:{ticket_id}")
     
     return result
 
@@ -1633,7 +1808,7 @@ def create_site_equipment(
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="site_equipment_create",
         old_value=None,
         new_value=str(result.equipment_id)
@@ -1645,39 +1820,41 @@ def create_site_equipment(
 @app.get("/sites/{site_id}/equipment", response_model=List[schemas.SiteEquipmentOut])
 def get_site_equipment(
     site_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
     """Get all equipment for a site"""
     return crud.get_site_equipment_by_site(db, site_id)
 
-@app.get("/equipment/{equipment_id}", response_model=schemas.SiteEquipmentOut)
-def get_equipment(
+@app.get("/site-equipment/{equipment_id}", response_model=schemas.SiteEquipmentOut)
+def get_site_equipment_by_id(
     equipment_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    """Get specific equipment"""
+    """Get specific site equipment"""
     equipment = crud.get_site_equipment(db, equipment_id)
     if not equipment:
-        raise HTTPException(status_code=404, detail="Equipment not found")
+        raise HTTPException(status_code=404, detail="Site equipment not found")
     return equipment
 
-@app.put("/equipment/{equipment_id}", response_model=schemas.SiteEquipmentOut)
-def update_equipment(
+@app.put("/site-equipment/{equipment_id}", response_model=schemas.SiteEquipmentOut)
+def update_site_equipment(
     equipment_id: str,
     equipment: schemas.SiteEquipmentUpdate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    """Update equipment"""
+    """Update site equipment"""
     result = crud.update_site_equipment(db, equipment_id, equipment)
     if not result:
-        raise HTTPException(status_code=404, detail="Equipment not found")
+        raise HTTPException(status_code=404, detail="Site equipment not found")
     
     # Create audit log
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="site_equipment_update",
         old_value=str(equipment_id),
         new_value=str(equipment_id)
@@ -1686,29 +1863,29 @@ def update_equipment(
     
     return result
 
-@app.delete("/equipment/{equipment_id}")
-def delete_equipment(
+@app.delete("/site-equipment/{equipment_id}")
+def delete_site_equipment(
     equipment_id: str,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    """Delete equipment"""
+    """Delete site equipment"""
     result = crud.delete_site_equipment(db, equipment_id)
     if not result:
-        raise HTTPException(status_code=404, detail="Equipment not found")
+        raise HTTPException(status_code=404, detail="Site equipment not found")
     
     # Create audit log
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(timezone.utc),
         field_changed="site_equipment_delete",
         old_value=str(equipment_id),
         new_value=None
     )
     crud.create_ticket_audit(db, audit)
     
-    return {"message": "Equipment deleted"}
+    return {"message": "Site equipment deleted"}
 
 # Ticket Attachment Endpoints
 
@@ -1717,7 +1894,8 @@ def create_ticket_attachment(
     ticket_id: str,
     attachment: schemas.TicketAttachmentCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Upload a file attachment to a ticket"""
     attachment.ticket_id = ticket_id
@@ -1726,7 +1904,8 @@ def create_ticket_attachment(
     result = crud.create_ticket_attachment(db, attachment)
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"attachment_uploaded:{ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"attachment_uploaded:{ticket_id}")
     
     return result
 
@@ -1742,7 +1921,8 @@ def get_ticket_attachments(
 @app.get("/attachments/{attachment_id}", response_model=schemas.TicketAttachmentOut)
 def get_attachment(
     attachment_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
     """Get specific attachment"""
     attachment = crud.get_ticket_attachment(db, attachment_id)
@@ -1755,7 +1935,8 @@ def update_attachment(
     attachment_id: str,
     attachment: schemas.TicketAttachmentUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Update attachment"""
     result = crud.update_ticket_attachment(db, attachment_id, attachment)
@@ -1763,7 +1944,8 @@ def update_attachment(
         raise HTTPException(status_code=404, detail="Attachment not found")
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"attachment_updated:{result.ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"attachment_updated:{result.ticket_id}")
     
     return result
 
@@ -1771,7 +1953,8 @@ def update_attachment(
 def delete_attachment(
     attachment_id: str,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Delete attachment"""
     attachment = crud.get_ticket_attachment(db, attachment_id)
@@ -1781,6 +1964,7 @@ def delete_attachment(
     result = crud.delete_ticket_attachment(db, attachment_id)
     
     # Broadcast update
-    asyncio.create_task(manager.broadcast(f"attachment_deleted:{attachment.ticket_id}"))
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, f"attachment_deleted:{attachment.ticket_id}")
     
     return {"message": "Attachment deleted"}

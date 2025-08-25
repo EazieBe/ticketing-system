@@ -24,6 +24,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useWebSocket from './hooks/useWebSocket';
 
 function Sites() {
   const { user } = useAuth();
@@ -46,6 +47,8 @@ function Sites() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   const [copySuccess, setCopySuccess] = useState('');
+
+  // WebSocket setup - will be configured after fetchSites is defined
 
   const handleCopyIP = async (ipAddress) => {
     try {
@@ -87,13 +90,13 @@ function Sites() {
 
   const fetchSites = useCallback(async () => {
     try {
+      setLoading(true);
       console.log('Fetching sites...');
       const response = await api.get('/sites/');
-      console.log('Raw response:', response);
+      console.log('Raw response:', response.data);
       console.log('Response data:', response.data);
-      // The response itself is the sites array
-      const sitesArray = Array.isArray(response) ? response : 
-                        Array.isArray(response.data) ? response.data : [];
+      // The response.data contains the sites array
+      const sitesArray = Array.isArray(response.data) ? response.data : [];
       console.log('Fetched sites:', sitesArray.length, 'sites');
       console.log('First site:', sitesArray[0]);
       setSites(sitesArray);
@@ -106,6 +109,21 @@ function Sites() {
       setLoading(false);
     }
   }, [api]);
+
+  // WebSocket callback functions - defined after fetchSites
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'site_update' || message.type === 'site_created' || message.type === 'site_deleted') {
+        // Refresh sites when there are updates
+        fetchSites();
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, [fetchSites]);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
 
   useEffect(() => {
     fetchSites();
@@ -127,15 +145,21 @@ function Sites() {
   };
 
   const handleSubmit = (values) => {
+    console.log('Sites handleSubmit called with values:', values);
+    console.log('editSite:', editSite);
+    
     if (editSite) {
+      console.log('Updating site:', editSite.site_id);
       api.put(`/sites/${editSite.site_id}`, values)
         .then((response) => {
+          console.log('Site update response:', response);
           // Update the site in the local state immediately
           setSites(prevSites => prevSites.map(s => 
-            s.site_id === editSite.site_id ? response.data : s
+            s.site_id === editSite.site_id ? response : s
           ));
           handleClose();
           setError(null);
+          showToast('Site updated successfully', 'success');
         })
         .catch((err) => {
           console.error('Update site error:', err);
@@ -146,12 +170,15 @@ function Sites() {
           }
         });
     } else {
+      console.log('Creating new site');
       api.post('/sites/', values)
         .then((response) => {
+          console.log('Site create response:', response);
           // Add the new site to the local state immediately
-          setSites(prevSites => [...prevSites, response.data]);
+          setSites(prevSites => [...prevSites, response]);
           handleClose();
           setError(null);
+          showToast('Site created successfully', 'success');
         })
         .catch((err) => {
           console.error('Add site error:', err);
@@ -172,13 +199,14 @@ function Sites() {
   const handleDeleteConfirm = () => {
     if (!deleteSite) return;
     
-    api.delete(`/sites/${deleteSite.site_id}`, { data: {} })
+    api.delete(`/sites/${deleteSite.site_id}`)
       .then(() => {
         setDeleteDialog(false);
         // Remove the site from the local state immediately
         setSites(prevSites => prevSites.filter(s => s.site_id !== deleteSite.site_id));
         setDeleteSite(null);
         setError(null);
+        showToast('Site deleted successfully', 'success');
       })
       .catch((err) => {
         console.error('Delete site error:', err);
@@ -353,11 +381,25 @@ function Sites() {
     if (importPreview.length === 0) return;
     
     try {
-      const importPromises = importPreview.map(site => 
-        api.post('/sites/', site).catch(err => ({ error: err, site }))
-      );
+      // Process sites in batches to avoid overwhelming the server
+      const batchSize = 5;
+      const results = [];
       
-      await Promise.all(importPromises);
+      for (let i = 0; i < importPreview.length; i += batchSize) {
+        const batch = importPreview.slice(i, i + batchSize);
+        const batchPromises = batch.map(site => 
+          api.post('/sites/', site).catch(err => ({ error: err, site }))
+        );
+        
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults);
+        
+        // Add delay between batches to prevent server overload
+        if (i + batchSize < importPreview.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
       setCsvImportDialog(false);
       setCsvData('');
       setImportPreview([]);

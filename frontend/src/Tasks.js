@@ -13,6 +13,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useWebSocket from './hooks/useWebSocket';
 import dayjs from 'dayjs';
 import TaskForm from './TaskForm';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -38,6 +39,8 @@ function Tasks() {
   const [noteText, setNoteText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
 
+  // WebSocket setup - will be configured after fetchTasks is defined
+
   const fetchTasks = useCallback(async () => {
     try {
       setLoading(true);
@@ -52,6 +55,20 @@ function Tasks() {
       setLoading(false);
     }
   }, [api]);
+
+  // WebSocket callback functions - defined after fetchTasks
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'task_update' || message.type === 'task_created' || message.type === 'task_deleted') {
+        fetchTasks(); // Refresh tasks when there's an update
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, [fetchTasks]);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
 
   useEffect(() => {
     fetchTasks();

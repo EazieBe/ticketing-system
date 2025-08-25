@@ -28,7 +28,6 @@ function Reports() {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [reportData, setReportData] = useState({});
   const [dateRange, setDateRange] = useState(30);
   const [selectedReport, setSelectedReport] = useState('overview');
   const [showFilters, setShowFilters] = useState(false);
@@ -44,28 +43,14 @@ function Reports() {
     type: 'all'
   });
 
-  const fetchReportData = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await api.get(`/reports/?date_from=${filters.dateFrom}&date_to=${filters.dateTo}&type=${filters.type}`);
-      setReportData(response || {});
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching report data:', err);
-      setError('Failed to load report data');
-      setReportData({});
-    } finally {
-      setLoading(false);
-    }
-  }, [api, filters.dateFrom, filters.dateTo, filters.type]);
-
   useEffect(() => {
-    fetchReportData();
     fetchData();
-  }, [filters, fetchReportData]);
+  }, [filters]);
 
   const fetchData = async () => {
     try {
+      setLoading(true);
+      setError(null);
       const [ticketsRes, sitesRes, usersRes, fieldTechsRes, shipmentsRes, inventoryRes] = await Promise.all([
         api.get('/tickets/'),
         api.get('/sites/'),
@@ -83,6 +68,9 @@ function Reports() {
       setInventory(inventoryRes || []);
     } catch (err) {
       console.error('Error fetching data:', err);
+      setError('Failed to load report data');
+    } finally {
+      setLoading(false);
     }
   };
 

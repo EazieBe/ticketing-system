@@ -2,7 +2,7 @@ from sqlalchemy import Column, String, Integer, Float, Date, DateTime, ForeignKe
 from sqlalchemy.orm import relationship
 from database import Base
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 class UserRole(enum.Enum):
     tech = 'tech'
@@ -299,8 +299,8 @@ class TicketComment(Base):
     user_id = Column(String, ForeignKey('users.user_id'))
     comment = Column(Text, nullable=False)
     is_internal = Column(Boolean, default=False)  # Internal note vs customer visible
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     ticket = relationship('Ticket', back_populates='comments')
     user = relationship('User')
 
@@ -315,7 +315,7 @@ class TimeEntry(Base):
     description = Column(Text)  # What was done during this time
     is_billable = Column(Boolean, default=True)
     hourly_rate = Column(Float, default=0.0)  # Hourly rate for billing
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     ticket = relationship('Ticket', back_populates='time_entries')
     user = relationship('User')
 
@@ -331,8 +331,8 @@ class SLARule(Base):
     sla_breach_hours = Column(Integer, default=48)
     escalation_levels = Column(Integer, default=3)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)) 
 
 class SiteEquipment(Base):
     __tablename__ = 'site_equipment'
@@ -346,8 +346,8 @@ class SiteEquipment(Base):
     maintenance_notes = Column(Text)
     rack_location = Column(String)
     additional_details = Column(Text)  # Flexible field for any additional info
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     site = relationship('Site', back_populates='site_equipment')
 
 class TicketAttachment(Base):
@@ -359,7 +359,7 @@ class TicketAttachment(Base):
     file_size = Column(Integer)  # Size in bytes
     external_url = Column(String)  # URL to external storage (Google Drive, Dropbox, etc.)
     uploaded_by = Column(String, ForeignKey('users.user_id'))
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     description = Column(Text)  # Optional description of the attachment
     ticket = relationship('Ticket', back_populates='attachments')
     user = relationship('User') 

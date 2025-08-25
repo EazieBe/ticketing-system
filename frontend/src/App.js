@@ -62,7 +62,7 @@ import {
   Error,
   Info
 } from '@mui/icons-material';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
 import ThemePreview from './components/ThemePreview';
@@ -76,6 +76,11 @@ import SiteDetail from './SiteDetail';
 import SiteForm from './SiteForm';
 import Users from './Users';
 import UserForm from './UserForm';
+import EquipmentForm from './EquipmentForm';
+import InventoryForm from './InventoryForm';
+import TaskForm from './TaskForm';
+import ShipmentForm from './ShipmentForm';
+import FieldTechForm from './FieldTechForm';
 import FieldTechMap from './FieldTechMap';
 import SLAManagement from './SLAManagement';
 import DailyOperationsDashboard from './components/DailyOperationsDashboard';
@@ -92,8 +97,507 @@ import SettingsPage from './Settings';
 import Profile from './Profile';
 
 import ChangePassword from './ChangePassword';
+import useApi from './hooks/useApi';
+import { useToast } from './contexts/ToastContext';
 
 const drawerWidth = 280;
+
+// TicketFormWrapper component to handle form submission
+function TicketFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { showToast } = useToast();
+
+  const handleSubmit = async (values) => {
+    try {
+      console.log('TicketFormWrapper: Submitting values:', values);
+      console.log('TicketFormWrapper: api object:', api);
+      
+      if (!api || typeof api.post !== 'function') {
+        throw new Error('API object is not properly initialized');
+      }
+      
+      const response = await api.post('/tickets/', values);
+      console.log('TicketFormWrapper: Response:', response);
+      showToast('Ticket created successfully', 'success');
+      navigate('/tickets');
+    } catch (err) {
+      console.error('Error creating ticket:', err);
+      showToast('Error creating ticket', 'error');
+    }
+  };
+
+  return <TicketForm onSubmit={handleSubmit} />;
+}
+
+// SiteFormWrapper component to handle form submission
+function SiteFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { showToast } = useToast();
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/sites/', values);
+      showToast('Site created successfully', 'success');
+      navigate('/sites');
+    } catch (err) {
+      console.error('Error creating site:', err);
+      showToast('Error creating site', 'error');
+    }
+  };
+
+  return <SiteForm onSubmit={handleSubmit} />;
+}
+
+// UserFormWrapper component to handle form submission
+function UserFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { showToast } = useToast();
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/users/', values);
+      showToast('User created successfully', 'success');
+      navigate('/users');
+    } catch (err) {
+      console.error('Error creating user:', err);
+      showToast('Error creating user', 'error');
+    }
+  };
+
+  return <UserForm onSubmit={handleSubmit} />;
+}
+
+// EquipmentFormWrapper component to handle form submission
+function EquipmentFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { showToast } = useToast();
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/equipment/', values);
+      showToast('Equipment created successfully', 'success');
+      navigate('/equipment');
+    } catch (err) {
+      console.error('Error creating equipment:', err);
+      showToast('Error creating equipment', 'error');
+    }
+  };
+
+  return <EquipmentForm onSubmit={handleSubmit} />;
+}
+
+// InventoryFormWrapper component to handle form submission
+function InventoryFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { showToast } = useToast();
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/inventory/', values);
+      showToast('Inventory item created successfully', 'success');
+      navigate('/inventory');
+    } catch (err) {
+      console.error('Error creating inventory item:', err);
+      showToast('Error creating inventory item', 'error');
+    }
+  };
+
+  return <InventoryForm onSubmit={handleSubmit} />;
+}
+
+// TaskFormWrapper component to handle form submission
+function TaskFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { showToast } = useToast();
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/tasks/', values);
+      showToast('Task created successfully', 'success');
+      navigate('/tasks');
+    } catch (err) {
+      console.error('Error creating task:', err);
+      showToast('Error creating task', 'error');
+    }
+  };
+
+  return <TaskForm onSubmit={handleSubmit} />;
+}
+
+// ShipmentFormWrapper component to handle form submission
+function ShipmentFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { showToast } = useToast();
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/shipments/', values);
+      showToast('Shipment created successfully', 'success');
+      navigate('/shipments');
+    } catch (err) {
+      console.error('Error creating shipment:', err);
+      showToast('Error creating shipment', 'error');
+    }
+  };
+
+  return <ShipmentForm onSubmit={handleSubmit} />;
+}
+
+// FieldTechFormWrapper component to handle form submission
+function FieldTechFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { showToast } = useToast();
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/fieldtechs/', values);
+      showToast('Field tech created successfully', 'success');
+      navigate('/fieldtechs');
+    } catch (err) {
+      console.error('Error creating field tech:', err);
+      showToast('Error creating field tech', 'error');
+    }
+  };
+
+  return <FieldTechForm onSubmit={handleSubmit} />;
+}
+
+// Edit wrapper components
+function TicketEditWrapper() {
+  const navigate = useNavigate();
+  const { ticket_id } = useParams();
+  const api = useApi();
+  const { showToast } = useToast();
+  const [ticket, setTicket] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTicket = async () => {
+      try {
+        const response = await api.get(`/tickets/${ticket_id}`);
+        setTicket(response);
+      } catch (err) {
+        console.error('Error fetching ticket:', err);
+        showToast('Error loading ticket', 'error');
+        navigate('/tickets');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTicket();
+  }, [ticket_id, api, navigate, showToast]);
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/tickets/${ticket_id}`, values);
+      showToast('Ticket updated successfully', 'success');
+      navigate('/tickets');
+    } catch (err) {
+      console.error('Error updating ticket:', err);
+      showToast('Error updating ticket', 'error');
+    }
+  };
+
+  if (loading) return <div>Loading...</div>;
+  if (!ticket) return <div>Ticket not found</div>;
+
+  return <TicketForm onSubmit={handleSubmit} initialValues={ticket} isEdit={true} />;
+}
+
+function SiteEditWrapper() {
+  const navigate = useNavigate();
+  const { site_id } = useParams();
+  const api = useApi();
+  const { showToast } = useToast();
+  const [site, setSite] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSite = async () => {
+      try {
+        const response = await api.get(`/sites/${site_id}`);
+        setSite(response);
+      } catch (err) {
+        console.error('Error fetching site:', err);
+        showToast('Error loading site', 'error');
+        navigate('/sites');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSite();
+  }, [site_id, api, navigate, showToast]);
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/sites/${site_id}`, values);
+      showToast('Site updated successfully', 'success');
+      navigate('/sites');
+    } catch (err) {
+      console.error('Error updating site:', err);
+      showToast('Error updating site', 'error');
+    }
+  };
+
+  if (loading) return <div>Loading...</div>;
+  if (!site) return <div>Site not found</div>;
+
+  return <SiteForm onSubmit={handleSubmit} initialValues={site} isEdit={true} />;
+}
+
+function UserEditWrapper() {
+  const navigate = useNavigate();
+  const { user_id } = useParams();
+  const api = useApi();
+  const { showToast } = useToast();
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const response = await api.get(`/users/${user_id}`);
+        setUser(response);
+      } catch (err) {
+        console.error('Error fetching user:', err);
+        showToast('Error loading user', 'error');
+        navigate('/users');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchUser();
+  }, [user_id, api, navigate, showToast]);
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/users/${user_id}`, values);
+      showToast('User updated successfully', 'success');
+      navigate('/users');
+    } catch (err) {
+      console.error('Error updating user:', err);
+      showToast('Error updating user', 'error');
+    }
+  };
+
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <div>User not found</div>;
+
+  return <UserForm onSubmit={handleSubmit} initialValues={user} isEdit={true} />;
+}
+
+function EquipmentEditWrapper() {
+  const navigate = useNavigate();
+  const { equipment_id } = useParams();
+  const api = useApi();
+  const { showToast } = useToast();
+  const [equipment, setEquipment] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchEquipment = async () => {
+      try {
+        const response = await api.get(`/equipment/${equipment_id}`);
+        setEquipment(response);
+      } catch (err) {
+        console.error('Error fetching equipment:', err);
+        showToast('Error loading equipment', 'error');
+        navigate('/equipment');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchEquipment();
+  }, [equipment_id, api, navigate, showToast]);
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/equipment/${equipment_id}`, values);
+      showToast('Equipment updated successfully', 'success');
+      navigate('/equipment');
+    } catch (err) {
+      console.error('Error updating equipment:', err);
+      showToast('Error updating equipment', 'error');
+    }
+  };
+
+  if (loading) return <div>Loading...</div>;
+  if (!equipment) return <div>Equipment not found</div>;
+
+  return <EquipmentForm onSubmit={handleSubmit} initialValues={equipment} isEdit={true} />;
+}
+
+function InventoryEditWrapper() {
+  const navigate = useNavigate();
+  const { item_id } = useParams();
+  const api = useApi();
+  const { showToast } = useToast();
+  const [item, setItem] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchItem = async () => {
+      try {
+        const response = await api.get(`/inventory/${item_id}`);
+        setItem(response);
+      } catch (err) {
+        console.error('Error fetching inventory item:', err);
+        showToast('Error loading inventory item', 'error');
+        navigate('/inventory');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchItem();
+  }, [item_id, api, navigate, showToast]);
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/inventory/${item_id}`, values);
+      showToast('Inventory item updated successfully', 'success');
+      navigate('/inventory');
+    } catch (err) {
+      console.error('Error updating inventory item:', err);
+      showToast('Error updating inventory item', 'error');
+    }
+  };
+
+  if (loading) return <div>Loading...</div>;
+  if (!item) return <div>Inventory item not found</div>;
+
+  return <InventoryForm onSubmit={handleSubmit} initialValues={item} isEdit={true} />;
+}
+
+function TaskEditWrapper() {
+  const navigate = useNavigate();
+  const { task_id } = useParams();
+  const api = useApi();
+  const { showToast } = useToast();
+  const [task, setTask] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTask = async () => {
+      try {
+        const response = await api.get(`/tasks/${task_id}`);
+        setTask(response);
+      } catch (err) {
+        console.error('Error fetching task:', err);
+        showToast('Error loading task', 'error');
+        navigate('/tasks');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTask();
+  }, [task_id, api, navigate, showToast]);
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/tasks/${task_id}`, values);
+      showToast('Task updated successfully', 'success');
+      navigate('/tasks');
+    } catch (err) {
+      console.error('Error updating task:', err);
+      showToast('Error updating task', 'error');
+    }
+  };
+
+  if (loading) return <div>Loading...</div>;
+  if (!task) return <div>Task not found</div>;
+
+  return <TaskForm onSubmit={handleSubmit} initialValues={task} isEdit={true} />;
+}
+
+function ShipmentEditWrapper() {
+  const navigate = useNavigate();
+  const { shipment_id } = useParams();
+  const api = useApi();
+  const { showToast } = useToast();
+  const [shipment, setShipment] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchShipment = async () => {
+      try {
+        const response = await api.get(`/shipments/${shipment_id}`);
+        setShipment(response);
+      } catch (err) {
+        console.error('Error fetching shipment:', err);
+        showToast('Error loading shipment', 'error');
+        navigate('/shipments');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchShipment();
+  }, [shipment_id, api, navigate, showToast]);
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/shipments/${shipment_id}`, values);
+      showToast('Shipment updated successfully', 'success');
+      navigate('/shipments');
+    } catch (err) {
+      console.error('Error updating shipment:', err);
+      showToast('Error updating shipment', 'error');
+    }
+  };
+
+  if (loading) return <div>Loading...</div>;
+  if (!shipment) return <div>Shipment not found</div>;
+
+  return <ShipmentForm onSubmit={handleSubmit} initialValues={shipment} isEdit={true} />;
+}
+
+function FieldTechEditWrapper() {
+  const navigate = useNavigate();
+  const { field_tech_id } = useParams();
+  const api = useApi();
+  const { showToast } = useToast();
+  const [fieldTech, setFieldTech] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchFieldTech = async () => {
+      try {
+        const response = await api.get(`/fieldtechs/${field_tech_id}`);
+        setFieldTech(response);
+      } catch (err) {
+        console.error('Error fetching field tech:', err);
+        showToast('Error loading field tech', 'error');
+        navigate('/fieldtechs');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchFieldTech();
+  }, [field_tech_id, api, navigate, showToast]);
+
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/fieldtechs/${field_tech_id}`, values);
+      showToast('Field tech updated successfully', 'success');
+      navigate('/fieldtechs');
+    } catch (err) {
+      console.error('Error updating field tech:', err);
+      showToast('Error updating field tech', 'error');
+    }
+  };
+
+  if (loading) return <div>Loading...</div>;
+  if (!fieldTech) return <div>Field tech not found</div>;
+
+  return <FieldTechForm onSubmit={handleSubmit} initialValues={fieldTech} isEdit={true} />;
+}
 
 // Color theme options
 const colorThemes = {
@@ -731,19 +1235,52 @@ function AppLayout() {
         >
           <Routes>
             <Route path="/" element={<DailyOperationsDashboard />} />
+            
+            {/* Ticket Routes */}
             <Route path="/tickets" element={<Tickets />} />
-            <Route path="/tickets/new" element={<TicketForm />} />
+            <Route path="/tickets/new" element={<TicketFormWrapper />} />
             <Route path="/tickets/:ticket_id" element={<TicketDetail />} />
+            <Route path="/tickets/:ticket_id/edit" element={<TicketEditWrapper />} />
             <Route path="/tickets/:ticket_id/claim" element={<TicketClaim />} />
+            
+            {/* Site Routes */}
             <Route path="/sites" element={<Sites />} />
+            <Route path="/sites/new" element={<SiteFormWrapper />} />
             <Route path="/sites/:site_id" element={<SiteDetail />} />
-            <Route path="/shipments" element={<ShippingManagement />} />
-            <Route path="/inventory" element={<Inventory />} />
-            <Route path="/fieldtechs" element={<FieldTechs />} />
-            <Route path="/tasks" element={<Tasks />} />
-            <Route path="/equipment" element={<Equipment />} />
-            <Route path="/audit" element={<Audit />} />
+            <Route path="/sites/:site_id/edit" element={<SiteEditWrapper />} />
+            
+            {/* User Routes */}
             <Route path="/users" element={<Users />} />
+            <Route path="/users/new" element={<UserFormWrapper />} />
+            <Route path="/users/:user_id/edit" element={<UserEditWrapper />} />
+            
+            {/* Equipment Routes */}
+            <Route path="/equipment" element={<Equipment />} />
+            <Route path="/equipment/new" element={<EquipmentFormWrapper />} />
+            <Route path="/equipment/:equipment_id/edit" element={<EquipmentEditWrapper />} />
+            
+            {/* Inventory Routes */}
+            <Route path="/inventory" element={<Inventory />} />
+            <Route path="/inventory/new" element={<InventoryFormWrapper />} />
+            <Route path="/inventory/:item_id/edit" element={<InventoryEditWrapper />} />
+            
+            {/* Task Routes */}
+            <Route path="/tasks" element={<Tasks />} />
+            <Route path="/tasks/new" element={<TaskFormWrapper />} />
+            <Route path="/tasks/:task_id/edit" element={<TaskEditWrapper />} />
+            
+            {/* Shipment Routes */}
+            <Route path="/shipments" element={<ShippingManagement />} />
+            <Route path="/shipments/new" element={<ShipmentFormWrapper />} />
+            <Route path="/shipments/:shipment_id/edit" element={<ShipmentEditWrapper />} />
+            
+            {/* Field Tech Routes */}
+            <Route path="/fieldtechs" element={<FieldTechs />} />
+            <Route path="/fieldtechs/new" element={<FieldTechFormWrapper />} />
+            <Route path="/fieldtechs/:field_tech_id/edit" element={<FieldTechEditWrapper />} />
+            
+            {/* Other Routes */}
+            <Route path="/audit" element={<Audit />} />
             <Route path="/map" element={<FieldTechMap />} />
             <Route path="/sla" element={<SLAManagement />} />
             <Route path="/reports" element={<Reports />} />

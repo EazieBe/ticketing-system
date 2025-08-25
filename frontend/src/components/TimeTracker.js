@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Typography, Button, Card, CardContent, Chip, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, FormControl, InputLabel, Select, MenuItem,
@@ -39,18 +39,30 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
     description: '',
     is_billable: true
   });
+  
+  // Prevent multiple simultaneous API calls
+  const fetchingRef = useRef(false);
 
   const fetchTimeEntries = useCallback(async () => {
+    // Prevent multiple simultaneous calls
+    if (fetchingRef.current) return;
+    
     try {
+      fetchingRef.current = true;
       setLoading(true);
-      const response = await api.get(`/tickets/${ticketId}/time-entries`);
+      setError(null);
+      const response = await api.get(`/tickets/${ticketId}/time-entries/`);
       setTimeEntries(response || []);
     } catch (err) {
       console.error('Error fetching time entries:', err);
-      setError('Failed to load time entries');
+      // Don't show error for missing time entries - they might not exist yet
+      if (err.response?.status !== 404) {
+        setError('Failed to load time entries');
+      }
       setTimeEntries([]);
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
   }, [api, ticketId]);
 
@@ -61,9 +73,26 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
   }, [ticketId]);
 
   useEffect(() => {
-    fetchTimeEntries();
-    startTimer();
-  }, [fetchTimeEntries, startTimer]);
+    // Only fetch if we have a valid ticketId
+    if (ticketId) {
+      fetchTimeEntries();
+    }
+  }, [fetchTimeEntries, ticketId]);
+
+  // Start timer only once when component mounts
+  useEffect(() => {
+    // Check if there's an active session in localStorage
+    const activeSession = localStorage.getItem(`active_session_${ticketId}`);
+    if (activeSession) {
+      try {
+        const session = JSON.parse(activeSession);
+        setCurrentSession(session);
+        setIsRunning(true);
+      } catch (err) {
+        localStorage.removeItem(`active_session_${ticketId}`);
+      }
+    }
+  }, [ticketId]);
 
   useEffect(() => {
     let interval;

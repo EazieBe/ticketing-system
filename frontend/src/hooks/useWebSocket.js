@@ -4,8 +4,8 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
   const ws = useRef(null);
   const reconnectTimeout = useRef(null);
   const reconnectAttempts = useRef(0);
-  const maxReconnectAttempts = 3; // Reduced from 5
-  const reconnectDelay = 2000; // Increased from 1000ms
+  const maxReconnectAttempts = 2; // Reduced from 3
+  const reconnectDelay = 5000; // Increased from 2000ms
   const isConnecting = useRef(false);
   const pingInterval = useRef(null);
   
@@ -42,7 +42,7 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
           if (ws.current && ws.current.readyState === WebSocket.OPEN) {
             ws.current.send(JSON.stringify({ type: 'ping' }));
           }
-        }, 30000); // Send ping every 30 seconds
+        }, 60000); // Send ping every 60 seconds (reduced frequency)
         
         if (onOpenRef.current) onOpenRef.current();
       };

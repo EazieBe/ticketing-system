@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Container, Typography, TextField, Button, Box, FormControl, InputLabel, Select, MenuItem,
@@ -20,76 +20,43 @@ import dayjs from 'dayjs';
 const typeOptions = [
   { value: 'inhouse', label: 'In-House', icon: '🏢', color: '#1976d2' },
   { value: 'onsite', label: 'Onsite', icon: '📍', color: '#388e3c' },
-  { value: 'shipping', label: 'Shipping', icon: '📦', color: '#f57c00' },
   { value: 'projects', label: 'Projects', icon: '📋', color: '#7b1fa2' },
-  { value: 'nro', label: 'NRO', icon: '⚡', color: '#d32f2f' },
   { value: 'misc', label: 'MISC', icon: '🔧', color: '#5d4037' }
 ];
 
-// Status options based on ticket type
+// Status options based on ticket type - matching backend schema
 const getStatusOptions = (ticketType) => {
+  const allStatuses = [
+    { value: 'open', label: 'Open', color: 'primary' },
+    { value: 'scheduled', label: 'Scheduled', color: 'info' },
+    { value: 'checked_in', label: 'Checked In', color: 'warning' },
+    { value: 'in_progress', label: 'In Progress', color: 'secondary' },
+    { value: 'pending', label: 'Pending', color: 'warning' },
+    { value: 'needs_parts', label: 'Needs Parts', color: 'error' },
+    { value: 'go_back_scheduled', label: 'Go Back Scheduled', color: 'info' },
+    { value: 'completed', label: 'Completed', color: 'success' },
+    { value: 'closed', label: 'Closed', color: 'success' }
+  ];
+  
+  // Filter statuses based on ticket type for better UX
   switch (ticketType) {
     case 'inhouse':
-      return [
-        { value: 'open', label: 'Open', color: 'primary' },
-        { value: 'in_progress', label: 'In Progress', color: 'info' },
-        { value: 'pending', label: 'Pending', color: 'warning' },
-        { value: 'closed', label: 'Closed', color: 'success' },
-        { value: 'approved', label: 'Approved', color: 'success' }
-      ];
+      return allStatuses.filter(s => ['open', 'in_progress', 'pending', 'completed', 'closed'].includes(s.value));
     case 'onsite':
-      return [
-        { value: 'open', label: 'Open', color: 'primary' },
-        { value: 'checked_in', label: 'Checked In', color: 'info' },
-        { value: 'closed', label: 'Closed', color: 'success' },
-        { value: 'return', label: 'Return', color: 'warning' },
-        { value: 'approved', label: 'Approved', color: 'success' }
-      ];
-    case 'shipping':
-      return [
-        { value: 'open', label: 'Open', color: 'primary' },
-        { value: 'in_progress', label: 'In Progress', color: 'info' },
-        { value: 'shipped', label: 'Shipped', color: 'success' },
-        { value: 'delivered', label: 'Delivered', color: 'success' },
-        { value: 'closed', label: 'Closed', color: 'success' }
-      ];
+      return allStatuses.filter(s => ['open', 'scheduled', 'checked_in', 'in_progress', 'needs_parts', 'completed', 'closed'].includes(s.value));
     case 'projects':
-      return [
-        { value: 'open', label: 'Open', color: 'primary' },
-        { value: 'planning', label: 'Planning', color: 'info' },
-        { value: 'in_progress', label: 'In Progress', color: 'warning' },
-        { value: 'review', label: 'Review', color: 'secondary' },
-        { value: 'completed', label: 'Completed', color: 'success' }
-      ];
-    case 'nro':
-      return [
-        { value: 'open', label: 'Open', color: 'primary' },
-        { value: 'in_progress', label: 'In Progress', color: 'info' },
-        { value: 'pending', label: 'Pending', color: 'warning' },
-        { value: 'closed', label: 'Closed', color: 'success' }
-      ];
+      return allStatuses.filter(s => ['open', 'scheduled', 'in_progress', 'pending', 'completed', 'closed'].includes(s.value));
     case 'misc':
-      return [
-        { value: 'open', label: 'Open', color: 'primary' },
-        { value: 'in_progress', label: 'In Progress', color: 'info' },
-        { value: 'pending', label: 'Pending', color: 'warning' },
-        { value: 'closed', label: 'Closed', color: 'success' }
-      ];
+      return allStatuses.filter(s => ['open', 'in_progress', 'pending', 'completed', 'closed'].includes(s.value));
     default:
-      return [
-        { value: 'open', label: 'Open', color: 'primary' },
-        { value: 'in_progress', label: 'In Progress', color: 'info' },
-        { value: 'pending', label: 'Pending', color: 'warning' },
-        { value: 'closed', label: 'Closed', color: 'success' }
-      ];
+      return allStatuses;
   }
 };
 
 const priorityOptions = [
-  { value: 'low', label: 'Low', color: 'success' },
-  { value: 'medium', label: 'Medium', color: 'warning' },
-  { value: 'high', label: 'High', color: 'error' },
-  { value: 'urgent', label: 'Urgent', color: 'error' }
+  { value: 'normal', label: 'Normal', color: 'success' },
+  { value: 'critical', label: 'Critical', color: 'warning' },
+  { value: 'emergency', label: 'Emergency', color: 'error' }
 ];
 
 const impactOptions = [
@@ -262,9 +229,9 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
   useEffect(() => {
     fetchSites();
     fetchUsers();
-  }, []);
+  }, [fetchSites, fetchUsers]);
 
-  const fetchSites = async () => {
+  const fetchSites = useCallback(async () => {
     setLoadingSites(true);
     try {
       const response = await api.get('/sites/');
@@ -275,9 +242,9 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
     } finally {
       setLoadingSites(false);
     }
-  };
+  }, [api]);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     setLoadingUsers(true);
     try {
       const response = await api.get('/users/');
@@ -288,7 +255,7 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
     } finally {
       setLoadingUsers(false);
     }
-  };
+  }, [api]);
 
   const handleChange = (field, value) => {
     setValues(prev => {
@@ -329,12 +296,17 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
       if (!values.status || values.status.trim() === '') {
         throw new Error('Status is required');
       }
+      if (!values.notes || values.notes.trim() === '') {
+        throw new Error('Notes are required');
+      }
 
       // Clean up values
       const cleanedValues = {
         site_id: values.site_id.trim(),
         type: values.type.trim(),
-        status: values.status.trim()
+        status: values.status.trim(),
+        notes: values.notes.trim(),
+        date_created: new Date().toISOString().split('T')[0] // Set current date if not provided
       };
       
       // Add optional fields if they have values
@@ -393,7 +365,17 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
       if (values.follow_up_notes?.trim()) cleanedValues.follow_up_notes = values.follow_up_notes.trim();
 
       console.log('Submitting ticket with cleaned values:', cleanedValues);
-      await onSubmit(cleanedValues);
+      console.log('onSubmit function:', onSubmit);
+      console.log('onSubmit type:', typeof onSubmit);
+      
+      if (onSubmit && typeof onSubmit === 'function') {
+        console.log('Calling onSubmit function...');
+        await onSubmit(cleanedValues);
+        console.log('onSubmit function completed');
+      } else {
+        console.error('onSubmit function is not provided or is not a function');
+        setError('Form submission handler is not configured');
+      }
     } catch (err) {
       console.error('Form validation error:', err.message);
       setError(err.message || 'Failed to save ticket');

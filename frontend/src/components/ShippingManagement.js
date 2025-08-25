@@ -70,19 +70,7 @@ function ShippingManagement() {
   const { get, post, put, delete: deleteApi, loading: apiLoading } = useApi();
   const { success, error: showError } = useToast();
 
-  // WebSocket for real-time updates
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, {
-    onMessage: (data) => {
-      try {
-        const message = JSON.parse(data);
-        if (message.type === 'shipment' || message.includes('shipment')) {
-          fetchShipments();
-        }
-      } catch (e) {
-        // Handle non-JSON messages
-      }
-    }
-  });
+  // WebSocket setup - will be configured after fetchShipments is defined
 
   const fetchShipments = useCallback(async () => {
     try {
@@ -119,6 +107,20 @@ function ShippingManagement() {
       setLoading(false);
     }
   }, [get, selectedDate, filterStatus, filterPriority]);
+
+  // WebSocket callback functions - defined after fetchShipments
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'shipment' || message.includes('shipment')) {
+        fetchShipments();
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, [fetchShipments]);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
 
   useEffect(() => {
     fetchShipments();

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -33,7 +34,9 @@ import {
   Warning,
   Error,
   Info,
-  Refresh
+  Refresh,
+  Visibility,
+  Edit
 } from '@mui/icons-material';
 import { useToast } from '../contexts/ToastContext';
 import useApi from '../hooks/useApi';
@@ -41,6 +44,7 @@ import useWebSocket from '../hooks/useWebSocket';
 import LoadingSpinner from './LoadingSpinner';
 
 function DailyOperationsDashboard() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
   const [tickets, setTickets] = useState({
     inhouse: [],
@@ -55,19 +59,7 @@ function DailyOperationsDashboard() {
   const { get, put, loading: apiLoading } = useApi();
   const { success, error: showError } = useToast();
 
-  // WebSocket for real-time updates
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, {
-    onMessage: (data) => {
-      try {
-        const message = JSON.parse(data);
-        if (message.type === 'ticket' || message.includes('ticket')) {
-          fetchDailyTickets();
-        }
-      } catch (e) {
-        // Handle non-JSON messages
-      }
-    }
-  });
+  // WebSocket setup - will be configured after fetchDailyTickets is defined
 
   const ticketTypes = [
     { key: 'inhouse', label: 'Inhouse Tickets', icon: <Person /> },
@@ -113,9 +105,23 @@ function DailyOperationsDashboard() {
     }
   }, [get, selectedDate, showError]);
 
+  // WebSocket callback functions - defined after fetchDailyTickets
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'ticket' || message.includes('ticket')) {
+        fetchDailyTickets();
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, [fetchDailyTickets]);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
+
   useEffect(() => {
     fetchDailyTickets();
-  }, [fetchDailyTickets]);
+  }, [fetchDailyTickets, selectedDate]);
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
@@ -135,7 +141,7 @@ function DailyOperationsDashboard() {
     try {
       await put(`/tickets/${ticketId}/check-in`, {
         check_in_time: new Date().toISOString(),
-        onsite_tech_id: 'tech_id'
+        onsite_tech_id: 'current_user_id'
       });
       success('Tech checked in successfully');
       fetchDailyTickets();
@@ -155,6 +161,14 @@ function DailyOperationsDashboard() {
     } catch (err) {
       showError('Failed to check out tech');
     }
+  };
+
+  const handleViewTicket = (ticketId) => {
+    navigate(`/tickets/${ticketId}`);
+  };
+
+  const handleEditTicket = (ticketId) => {
+    navigate(`/tickets/${ticketId}/edit`);
   };
 
   const getPriorityColor = (priority) => {
@@ -212,7 +226,12 @@ function DailyOperationsDashboard() {
           </TableHead>
           <TableBody>
             {ticketList.map((ticket) => (
-              <TableRow key={ticket.ticket_id} hover>
+              <TableRow 
+                key={ticket.ticket_id} 
+                hover 
+                onClick={() => handleViewTicket(ticket.ticket_id)}
+                sx={{ cursor: 'pointer' }}
+              >
                 <TableCell>
                   <Chip
                     label={ticket.priority}
@@ -237,7 +256,30 @@ function DailyOperationsDashboard() {
                   }
                 </TableCell>
                 <TableCell>
-                  <Box display="flex" gap={1}>
+                  <Box display="flex" gap={1} onClick={(e) => e.stopPropagation()}>
+                    {/* View Ticket */}
+                    <Tooltip title="View Details">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleViewTicket(ticket.ticket_id)}
+                        color="primary"
+                      >
+                        <Visibility />
+                      </IconButton>
+                    </Tooltip>
+                    
+                    {/* Edit Ticket */}
+                    <Tooltip title="Edit Ticket">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleEditTicket(ticket.ticket_id)}
+                        color="secondary"
+                      >
+                        <Edit />
+                      </IconButton>
+                    </Tooltip>
+                    
+                    {/* Claim Ticket (Inhouse only) */}
                     {ticket.type === 'inhouse' && ticket.status === 'open' && (
                       <Tooltip title="Claim Ticket">
                         <IconButton
@@ -249,6 +291,8 @@ function DailyOperationsDashboard() {
                         </IconButton>
                       </Tooltip>
                     )}
+                    
+                    {/* Check In (Onsite only) */}
                     {ticket.type === 'onsite' && ticket.status === 'scheduled' && (
                       <Tooltip title="Check In">
                         <IconButton
@@ -260,6 +304,8 @@ function DailyOperationsDashboard() {
                         </IconButton>
                       </Tooltip>
                     )}
+                    
+                    {/* Check Out (Onsite only) */}
                     {ticket.type === 'onsite' && ticket.status === 'checked_in' && (
                       <Tooltip title="Check Out">
                         <IconButton
@@ -271,6 +317,8 @@ function DailyOperationsDashboard() {
                         </IconButton>
                       </Tooltip>
                     )}
+                    
+                    {/* Completed Status */}
                     {ticket.status === 'completed' && (
                       <Tooltip title="Completed">
                         <IconButton size="small" color="success" disabled>

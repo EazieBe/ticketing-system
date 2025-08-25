@@ -13,6 +13,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useWebSocket from './hooks/useWebSocket';
 import dayjs from 'dayjs';
 import { 
   Switch, FormControlLabel, 
@@ -52,6 +53,8 @@ function Users() {
 
   const isAdmin = user?.role === 'admin';
 
+  // WebSocket setup - will be configured after fetchUsers is defined
+
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
@@ -66,6 +69,25 @@ function Users() {
       setLoading(false);
     }
   }, []);
+
+  // WebSocket callback functions - defined after fetchUsers
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'user_update' || message.type === 'user_created' || message.type === 'user_deleted') {
+        // Use a timeout to avoid calling fetchUsers before it's defined
+        setTimeout(() => {
+          if (typeof fetchUsers === 'function') {
+            fetchUsers();
+          }
+        }, 100);
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, []);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
 
   useEffect(() => {
     fetchUsers();
@@ -218,7 +240,7 @@ function Users() {
   const handleDeleteConfirm = () => {
     if (!deleteUser) return;
     
-    api.delete(`/users/${deleteUser.user_id}`, { data: {} })
+    api.delete(`/users/${deleteUser.user_id}`)
       .then(() => {
         setDeleteDialog(false);
         // Remove the user from the local state immediately

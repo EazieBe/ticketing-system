@@ -1,7 +1,7 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 import models, schemas
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 # User CRUD
 
@@ -170,10 +170,18 @@ def create_ticket(db: Session, ticket: schemas.TicketCreate):
     return db_ticket
 
 def get_ticket(db: Session, ticket_id: str):
-    return db.query(models.Ticket).filter(models.Ticket.ticket_id == ticket_id).first()
+    return db.query(models.Ticket).options(
+        joinedload(models.Ticket.site),
+        joinedload(models.Ticket.assigned_user),
+        joinedload(models.Ticket.onsite_tech)
+    ).filter(models.Ticket.ticket_id == ticket_id).first()
 
 def get_tickets(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.Ticket).offset(skip).limit(limit).all()
+    return db.query(models.Ticket).options(
+        joinedload(models.Ticket.site),
+        joinedload(models.Ticket.assigned_user),
+        joinedload(models.Ticket.onsite_tech)
+    ).offset(skip).limit(limit).all()
 
 def update_ticket(db: Session, ticket_id: str, ticket: schemas.TicketUpdate):
     db_ticket = db.query(models.Ticket).filter(models.Ticket.ticket_id == ticket_id).first()
@@ -842,7 +850,7 @@ def claim_ticket(db: Session, ticket_id: str, claimed_by: str):
         return None
     
     db_ticket.claimed_by = claimed_by
-    db_ticket.claimed_at = datetime.utcnow()
+    db_ticket.claimed_at = datetime.now(timezone.utc)
     db_ticket.status = models.TicketStatus.in_progress
     
     db.commit()
@@ -855,7 +863,7 @@ def check_in_ticket(db: Session, ticket_id: str, onsite_tech_id: str):
     if not db_ticket:
         return None
     
-    db_ticket.check_in_time = datetime.utcnow()
+    db_ticket.check_in_time = datetime.now(timezone.utc)
     db_ticket.onsite_tech_id = onsite_tech_id
     db_ticket.status = models.TicketStatus.checked_in
     
@@ -869,7 +877,7 @@ def check_out_ticket(db: Session, ticket_id: str, check_out_data: dict):
     if not db_ticket:
         return None
     
-    db_ticket.check_out_time = datetime.utcnow()
+    db_ticket.check_out_time = datetime.now(timezone.utc)
     
     # Calculate onsite duration
     if db_ticket.check_in_time and db_ticket.check_out_time:
@@ -896,10 +904,19 @@ def check_out_ticket(db: Session, ticket_id: str, check_out_data: dict):
 
 def get_daily_tickets(db: Session, date: date = None, ticket_type: str = None, priority: str = None, status: str = None, assigned_user_id: str = None):
     """Get tickets for daily operations dashboard"""
-    query = db.query(models.Ticket)
+    query = db.query(models.Ticket).options(
+        joinedload(models.Ticket.site),
+        joinedload(models.Ticket.assigned_user),
+        joinedload(models.Ticket.onsite_tech)
+    )
     
     if date:
-        query = query.filter(models.Ticket.date_scheduled == date)
+        # Include tickets created on the date OR scheduled for the date
+        from sqlalchemy import or_
+        query = query.filter(or_(
+            models.Ticket.date_created == date,
+            models.Ticket.date_scheduled == date
+        ))
     if ticket_type:
         query = query.filter(models.Ticket.type == ticket_type)
     if priority:
@@ -909,7 +926,7 @@ def get_daily_tickets(db: Session, date: date = None, ticket_type: str = None, p
     if assigned_user_id:
         query = query.filter(models.Ticket.assigned_user_id == assigned_user_id)
     
-    return query.order_by(models.Ticket.priority.desc(), models.Ticket.date_scheduled).all()
+    return query.order_by(models.Ticket.priority.desc(), models.Ticket.date_created).all()
 
 def update_ticket_costs(db: Session, ticket_id: str, cost_data: dict):
     """Update ticket cost information"""

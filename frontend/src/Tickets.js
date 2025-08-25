@@ -55,32 +55,8 @@ function Tickets() {
     dateTo: ''
   });
 
-  // WebSocket setup
+  // WebSocket setup - callbacks will be defined after fetchTickets
   const wsUrl = `ws://192.168.43.50:8000/ws/updates`;
-  const { sendMessage } = useWebSocket(wsUrl, handleWebSocketMessage, handleWebSocketError, handleWebSocketOpen, handleWebSocketClose);
-
-  function handleWebSocketMessage(data) {
-    try {
-      const message = JSON.parse(data);
-      if (message.type === 'ticket_update' || message.type === 'ticket_created' || message.type === 'ticket_deleted') {
-        fetchTickets(); // Refresh tickets when there's an update
-      }
-    } catch (error) {
-      console.error('Error parsing WebSocket message:', error);
-    }
-  }
-
-  function handleWebSocketError(error) {
-    console.error('❌ WebSocket error:', error);
-  }
-
-  function handleWebSocketOpen() {
-    console.log('✅ WebSocket connected for tickets');
-  }
-
-  function handleWebSocketClose(event) {
-    console.log('🔌 WebSocket disconnected for tickets:', event.code, event.reason);
-  }
 
   const getStatusOptions = (ticketType) => {
     const baseStatuses = ['open', 'in_progress', 'completed', 'closed'];
@@ -101,18 +77,75 @@ function Tickets() {
 
   const fetchTickets = useCallback(async () => {
     try {
+      setLoading(true);
       const response = await api.get('/tickets/');
       setTickets(response || []);
       setError(null);
     } catch (err) {
       console.error('Error fetching tickets:', err);
-      setError('Failed to load tickets');
+      if (err.message.includes('Network error')) {
+        setError('Backend server is not running. Please start the server.');
+      } else {
+        setError('Failed to load tickets');
+      }
       showToast('Error loading tickets', 'error');
       setTickets([]);
     } finally {
       setLoading(false);
     }
   }, [api, showToast]);
+
+  // WebSocket callback functions - defined after fetchTickets
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      // Handle both string and object messages
+      const message = typeof data === 'string' ? JSON.parse(data) : data;
+      
+      // Check if message contains ticket-related updates
+      if (message && (
+        message.type === 'ticket_update' || 
+        message.type === 'ticket_created' || 
+        message.type === 'ticket_deleted' ||
+        (typeof message === 'string' && message.includes('ticket'))
+      )) {
+        // Use a timeout to avoid calling fetchTickets before it's defined
+        setTimeout(() => {
+          if (typeof fetchTickets === 'function') {
+            fetchTickets();
+          }
+        }, 100);
+      }
+    } catch (error) {
+      // Only log parsing errors in development
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error parsing WebSocket message:', error);
+      }
+    }
+  }, []);
+
+  const handleWebSocketError = useCallback((error) => {
+    // Only log errors in development
+    if (process.env.NODE_ENV === 'development') {
+      console.error('WebSocket error:', error);
+    }
+  }, []);
+
+  const handleWebSocketOpen = useCallback(() => {
+    // Only log in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('WebSocket connected for tickets');
+    }
+  }, []);
+
+  const handleWebSocketClose = useCallback((event) => {
+    // Only log in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('WebSocket disconnected for tickets:', event.code);
+    }
+  }, []);
+
+  // WebSocket connection
+  const { sendMessage } = useWebSocket(wsUrl, handleWebSocketMessage, handleWebSocketError, handleWebSocketOpen, handleWebSocketClose);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -138,7 +171,12 @@ function Tickets() {
     fetchTickets();
     fetchUsers();
     fetchSites();
-  }, [fetchTickets, fetchUsers, fetchSites]);
+    
+    // Cleanup function
+    return () => {
+      // WebSocket cleanup is handled by useWebSocket hook
+    };
+  }, []);
 
   const handleAdd = () => {
     navigate('/tickets/new');
@@ -200,18 +238,27 @@ function Tickets() {
 
   const handleClaim = async (ticketId) => {
     try {
-      await api.put(`/tickets/${ticketId}/claim`);
+      await api.put(`/tickets/${ticketId}/claim`, { claimed_by: user.user_id });
       showToast('Ticket claimed successfully', 'success');
-      fetchTickets();
+      // Use a timeout to ensure fetchTickets is available
+      setTimeout(() => {
+        if (typeof fetchTickets === 'function') {
+          fetchTickets();
+        }
+      }, 100);
     } catch (err) {
       console.error('Error claiming ticket:', err);
-      showToast('Error claiming ticket', 'error');
+      if (err.response?.status === 422) {
+        showToast('Invalid ticket data. Please check the ticket information.', 'error');
+      } else {
+        showToast('Error claiming ticket', 'error');
+      }
     }
   };
 
   const getSiteName = (siteId) => {
     const site = sites.find(s => s.site_id === siteId);
-    return site ? site.name : 'Unknown Site';
+    return site ? `${site.site_id} - ${site.location || 'Unknown Location'}` : 'Unknown Site';
   };
 
   const getAssignedUserName = (userId) => {
@@ -398,7 +445,7 @@ function Tickets() {
       </TableCell>
       <TableCell>
         <Typography variant="body2" noWrap>
-          {ticket.title}
+          {ticket.notes ? (ticket.notes.length > 50 ? ticket.notes.substring(0, 50) + '...' : ticket.notes) : 'No description'}
         </Typography>
       </TableCell>
       <TableCell>
@@ -616,7 +663,7 @@ function Tickets() {
             <TableHead>
               <TableRow>
                 <TableCell>Ticket ID</TableCell>
-                <TableCell>Title</TableCell>
+                <TableCell>Description</TableCell>
                 <TableCell>Type</TableCell>
                 <TableCell>Priority</TableCell>
                 <TableCell>Status</TableCell>
@@ -665,7 +712,7 @@ function Tickets() {
                     </Box>
                     
                     <Typography variant="body2" color="text.secondary" gutterBottom>
-                      {ticket.title}
+                      {ticket.notes ? (ticket.notes.length > 100 ? ticket.notes.substring(0, 100) + '...' : ticket.notes) : 'No description'}
                     </Typography>
                     
                     <Box display="flex" gap={1} flexWrap="wrap" mb={1}>

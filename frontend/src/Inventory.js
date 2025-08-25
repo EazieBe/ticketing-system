@@ -10,6 +10,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useWebSocket from './hooks/useWebSocket';
 import { useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 import html2canvas from 'html2canvas';
@@ -44,6 +45,7 @@ function Inventory() {
 
   const barcodeRef = useRef(null);
 
+  // WebSocket setup - will be configured after fetchItems is defined
 
   const isAdminOrDispatcherOrBilling = user?.role === 'admin' || user?.role === 'dispatcher' || user?.role === 'billing';
 
@@ -62,10 +64,23 @@ function Inventory() {
     }
   }, [api]);
 
+  // WebSocket callback functions - defined after fetchItems
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'inventory_update' || message.type === 'inventory_created' || message.type === 'inventory_deleted') {
+        fetchItems(); // Refresh inventory when there's an update
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, [fetchItems]);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
+
   useEffect(() => {
-    if (!isAdminOrDispatcherOrBilling) return;
     fetchItems();
-  }, [isAdminOrDispatcherOrBilling, lastUpdate, fetchItems]);
+  }, []);
 
   useEffect(() => {
     if (labelDialog && labelItem && barcodeRef.current) {

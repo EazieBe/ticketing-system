@@ -45,6 +45,7 @@ import {
 } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useWebSocket from './hooks/useWebSocket';
 import LoadingSpinner from './components/LoadingSpinner';
 
 function SLAManagement() {
@@ -66,6 +67,8 @@ function SLAManagement() {
   const { get, post, put, delete: del, loading, error } = useApi();
   const { success, error: showError } = useToast();
 
+  // WebSocket setup - will be configured after fetchSLARules is defined
+
   const fetchSLARules = useCallback(async () => {
     try {
       const rules = await get('/sla-rules/');
@@ -74,6 +77,20 @@ function SLAManagement() {
       showError('Failed to fetch SLA rules');
     }
   }, [get, showError]);
+
+  // WebSocket callback functions - defined after fetchSLARules
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'sla_update' || message.type === 'sla_created' || message.type === 'sla_deleted') {
+        fetchSLARules(); // Refresh SLA rules when there's an update
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, [fetchSLARules]);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
 
   useEffect(() => {
     fetchSLARules();

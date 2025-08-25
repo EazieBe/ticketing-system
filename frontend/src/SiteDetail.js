@@ -22,7 +22,7 @@ import dayjs from 'dayjs';
 import SiteForm from './SiteForm';
 
 function SiteDetail() {
-  const { siteId } = useParams();
+  const { site_id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const api = useApi();
@@ -75,10 +75,10 @@ function SiteDetail() {
     try {
       setLoading(true);
       const [siteResponse, ticketsResponse, shipmentsResponse, equipmentResponse] = await Promise.all([
-        api.get(`/sites/${siteId}`),
-        api.get(`/tickets/?site_id=${siteId}`),
-        api.get(`/shipments/?site_id=${siteId}`),
-        api.get(`/equipment/?site_id=${siteId}`)
+        api.get(`/sites/${site_id}`),
+        api.get(`/tickets/?site_id=${site_id}`),
+        api.get(`/shipments/?site_id=${site_id}`),
+        api.get(`/equipment/?site_id=${site_id}`)
       ]);
       
       setSite(siteResponse || {});
@@ -91,11 +91,11 @@ function SiteDetail() {
     } finally {
       setLoading(false);
     }
-  }, [siteId]);
+  }, [site_id]);
 
   useEffect(() => {
     fetchSiteData();
-  }, [siteId, fetchSiteData]);
+  }, [fetchSiteData]);
 
   const getStatusColor = (status) => {
     switch (status) {

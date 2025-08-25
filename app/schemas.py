@@ -269,7 +269,7 @@ class TicketOut(TicketBase):
 
 class TicketAuditBase(BaseModel):
     ticket_id: Optional[str] = None
-    user_id: str
+    user_id: Optional[str] = None
     change_time: datetime
     field_changed: str
     old_value: Optional[str] = None

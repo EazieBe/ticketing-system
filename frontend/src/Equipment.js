@@ -13,6 +13,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useWebSocket from './hooks/useWebSocket';
 import dayjs from 'dayjs';
 import EquipmentForm from './EquipmentForm';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -37,6 +38,8 @@ function Equipment() {
 
   const isAdminOrDispatcher = user?.role === 'admin' || user?.role === 'dispatcher';
 
+  // WebSocket setup - will be configured after fetchEquipment is defined
+
   const fetchEquipment = useCallback(async () => {
     try {
       setLoading(true);
@@ -52,10 +55,28 @@ function Equipment() {
     }
   }, [api]);
 
+  // WebSocket callback functions - defined after fetchEquipment
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'equipment_update' || message.type === 'equipment_created' || message.type === 'equipment_deleted') {
+        // Use a timeout to avoid calling fetchEquipment before it's defined
+        setTimeout(() => {
+          if (typeof fetchEquipment === 'function') {
+            fetchEquipment();
+          }
+        }, 100);
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, []);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
+
   useEffect(() => {
-    if (!isAdminOrDispatcher) return;
     fetchEquipment();
-  }, [isAdminOrDispatcher, fetchEquipment]);
+  }, []);
 
   const handleAdd = () => {
     setEditEquipment(null);
@@ -151,11 +172,25 @@ function Equipment() {
     return '#fff';
   };
 
+  if (loading) return (
+    <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
+      <CircularProgress />
+    </Box>
+  );
+  
+  if (error) return (
+    <Alert severity="error" sx={{ mt: 2 }}>
+      {error}
+    </Alert>
+  );
+  
   if (!isAdminOrDispatcher) {
-    return <Alert severity="warning">You do not have permission to view equipment data.</Alert>;
+    return (
+      <Alert severity="warning" sx={{ mt: 2 }}>
+        You do not have permission to view equipment data. Please contact an administrator.
+      </Alert>
+    );
   }
-  if (loading) return <CircularProgress />;
-  if (error) return <Alert severity="error">{error}</Alert>;
 
   return (
     <>

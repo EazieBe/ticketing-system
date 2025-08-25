@@ -200,6 +200,11 @@ function SiteForm({ initialValues, onSubmit, isEdit = false }) {
     e.preventDefault();
     setError('');
 
+    console.log('SiteForm handleSubmit called');
+    console.log('Form values:', values);
+    console.log('onSubmit function:', onSubmit);
+    console.log('onSubmit type:', typeof onSubmit);
+
     // Validation
     if (!values.site_id.trim()) {
       setError('Site ID is required');
@@ -243,11 +248,26 @@ function SiteForm({ initialValues, onSubmit, isEdit = false }) {
       additional_equipment: values.additional_equipment.trim() || null,
     };
 
-    onSubmit(cleanedValues);
+    console.log('Cleaned values:', cleanedValues);
+    console.log('Calling onSubmit...');
+
+    if (onSubmit && typeof onSubmit === 'function') {
+      onSubmit(cleanedValues);
+    } else {
+      console.error('onSubmit is not a function:', onSubmit);
+      setError('Form submission handler is not configured');
+    }
   };
 
   return (
-    <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
+    <Box 
+      component="form" 
+      onSubmit={(e) => {
+        console.log('Form onSubmit event triggered');
+        handleSubmit(e);
+      }} 
+      sx={{ mt: 2 }}
+    >
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       
       <TextField
@@ -437,7 +457,15 @@ function SiteForm({ initialValues, onSubmit, isEdit = false }) {
       />
 
       <Box sx={{ mt: 3, display: 'flex', gap: 2 }}>
-        <Button type="submit" variant="contained" color="primary">
+        <Button 
+          type="submit" 
+          variant="contained" 
+          color="primary"
+          onClick={(e) => {
+            console.log('Submit button clicked');
+            // Don't prevent default - let the form handle it
+          }}
+        >
           {isEdit ? 'Save Changes' : 'Save Site'}
         </Button>
       </Box>

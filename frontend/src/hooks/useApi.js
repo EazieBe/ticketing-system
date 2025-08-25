@@ -34,6 +34,14 @@ function useApi() {
     } catch (err) {
       console.error('API Error:', err);
       
+      // Handle network errors specifically
+      if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
+        const networkError = 'Network error - please check if the server is running';
+        console.error(networkError);
+        showError(networkError);
+        throw new Error(networkError);
+      }
+      
       if (err.response?.status === 401) {
         logout();
         throw new Error('Unauthorized - please log in again');

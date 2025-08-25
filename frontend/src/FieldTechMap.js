@@ -14,6 +14,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useWebSocket from './hooks/useWebSocket';
 import dayjs from 'dayjs';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -100,29 +101,28 @@ function FieldTechMap() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTech, setSelectedTech] = useState(null);
-  const [mapCenter, setMapCenter] = useState([39.8283, -98.5795]); // Center of US
+  const [mapCenter, setMapCenter] = useState({ lat: 39.8283, lng: -98.5795 }); // Center of US
   const [mapZoom, setMapZoom] = useState(4);
   const [mapRef, setMapRef] = useState(null);
   const [filterState, setFilterState] = useState('');
+
+  // WebSocket setup - will be configured after fetchTechs is defined
 
   const fetchTechs = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.get('/fieldtechs/');
+      
       const techsWithCoords = await Promise.all(
         (response || []).map(async (tech) => {
           if (tech.city && tech.state) {
-            try {
-              const coords = await geocodeAddress(`${tech.city}, ${tech.state}`);
-              return { ...tech, coordinates: coords };
-            } catch (error) {
-              console.error(`Failed to geocode ${tech.city}, ${tech.state}:`, error);
-              return { ...tech, coordinates: null };
-            }
+            const coords = await geocodeAddress(`${tech.city}, ${tech.state}`);
+            return { ...tech, coordinates: coords };
           }
           return { ...tech, coordinates: null };
         })
       );
+      
       setTechs(techsWithCoords);
       setError(null);
     } catch (err) {
@@ -134,9 +134,28 @@ function FieldTechMap() {
     }
   }, []);
 
+  // WebSocket callback functions - defined after fetchTechs
+  const handleWebSocketMessage = useCallback((data) => {
+    try {
+      const message = JSON.parse(data);
+      if (message.type === 'fieldtech_update' || message.type === 'fieldtech_created' || message.type === 'fieldtech_deleted') {
+        // Use a timeout to avoid calling fetchTechs before it's defined
+        setTimeout(() => {
+          if (typeof fetchTechs === 'function') {
+            fetchTechs();
+          }
+        }, 100);
+      }
+    } catch (e) {
+      // Handle non-JSON messages
+    }
+  }, []);
+
+  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
+
   useEffect(() => {
     fetchTechs();
-  }, [fetchTechs]);
+  }, []);
 
   const geocodeAddress = async (address) => {
     try {
@@ -145,14 +164,16 @@ function FieldTechMap() {
       );
       const data = await response.json();
       if (data && data[0]) {
-        return {
+        const coords = {
           lat: parseFloat(data[0].lat),
           lng: parseFloat(data[0].lon)
         };
+        return coords;
       }
-      throw new Error('No coordinates found');
+      return null;
     } catch (error) {
-      throw new Error(`Geocoding failed: ${error.message}`);
+      console.warn(`Geocoding failed for ${address}:`, error.message);
+      return null;
     }
   };
 
