@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Box, Typography, Paper, Card, CardContent, Chip, Button, IconButton,
+  Box, Typography, Card, CardContent, Chip, Button, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Alert,
   CircularProgress, Grid, List, ListItem, ListItemText, ListItemIcon,
-  Divider, Switch, FormControlLabel, Tooltip, Badge, Stack
+  Divider, Switch, FormControlLabel
 } from '@mui/material';
 import {
-  PlayArrow, Pause, Stop, Person, Business, Assignment, Phone, Build,
-  Inventory, Flag, FlagOutlined, Star, StarBorder, Notifications, NotificationsOff,
-  ExpandMore, ExpandLess, FilterList, Sort, DragIndicator, Speed, AutoAwesome,
+  PlayArrow, Business, Assignment, Speed, AutoAwesome,
   Info, CheckCircle, Edit, Schedule, Settings
 } from '@mui/icons-material';
 import {
@@ -101,8 +99,6 @@ const automationRules = [
 function WorkflowAutomation({ ticket, onWorkflowUpdate }) {
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
-  const [workflows, setWorkflows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeStep, setActiveStep] = useState(0);
@@ -114,27 +110,8 @@ function WorkflowAutomation({ ticket, onWorkflowUpdate }) {
     dueDate: '',
     notes: ''
   });
-  const [editDialog, setEditDialog] = useState(false);
-  const [editWorkflow, setEditWorkflow] = useState(null);
 
-  const fetchWorkflows = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await api.get('/workflows/');
-      setWorkflows(response || []);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching workflows:', err);
-      setError('Failed to load workflows');
-      setWorkflows([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
 
-  useEffect(() => {
-    fetchWorkflows();
-  }, [fetchWorkflows]);
 
   const handleStepChange = async (newStep) => {
     if (!ticket) return;
@@ -226,7 +203,7 @@ function WorkflowAutomation({ ticket, onWorkflowUpdate }) {
     if (!ticket) return 'unknown';
     
     const now = dayjs();
-    const created = dayjs(ticket.date_created);
+    const created = dayjs(ticket.created_at || ticket.date_created);
     const hoursSinceCreated = now.diff(created, 'hour');
     
     if (hoursSinceCreated > ticket.sla_breach_hours) return 'breached';

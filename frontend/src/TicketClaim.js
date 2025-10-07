@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Container, Typography, Paper, Box, Button, TextField, FormControl, InputLabel,
@@ -21,16 +21,26 @@ function TicketClaim() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success } = useToast();
   const [ticket, setTicket] = useState(null);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [claiming, setClaiming] = useState(false);
+  const isMountedRef = useRef(true);
   const [selectedUser, setSelectedUser] = useState('');
   const [notes, setNotes] = useState('');
 
   const fetchTicketAndUsers = useCallback(async () => {
+    // Don't fetch if component is unmounted
+    if (!isMountedRef.current) {
+      console.log('Component unmounted, skipping ticket and users fetch');
+      setLoading(false);
+      return;
+    }
+    
+    // No localStorage checks - just fetch directly from server
+    
     try {
       setLoading(true);
       const [ticketRes, usersRes] = await Promise.all([
@@ -38,9 +48,11 @@ function TicketClaim() {
         api.get('/users/')
       ]);
       
-      setTicket(ticketRes || {});
-      setUsers(usersRes || []);
-      setError(null);
+      if (isMountedRef.current) {
+        setTicket(ticketRes || {});
+        setUsers(usersRes || []);
+        setError(null);
+      }
     } catch (err) {
       console.error('Error fetching ticket and users:', err);
       setError('Failed to load ticket data');
@@ -52,6 +64,13 @@ function TicketClaim() {
   useEffect(() => {
     fetchTicketAndUsers();
   }, [ticket_id, fetchTicketAndUsers]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handleClaim = async () => {
     if (!selectedUser) {
@@ -73,7 +92,7 @@ function TicketClaim() {
         category: ticket.category,
         assigned_user_id: selectedUser,
         onsite_tech_id: ticket.onsite_tech_id,
-        date_created: ticket.date_created,
+        date_created: ticket.created_at || ticket.date_created,
         date_scheduled: ticket.date_scheduled,
         date_closed: ticket.date_closed,
         time_spent: ticket.time_spent,
@@ -88,7 +107,7 @@ function TicketClaim() {
       setError(null);
       
       // Show success notification
-      showToast('Ticket claimed successfully!', 'success');
+      success('Ticket claimed successfully!');
       
       // Navigate back to tickets list
       navigate('/tickets');
@@ -221,7 +240,7 @@ function TicketClaim() {
                   <Box display="flex" alignItems="center">
                     <Schedule sx={{ mr: 1, fontSize: 'small' }} />
                     <Typography variant="body1">
-                      {dayjs(ticket.date_created).format('MMM DD, YYYY HH:mm')}
+                      {dayjs(ticket.created_at || ticket.date_created).format('MMM DD, YYYY HH:mm')}
                     </Typography>
                   </Box>
                 </Box>

@@ -1,10 +1,9 @@
 import axios from 'axios';
-
-const API_BASE_URL = `http://192.168.43.50:8000`;
+import { config } from './config';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10000, // 10 second timeout
+  baseURL: config.API_BASE_URL,
+  timeout: config.TIMEOUT,
 });
 
 // Flag to prevent multiple refresh attempts
@@ -62,7 +61,7 @@ api.interceptors.response.use(
       }
 
       try {
-        const response = await axios.post(`${API_BASE_URL}/refresh`, {
+        const response = await axios.post(`${config.API_BASE_URL}/refresh`, {
           refresh_token: refreshToken
         });
 

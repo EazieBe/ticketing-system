@@ -47,6 +47,12 @@ function useApi() {
         throw new Error('Unauthorized - please log in again');
       }
       
+      // Don't show error toasts for 404 errors (expected for deleted resources)
+      if (err.response?.status === 404) {
+        const errorMessage = err.response?.data?.detail || err.message || 'Resource not found';
+        throw new Error(errorMessage);
+      }
+      
       const errorMessage = err.response?.data?.detail || err.message || 'An error occurred';
       showError(errorMessage);
       throw new Error(errorMessage);

@@ -1,17 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   IconButton, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
-  CircularProgress, Tooltip, Stack
+  CircularProgress, Tooltip, Stack, Chip, Grid, Card, CardContent, Divider
 } from '@mui/material';
 import {
-  Add as AddIcon
+  Add as AddIcon, QrCode, QrCodeScanner, LocalShipping, TrendingUp, TrendingDown
 } from '@mui/icons-material';
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
-import useWebSocket from './hooks/useWebSocket';
-import { useRef } from 'react';
+import { useDataSync } from './contexts/DataSyncContext';
+import { getCurrentUTCTimestamp } from './utils/timezone';
 import JsBarcode from 'jsbarcode';
 import html2canvas from 'html2canvas';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -20,11 +20,11 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import InventoryForm from './InventoryForm';
 
-
 function Inventory() {
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error: showError } = useToast();
+  const { updateTrigger } = useDataSync('inventory');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -32,7 +32,6 @@ function Inventory() {
   const [editItem, setEditItem] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [deleteItem, setDeleteItem] = useState(null);
-  const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [labelDialog, setLabelDialog] = useState(false);
   const [labelItem, setLabelItem] = useState(null);
   const [scanDialog, setScanDialog] = useState(false);
@@ -42,16 +41,22 @@ function Inventory() {
   const [noteItem, setNoteItem] = useState(null);
   const [noteText, setNoteText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
+  const [transactionHistory, setTransactionHistory] = useState([]);
+  const [historyDialog, setHistoryDialog] = useState(false);
+  const [selectedItem, setSelectedItem] = useState(null);
 
   const barcodeRef = useRef(null);
-
-  // WebSocket setup - will be configured after fetchItems is defined
+  const loadingRef = useRef(false);
+  const isMountedRef = useRef(true);
 
   const isAdminOrDispatcherOrBilling = user?.role === 'admin' || user?.role === 'dispatcher' || user?.role === 'billing';
 
-  const fetchItems = useCallback(async () => {
+  const fetchItems = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
+      loadingRef.current = true;
+      if (showLoading) {
+        setLoading(true);
+      }
       const response = await api.get('/inventory/');
       setItems(response || []);
       setError(null);
@@ -60,33 +65,59 @@ function Inventory() {
       setError('Failed to fetch inventory');
       setItems([]);
     } finally {
-      setLoading(false);
+      loadingRef.current = false;
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, [api]);
 
-  // WebSocket callback functions - defined after fetchItems
-  const handleWebSocketMessage = useCallback((data) => {
-    try {
-      const message = JSON.parse(data);
-      if (message.type === 'inventory_update' || message.type === 'inventory_created' || message.type === 'inventory_deleted') {
-        fetchItems(); // Refresh inventory when there's an update
-      }
-    } catch (e) {
-      // Handle non-JSON messages
+  const fetchTransactionHistory = useCallback(async (itemId) => {
+    // Don't fetch if component is unmounted
+    if (!isMountedRef.current) {
+      console.log('Component unmounted, skipping transaction history fetch');
+      return;
     }
-  }, [fetchItems]);
+    
+    try {
+      const response = await api.get(`/inventory/${itemId}/transactions`);
+      if (isMountedRef.current) {
+        setTransactionHistory(response || []);
+      }
+    } catch (err) {
+      console.error('Error fetching transaction history:', err);
+      if (isMountedRef.current) {
+        setTransactionHistory([]);
+      }
+    }
+  }, [api]);
 
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
+  // Use global WebSocket for real-time updates via DataSync
 
+  // Initial load with loading spinner
   useEffect(() => {
-    fetchItems();
-  }, []);
+    fetchItems(true); // Show loading on initial load
+  }, []); // Empty dependency array for initial load only
+
+  // Auto-refresh when DataSync triggers update (no loading spinner)
+  useEffect(() => {
+    if (updateTrigger > 0) { // Only refresh on real-time updates, not initial load
+      fetchItems(false); // Don't show loading on real-time updates
+    }
+  }, [updateTrigger]); // Only depend on updateTrigger
 
   useEffect(() => {
     if (labelDialog && labelItem && barcodeRef.current) {
       JsBarcode(barcodeRef.current, labelItem.barcode || labelItem.item_id, { format: 'CODE128', width: 2, height: 40 });
     }
   }, [labelDialog, labelItem]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handleAdd = () => {
     setEditItem(null);
@@ -110,17 +141,16 @@ function Inventory() {
         setItems(prevItems => prevItems.map(i => 
           i.item_id === editItem.item_id ? response : i
         ));
-        showToast('Inventory item updated successfully', 'success');
+        success('Inventory item updated successfully');
       } else {
         const response = await api.post('/inventory/', values);
         setItems(prevItems => [...prevItems, response]);
-        showToast('Inventory item added successfully', 'success');
+        success('Inventory item added successfully');
       }
       handleClose();
     } catch (err) {
       console.error('Error submitting inventory item:', err);
-      setError('Failed to save inventory item');
-      showToast('Failed to save inventory item', 'error');
+      showError('Failed to save inventory item');
     }
   };
 
@@ -130,7 +160,28 @@ function Inventory() {
     setScannedBarcode('');
   };
 
+  const handleScanSubmit = async () => {
+    if (!scannedBarcode.trim()) {
+      showError('Please enter a barcode');
+      return;
+    }
 
+    try {
+      const response = await api.post('/inventory/scan', {
+        barcode: scannedBarcode.trim(),
+        type: scanType,
+        user_id: user.user_id
+      });
+
+      success(`${scanType === 'in' ? 'Scanned in' : 'Scanned out'} successfully`);
+      setScanDialog(false);
+      setScannedBarcode('');
+      fetchItems(); // Refresh inventory
+    } catch (err) {
+      console.error('Error scanning barcode:', err);
+      showError(err.response?.data?.detail || 'Failed to scan barcode');
+    }
+  };
 
   const handleLabel = (item) => {
     setLabelItem(item);
@@ -146,7 +197,10 @@ function Inventory() {
     if (barcodeRef.current) {
       const svg = barcodeRef.current;
       const parent = svg.parentNode;
-      const canvas = await html2canvas(parent, { backgroundColor: null });
+      const canvas = await html2canvas(parent, { 
+        backgroundColor: null,
+        scale: 2 // Higher resolution
+      });
       const link = document.createElement('a');
       link.download = `${labelItem.name || 'barcode'}.png`;
       link.href = canvas.toDataURL();
@@ -154,11 +208,18 @@ function Inventory() {
     }
   };
 
-  const handlePrintLabel = () => {
+  const handlePrintLabel = async () => {
     if (barcodeRef.current) {
+      const svg = barcodeRef.current;
+      const parent = svg.parentNode;
+      const canvas = await html2canvas(parent, { 
+        backgroundColor: null,
+        scale: 2 // Higher resolution
+      });
+      
       const printWindow = window.open('', '_blank');
       printWindow.document.write('<html><head><title>Print Barcode</title></head><body>');
-      printWindow.document.write(barcodeRef.current.parentNode.innerHTML);
+      printWindow.document.write(`<img src="${canvas.toDataURL()}" style="max-width: 100%; height: auto;" />`);
       printWindow.document.write('</body></html>');
       printWindow.document.close();
       printWindow.focus();
@@ -166,10 +227,16 @@ function Inventory() {
     }
   };
 
-  const handleCopy = (text) => {
-    navigator.clipboard.writeText(text);
-    setCopyFeedback('Copied!');
-    setTimeout(() => setCopyFeedback(''), 1000);
+  const handleCopy = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyFeedback('Copied!');
+      setTimeout(() => setCopyFeedback(''), 1000);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      setCopyFeedback('Copy failed');
+      setTimeout(() => setCopyFeedback(''), 1000);
+    }
   };
 
   const handleQuickNote = (item) => {
@@ -179,10 +246,15 @@ function Inventory() {
   };
 
   const handleNoteSubmit = () => {
+    const timestamp = getCurrentUTCTimestamp();
+    const userEmail = user?.email || 'Unknown';
+    const notePrefix = `[${timestamp}] ${userEmail}: `;
+    const newDescription = (noteItem.description || '') + '\n' + notePrefix + noteText;
+    
     api.put(`/inventory/${noteItem.item_id}`, { 
       name: noteItem.name,
       sku: noteItem.sku,
-      description: (noteItem.description || '') + '\n' + noteText,
+      description: newDescription,
       quantity_on_hand: noteItem.quantity_on_hand,
       cost: noteItem.cost,
       location: noteItem.location,
@@ -190,9 +262,12 @@ function Inventory() {
     })
       .then(() => {
         setNoteDialog(false);
-        setLoading(true);
+        fetchItems();
+        success('Note added successfully');
       })
-      .catch(() => setError('Failed to add note'));
+      .catch(() => {
+        showError('Failed to add note');
+      });
   };
 
   const handleDelete = (item) => {
@@ -201,15 +276,22 @@ function Inventory() {
   };
 
   const handleDeleteConfirm = () => {
-    api.delete(`/inventory/${deleteItem.item_id}`, { data: {} })
+    api.delete(`/inventory/${deleteItem.item_id}`)
       .then(() => {
         setDeleteDialog(false);
-        // Remove the inventory item from the local state immediately
         setItems(prevItems => prevItems.filter(i => i.item_id !== deleteItem.item_id));
         setDeleteItem(null);
-        setError(null);
+        success('Inventory item deleted successfully');
       })
-      .catch(() => setError('Failed to delete inventory item'));
+      .catch(() => {
+        showError('Failed to delete inventory item');
+      });
+  };
+
+  const handleViewHistory = async (item) => {
+    setSelectedItem(item);
+    await fetchTransactionHistory(item.item_id);
+    setHistoryDialog(true);
   };
 
   // Color cue: highlight row if quantity_on_hand is low (<= 2)
@@ -218,21 +300,52 @@ function Inventory() {
     return '#fff';
   };
 
+  const getQuantityStatus = (quantity) => {
+    if (quantity <= 0) return { color: 'error', text: 'Out of Stock' };
+    if (quantity <= 2) return { color: 'warning', text: 'Low Stock' };
+    return { color: 'success', text: 'In Stock' };
+  };
+
+  if (!user) return <CircularProgress />;
+  
   if (!isAdminOrDispatcherOrBilling) {
     return <Alert severity="warning">You do not have permission to view inventory data.</Alert>;
   }
 
+  if (loading) return <CircularProgress />;
+  if (error) return <Alert severity="error">{error}</Alert>;
 
   return (
     <>
-      <Typography variant="h4" gutterBottom>Inventory</Typography>
+      <Typography variant="h4" gutterBottom>Inventory Management</Typography>
+      
       <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-        <Button variant="contained" onClick={() => handleScan('in')}>Scan In</Button>
-        <Button variant="contained" color="secondary" onClick={() => handleScan('out')}>Scan Out</Button>
+        <Button 
+          variant="contained" 
+          startIcon={<QrCodeScanner />}
+          onClick={() => handleScan('in')}
+        >
+          Scan In
+        </Button>
+        <Button 
+          variant="contained" 
+          color="secondary" 
+          startIcon={<QrCodeScanner />}
+          onClick={() => handleScan('out')}
+        >
+          Scan Out
+        </Button>
+        {isAdminOrDispatcherOrBilling && (
+          <Button 
+            variant="contained" 
+            startIcon={<AddIcon />} 
+            onClick={handleAdd}
+          >
+            Add Inventory
+          </Button>
+        )}
       </Stack>
-      {isAdminOrDispatcherOrBilling && (
-        <Button variant="contained" startIcon={<AddIcon />} onClick={handleAdd} sx={{ mb: 2 }}>Add Inventory</Button>
-      )}
+
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
@@ -242,6 +355,7 @@ function Inventory() {
               <TableCell>SKU</TableCell>
               <TableCell>Description</TableCell>
               <TableCell>Quantity</TableCell>
+              <TableCell>Status</TableCell>
               <TableCell>Cost</TableCell>
               <TableCell>Location</TableCell>
               <TableCell>Barcode</TableCell>
@@ -249,44 +363,108 @@ function Inventory() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {items.map(item => (
-              <TableRow key={item.item_id} sx={{ bgcolor: getRowColor(item) }} aria-label={`Inventory item ${item.item_id}`}>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {item.item_id}
-                    <Tooltip title="Copy Item ID"><IconButton size="small" onClick={() => handleCopy(item.item_id)}><ContentCopyIcon fontSize="inherit" /></IconButton></Tooltip>
-                    <Tooltip title="Quick Add Note"><IconButton size="small" onClick={() => handleQuickNote(item)}><NoteAddIcon fontSize="inherit" /></IconButton></Tooltip>
-                    {isAdminOrDispatcherOrBilling && (
-                      <Tooltip title="Delete Item"><IconButton size="small" color="error" onClick={() => handleDelete(item)}><DeleteIcon fontSize="inherit" /></IconButton></Tooltip>
-                    )}
-                  </Box>
-                </TableCell>
-                <TableCell>{item.name}</TableCell>
-                <TableCell>{item.sku}</TableCell>
-                <Tooltip title={item.description}><TableCell>{item.description}</TableCell></Tooltip>
-                <TableCell>{item.quantity_on_hand}</TableCell>
-                <TableCell>{item.cost}</TableCell>
-                <TableCell>{item.location}</TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {item.barcode}
-                    {item.barcode && (
-                      <Tooltip title="Copy Barcode"><IconButton size="small" onClick={() => handleCopy(item.barcode)}><ContentCopyIcon fontSize="inherit" /></IconButton></Tooltip>
-                    )}
-                  </Box>
-                </TableCell>
-                {isAdminOrDispatcherOrBilling && (
+            {items.map(item => {
+              const quantityStatus = getQuantityStatus(item.quantity_on_hand);
+              return (
+                <TableRow key={item.item_id} sx={{ bgcolor: getRowColor(item) }}>
                   <TableCell>
-                    <Tooltip title="Edit Item"><IconButton onClick={() => handleEdit(item)} size="small"><EditIcon /></IconButton></Tooltip>
-                    <Tooltip title="Generate Label"><Button size="small" onClick={() => handleLabel(item)}>Generate Label</Button></Tooltip>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2" fontWeight="bold">
+                        {item.item_id}
+                      </Typography>
+                      <Tooltip title="Copy Item ID">
+                        <IconButton size="small" onClick={() => handleCopy(item.item_id)}>
+                          <ContentCopyIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Quick Add Note">
+                        <IconButton size="small" onClick={() => handleQuickNote(item)}>
+                          <NoteAddIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      {isAdminOrDispatcherOrBilling && (
+                        <Tooltip title="Delete Item">
+                          <IconButton size="small" color="error" onClick={() => handleDelete(item)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Box>
                   </TableCell>
-                )}
-              </TableRow>
-            ))}
+                  <TableCell>{item.name}</TableCell>
+                  <TableCell>{item.sku}</TableCell>
+                  <Tooltip title={item.description}>
+                    <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {item.description}
+                    </TableCell>
+                  </Tooltip>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="bold">
+                      {item.quantity_on_hand}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip 
+                      label={quantityStatus.text} 
+                      color={quantityStatus.color} 
+                      size="small" 
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {new Intl.NumberFormat('en-US', { 
+                      style: 'currency', 
+                      currency: 'USD' 
+                    }).format(item.cost || 0)}
+                  </TableCell>
+                  <TableCell>{item.location}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {item.barcode && (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                            {item.barcode}
+                          </Typography>
+                        </Box>
+                      )}
+                      {item.barcode && (
+                        <Tooltip title="Copy Barcode">
+                          <IconButton size="small" onClick={() => handleCopy(item.barcode)}>
+                            <ContentCopyIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Box>
+                  </TableCell>
+                  {isAdminOrDispatcherOrBilling && (
+                    <TableCell>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        <Tooltip title="Edit Item">
+                          <IconButton onClick={() => handleEdit(item)} size="small">
+                            <EditIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Generate Label">
+                          <IconButton size="small" onClick={() => handleLabel(item)}>
+                            <QrCode />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="View History">
+                          <IconButton size="small" onClick={() => handleViewHistory(item)}>
+                            <TrendingUp />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </TableCell>
+                  )}
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </TableContainer>
-      <Dialog open={editDialog} onClose={handleClose} maxWidth="sm" fullWidth>
+
+      {/* Add/Edit Dialog */}
+      <Dialog open={editDialog} onClose={handleClose} maxWidth="md" fullWidth>
         <DialogTitle>{editItem ? 'Edit Inventory Item' : 'Add Inventory Item'}</DialogTitle>
         <DialogContent>
           <InventoryForm initialValues={editItem} onSubmit={handleSubmit} isEdit={!!editItem} />
@@ -295,17 +473,41 @@ function Inventory() {
           <Button onClick={handleClose}>Cancel</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Scan Dialog */}
       <Dialog open={scanDialog} onClose={() => setScanDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Scan Barcode ({scanType === 'in' ? 'Scan In' : 'Scan Out'})</DialogTitle>
+        <DialogTitle>
+          {scanType === 'in' ? 'Scan In' : 'Scan Out'} - Barcode Scanner
+        </DialogTitle>
         <DialogContent>
-          {/* <BarcodeScannerComponent width={400} height={200} onUpdate={} /> */}
-          {/* {scannedBarcode && <Typography sx={{ mt: 2 }}>Scanned: {scannedBarcode}</Typography>} */}
-          {/* {scanFeedback && <Alert severity={scanFeedback.includes('success') ? 'success' : 'error'} sx={{ mt: 2 }}>{}</Alert>} */}
+          <Box sx={{ mt: 2 }}>
+            <TextField
+              fullWidth
+              label="Barcode"
+              value={scannedBarcode}
+              onChange={(e) => setScannedBarcode(e.target.value)}
+              placeholder="Enter or scan barcode..."
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleScanSubmit();
+                }
+              }}
+            />
+            <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
+              Press Enter to submit or use a barcode scanner
+            </Typography>
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setScanDialog(false)}>Close</Button>
+          <Button onClick={() => setScanDialog(false)}>Cancel</Button>
+          <Button onClick={handleScanSubmit} variant="contained">
+            {scanType === 'in' ? 'Scan In' : 'Scan Out'}
+          </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Label Dialog */}
       <Dialog open={labelDialog} onClose={handleLabelClose} maxWidth="xs" fullWidth>
         <DialogTitle>Barcode Label</DialogTitle>
         <DialogContent>
@@ -323,27 +525,121 @@ function Inventory() {
           <Button onClick={handleLabelClose}>Close</Button>
         </DialogActions>
       </Dialog>
-      {copyFeedback && <Alert severity="success" sx={{ position: 'fixed', top: 80, right: 40, zIndex: 2000 }}>{copyFeedback}</Alert>}
+
+      {/* Transaction History Dialog */}
+      <Dialog open={historyDialog} onClose={() => setHistoryDialog(false)} maxWidth="md" fullWidth>
+        <DialogTitle>
+          Transaction History - {selectedItem?.name}
+        </DialogTitle>
+        <DialogContent>
+          {selectedItem && (
+            <Box sx={{ mt: 2 }}>
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6">Current Stock</Typography>
+                      <Typography variant="h4" color="primary">
+                        {selectedItem.quantity_on_hand}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6">Status</Typography>
+                      <Chip 
+                        label={getQuantityStatus(selectedItem.quantity_on_hand).text} 
+                        color={getQuantityStatus(selectedItem.quantity_on_hand).color} 
+                      />
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+              
+              <Typography variant="h6" sx={{ mb: 2 }}>Recent Transactions</Typography>
+              {transactionHistory.length === 0 ? (
+                <Typography color="textSecondary">No transaction history found.</Typography>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Type</TableCell>
+                        <TableCell>Quantity</TableCell>
+                        <TableCell>Notes</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {transactionHistory.map((transaction) => (
+                        <TableRow key={transaction.transaction_id}>
+                          <TableCell>
+                            {new Date(transaction.date).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              icon={transaction.type === 'in' ? <TrendingUp /> : <TrendingDown />}
+                              label={transaction.type === 'in' ? 'In' : 'Out'}
+                              color={transaction.type === 'in' ? 'success' : 'error'}
+                              size="small"
+                            />
+                          </TableCell>
+                          <TableCell>{transaction.quantity}</TableCell>
+                          <TableCell>{transaction.notes}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setHistoryDialog(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Note Dialog */}
       <Dialog open={noteDialog} onClose={() => setNoteDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Quick Add Note</DialogTitle>
         <DialogContent>
-          <TextField label="Note" value={noteText} onChange={e => setNoteText(e.target.value)} fullWidth multiline minRows={3} />
+          <TextField 
+            label="Note" 
+            value={noteText} 
+            onChange={e => setNoteText(e.target.value)} 
+            fullWidth 
+            multiline 
+            minRows={3} 
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNoteDialog(false)}>Cancel</Button>
           <Button onClick={handleNoteSubmit} variant="contained">Add Note</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Delete Dialog */}
       <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
-          <Typography>Are you sure you want to delete inventory item "{deleteItem?.name}" (SKU: {deleteItem?.sku})?</Typography>
+          <Typography>
+            Are you sure you want to delete inventory item "{deleteItem?.name}" (SKU: {deleteItem?.sku})?
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialog(false)}>Cancel</Button>
           <Button onClick={handleDeleteConfirm} color="error" variant="contained">Delete</Button>
         </DialogActions>
       </Dialog>
+
+      {copyFeedback && (
+        <Alert severity="success" sx={{ position: 'fixed', top: 80, right: 40, zIndex: 2000 }}>
+          {copyFeedback}
+        </Alert>
+      )}
     </>
   );
 }

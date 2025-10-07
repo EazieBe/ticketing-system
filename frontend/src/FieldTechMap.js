@@ -14,7 +14,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
-import useWebSocket from './hooks/useWebSocket';
+import { useDataSync } from './contexts/DataSyncContext';
 import dayjs from 'dayjs';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -93,7 +93,8 @@ function MapBoundsUpdater({ techsWithCoords, mapCenter, mapZoom }) {
 function FieldTechMap() {
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success } = useToast();
+  const { updateTrigger } = useDataSync('fieldTechs');
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -135,27 +136,36 @@ function FieldTechMap() {
   }, []);
 
   // WebSocket callback functions - defined after fetchTechs
-  const handleWebSocketMessage = useCallback((data) => {
+  const handleWebSocketMessage = useCallback((message) => {
     try {
-      const message = JSON.parse(data);
-      if (message.type === 'fieldtech_update' || message.type === 'fieldtech_created' || message.type === 'fieldtech_deleted') {
+      if (message && (
+        message.type === 'fieldtech_update' || 
+        message.type === 'fieldtech_created' || 
+        message.type === 'fieldtech_deleted'
+      )) {
         // Use a timeout to avoid calling fetchTechs before it's defined
         setTimeout(() => {
           if (typeof fetchTechs === 'function') {
-            fetchTechs();
+            fetchTechs(false); // Real-time update, no loading spinner
           }
         }, 100);
       }
     } catch (e) {
       // Handle non-JSON messages
     }
-  }, []);
+  }, [fetchTechs]);
 
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
-
+    // Initial load with loading spinner
   useEffect(() => {
-    fetchTechs();
-  }, []);
+    fetchTechs(true); // Show loading on initial load
+  }, []); // Empty dependency array for initial load only
+
+  // Auto-refresh when DataSync triggers update (no loading spinner)
+  useEffect(() => {
+    if (updateTrigger > 0) { // Only refresh on real-time updates, not initial load
+      fetchTechs(false); // Don't show loading on real-time updates
+    }
+  }, [updateTrigger]); // Only depend on updateTrigger
 
   const geocodeAddress = async (address) => {
     try {

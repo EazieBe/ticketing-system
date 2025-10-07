@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Container, Typography, Box, Grid, Button, IconButton,
@@ -13,40 +13,45 @@ import {
 import {
   Edit, Delete, Visibility, Business, Schedule, CheckCircle, Cancel, Warning,
   LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
-  Notifications, ExpandMore as ExpandMoreIcon, Store, Assignment, Sort, Search, CalendarToday
+  Notifications, ExpandMore as ExpandMoreIcon, Store, Assignment, Sort, Search, CalendarToday,
+  OpenInNew, Add
 } from '@mui/icons-material';
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
 import dayjs from 'dayjs';
 import SiteForm from './SiteForm';
+import TicketFilters from './components/TicketFilters';
+import { filterTickets, getDefaultFilters } from './utils/filterTickets';
+import { useDataSync } from './contexts/DataSyncContext';
+import { TimestampDisplay } from './components/TimestampDisplay';
+import { getBestTimestamp } from './utils/timezone';
 
 function SiteDetail() {
   const { site_id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success } = useToast();
+  const { updateTrigger: ticketUpdateTrigger } = useDataSync('tickets');
+  const { updateTrigger: shipmentUpdateTrigger } = useDataSync('shipments');
   const [site, setSite] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [shipments, setShipments] = useState([]);
   const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const isMountedRef = useRef(true);
   
   // Tab state
   const [activeTab, setActiveTab] = useState(0);
   
-  // Filtering and pagination
-  const [ticketSearch, setTicketSearch] = useState('');
-  const [ticketStatusFilter, setTicketStatusFilter] = useState('');
-  const [ticketTypeFilter, setTicketTypeFilter] = useState('');
-  const [ticketPriorityFilter, setTicketPriorityFilter] = useState('');
-  const [ticketDateFilter, setTicketDateFilter] = useState('');
+  // Filtering and pagination - using unified filter system
+  const [ticketFilters, setTicketFilters] = useState(getDefaultFilters());
   const [showArchived, setShowArchived] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [ticketsPerPage, setTicketsPerPage] = useState(25);
-  const [sortBy, setSortBy] = useState('date_created');
+  const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
   
   // Edit state
@@ -72,19 +77,28 @@ function SiteDetail() {
   };
 
   const fetchSiteData = useCallback(async () => {
+    // Don't fetch if component is unmounted
+    if (!isMountedRef.current) {
+      console.log('Component unmounted, skipping site data fetch');
+      setLoading(false);
+      return;
+    }
+    
     try {
       setLoading(true);
       const [siteResponse, ticketsResponse, shipmentsResponse, equipmentResponse] = await Promise.all([
         api.get(`/sites/${site_id}`),
         api.get(`/tickets/?site_id=${site_id}`),
-        api.get(`/shipments/?site_id=${site_id}`),
+        api.get(`/sites/${site_id}/shipments`),
         api.get(`/equipment/?site_id=${site_id}`)
       ]);
       
-      setSite(siteResponse || {});
-      setTickets(ticketsResponse || []);
-      setShipments(shipmentsResponse || []);
-      setEquipment(equipmentResponse || []);
+      if (isMountedRef.current) {
+        setSite(siteResponse || {});
+        setTickets(ticketsResponse || []);
+        setShipments(shipmentsResponse || []);
+        setEquipment(equipmentResponse || []);
+      }
     } catch (err) {
       setError('Failed to load site data');
       console.error('Error fetching site data:', err);
@@ -96,6 +110,45 @@ function SiteDetail() {
   useEffect(() => {
     fetchSiteData();
   }, [fetchSiteData]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Auto-refresh tickets when DataSync triggers update
+  useEffect(() => {
+    const fetchTickets = async () => {
+      try {
+        const ticketsResponse = await api.get(`/tickets/?site_id=${site_id}`);
+        setTickets(ticketsResponse || []);
+      } catch (err) {
+        console.error('Error auto-refreshing tickets:', err);
+      }
+    };
+    
+    if (ticketUpdateTrigger > 0) {
+      fetchTickets();
+    }
+  }, [ticketUpdateTrigger, site_id, api]);
+
+  // Auto-refresh shipments when DataSync triggers update
+  useEffect(() => {
+    const fetchShipments = async () => {
+      try {
+        const shipmentsResponse = await api.get(`/sites/${site_id}/shipments`);
+        setShipments(shipmentsResponse || []);
+      } catch (err) {
+        console.error('Error auto-refreshing shipments:', err);
+      }
+    };
+    
+    if (shipmentUpdateTrigger > 0) {
+      fetchShipments();
+    }
+  }, [shipmentUpdateTrigger, site_id, api]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -116,50 +169,36 @@ function SiteDetail() {
     }
   };
 
-  // Filter and sort tickets
-  const filteredTickets = tickets.filter(ticket => {
-    const matchesSearch = !ticketSearch || 
-      ticket.ticket_id.toLowerCase().includes(ticketSearch.toLowerCase()) ||
-      ticket.inc_number?.toLowerCase().includes(ticketSearch.toLowerCase()) ||
-      ticket.type?.toLowerCase().includes(ticketSearch.toLowerCase()) ||
-      ticket.status?.toLowerCase().includes(ticketSearch.toLowerCase()) ||
-      ticket.notes?.toLowerCase().includes(ticketSearch.toLowerCase());
+  // Filter and sort tickets - using unified filter system
+  const filteredTickets = (() => {
+    let filtered = filterTickets(tickets, ticketFilters);
     
-    const matchesStatus = !ticketStatusFilter || ticket.status === ticketStatusFilter;
-    const matchesType = !ticketTypeFilter || ticket.type === ticketTypeFilter;
-    const matchesPriority = !ticketPriorityFilter || ticket.priority?.toLowerCase() === ticketPriorityFilter.toLowerCase();
-    
-    // Date filtering
-    let matchesDate = true;
-    if (ticketDateFilter && ticket.date_created) {
-      const ticketDate = dayjs(ticket.date_created);
-      const now = dayjs();
-      if (ticketDateFilter === 'today') {
-        matchesDate = ticketDate.isSame(now, 'day');
-      } else if (ticketDateFilter === 'week') {
-        matchesDate = ticketDate.isAfter(now.subtract(7, 'day'));
-      } else if (ticketDateFilter === 'month') {
-        matchesDate = ticketDate.isAfter(now.subtract(30, 'day'));
-      } else if (ticketDateFilter === 'quarter') {
-        matchesDate = ticketDate.isAfter(now.subtract(90, 'day'));
-      }
+    // Archive filtering (site-specific)
+    if (!showArchived) {
+      const isArchived = (ticket) => {
+        if (ticket.status !== 'closed') return false;
+        const timestamp = getBestTimestamp(ticket, 'tickets');
+        return timestamp ? dayjs(timestamp).isBefore(dayjs().subtract(30, 'day')) : false;
+      };
+      filtered = filtered.filter(ticket => !isArchived(ticket));
     }
     
-    // Archive filtering
-    const isArchived = ticket.status === 'closed' && dayjs(ticket.date_created).isBefore(dayjs().subtract(30, 'day'));
-    const matchesArchive = showArchived ? true : !isArchived;
-    
-    return matchesSearch && matchesStatus && matchesType && matchesPriority && matchesDate && matchesArchive;
-  });
+    return filtered;
+  })();
 
   // Sort tickets
   const sortedTickets = [...filteredTickets].sort((a, b) => {
     let aValue = a[sortBy];
     let bValue = b[sortBy];
     
-    if (sortBy === 'date_created' || sortBy === 'date_updated') {
-      aValue = dayjs(aValue);
-      bValue = dayjs(bValue);
+    if (sortBy === 'created_at' || sortBy === 'date_created' || sortBy === 'date_updated') {
+      // For timestamp fields, get the best available timestamp
+      if (sortBy === 'created_at' || sortBy === 'date_created') {
+        aValue = getBestTimestamp(a, 'tickets');
+        bValue = getBestTimestamp(b, 'tickets');
+      }
+      aValue = aValue ? dayjs(aValue) : dayjs(0);
+      bValue = bValue ? dayjs(bValue) : dayjs(0);
     }
     
     if (sortOrder === 'asc') {
@@ -183,15 +222,20 @@ function SiteDetail() {
   const highPriorityTickets = tickets.filter(t => t.priority?.toLowerCase() === 'high');
   const overdueTickets = tickets.filter(t => {
     if (t.status === 'closed') return false;
-    const created = dayjs(t.date_created);
+    const timestamp = getBestTimestamp(t, 'tickets');
+    if (!timestamp) return false;
+    const created = dayjs(timestamp);
     const now = dayjs();
     return now.diff(created, 'day') > 7; // Overdue if older than 7 days
   });
 
   // Clickable stat card handlers
   const handleStatCardClick = (filterType, value) => {
-    setTicketStatusFilter(filterType === 'status' ? value : '');
-    setTicketPriorityFilter(filterType === 'priority' ? value : '');
+    if (filterType === 'status') {
+      setTicketFilters({ ...ticketFilters, status: value });
+    } else if (filterType === 'priority') {
+      setTicketFilters({ ...ticketFilters, priority: value });
+    }
     setActiveTab(0); // Switch to tickets tab
     setCurrentPage(1);
   };
@@ -523,99 +567,30 @@ function SiteDetail() {
             {/* Tickets Tab */}
             {activeTab === 0 && (
               <Box sx={{ p: 3 }}>
-                {/* Enhanced Filters */}
-                <Grid container spacing={2} sx={{ mb: 3 }}>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      placeholder="Search tickets..."
-                      value={ticketSearch}
-                      onChange={(e) => setTicketSearch(e.target.value)}
-                      InputProps={{
-                        startAdornment: <Search sx={{ mr: 1, color: 'action.active' }} />
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={6} sm={3} md={2}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Status</InputLabel>
-                      <Select
-                        value={ticketStatusFilter}
-                        label="Status"
-                        onChange={(e) => setTicketStatusFilter(e.target.value)}
-                      >
-                        <MenuItem value="">All</MenuItem>
-                        <MenuItem value="open">Open</MenuItem>
-                        <MenuItem value="assigned">Assigned</MenuItem>
-                        <MenuItem value="in_progress">In Progress</MenuItem>
-                        <MenuItem value="pending">Pending</MenuItem>
-                        <MenuItem value="closed">Closed</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={6} sm={3} md={2}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Type</InputLabel>
-                      <Select
-                        value={ticketTypeFilter}
-                        label="Type"
-                        onChange={(e) => setTicketTypeFilter(e.target.value)}
-                      >
-                        <MenuItem value="">All</MenuItem>
-                        <MenuItem value="hardware">Hardware</MenuItem>
-                        <MenuItem value="software">Software</MenuItem>
-                        <MenuItem value="network">Network</MenuItem>
-                        <MenuItem value="phone">Phone</MenuItem>
-                        <MenuItem value="other">Other</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={6} sm={3} md={2}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Priority</InputLabel>
-                      <Select
-                        value={ticketPriorityFilter}
-                        label="Priority"
-                        onChange={(e) => setTicketPriorityFilter(e.target.value)}
-                      >
-                        <MenuItem value="">All</MenuItem>
-                        <MenuItem value="high">High</MenuItem>
-                        <MenuItem value="medium">Medium</MenuItem>
-                        <MenuItem value="low">Low</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={6} sm={3} md={2}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Date</InputLabel>
-                      <Select
-                        value={ticketDateFilter}
-                        label="Date"
-                        onChange={(e) => setTicketDateFilter(e.target.value)}
-                      >
-                        <MenuItem value="">All Time</MenuItem>
-                        <MenuItem value="today">Today</MenuItem>
-                        <MenuItem value="week">This Week</MenuItem>
-                        <MenuItem value="month">This Month</MenuItem>
-                        <MenuItem value="quarter">This Quarter</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={6} sm={3} md={1}>
+                {/* Unified Ticket Filters */}
+                <Box sx={{ mb: 3 }}>
+                  <TicketFilters
+                    filters={ticketFilters}
+                    onFilterChange={(newFilters) => {
+                      setTicketFilters(newFilters);
+                      setCurrentPage(1); // Reset to first page when filters change
+                    }}
+                    compact={true}
+                  />
+                  <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
                     <ToggleButton
                       value="archived"
                       selected={showArchived}
                       onChange={() => setShowArchived(!showArchived)}
                       size="small"
-                      sx={{ height: 40 }}
                     >
                       <Tooltip title={showArchived ? "Hide Archived" : "Show Archived"}>
-                        <CalendarToday />
+                        <CalendarToday sx={{ mr: 1 }} />
+                        {showArchived ? 'Hide' : 'Show'} Archived
                       </Tooltip>
                     </ToggleButton>
-                  </Grid>
-                </Grid>
+                  </Box>
+                </Box>
 
                 {/* View Controls */}
                 <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
@@ -645,7 +620,7 @@ function SiteDetail() {
                         label="Sort By"
                         onChange={(e) => setSortBy(e.target.value)}
                       >
-                        <MenuItem value="date_created">Created Date</MenuItem>
+                        <MenuItem value="created_at">Created Date</MenuItem>
                         <MenuItem value="date_updated">Updated Date</MenuItem>
                         <MenuItem value="priority">Priority</MenuItem>
                         <MenuItem value="status">Status</MenuItem>
@@ -731,14 +706,21 @@ function SiteDetail() {
                               />
                             </TableCell>
                             <TableCell>
-                              <Typography variant="body2" color="text.secondary">
-                                {dayjs(ticket.date_created).format('MM/DD/YY')}
-                              </Typography>
+                              <TimestampDisplay 
+                                entity={ticket} 
+                                entityType="tickets" 
+                                format="absolute"
+                                variant="body2"
+                              />
                             </TableCell>
                             <TableCell>
-                              <Typography variant="body2" color="text.secondary">
-                                {dayjs(ticket.date_updated).format('MM/DD/YY')}
-                              </Typography>
+                              <TimestampDisplay 
+                                entity={ticket} 
+                                entityType="tickets" 
+                                format="absolute"
+                                variant="body2"
+                                fallback="N/A"
+                              />
                             </TableCell>
                             <TableCell>
                               <IconButton
@@ -792,10 +774,10 @@ function SiteDetail() {
                             secondary={
                               <Box display="flex" alignItems="center" gap={2} mt={0.5}>
                                 <Typography variant="caption" color="text.secondary">
-                                  Created: {dayjs(ticket.date_created).format('MM/DD/YY HH:mm')}
+                                  Created: <TimestampDisplay entity={ticket} entityType="tickets" format="absolute" variant="caption" />
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
-                                  Updated: {dayjs(ticket.date_updated).format('MM/DD/YY HH:mm')}
+                                  Updated: <TimestampDisplay entity={ticket} entityType="tickets" format="absolute" variant="caption" fallback="N/A" />
                                 </Typography>
                                 {ticket.notes && (
                                   <Typography variant="caption" color="text.secondary" sx={{ 
@@ -841,7 +823,17 @@ function SiteDetail() {
             {/* Shipments Tab */}
             {activeTab === 1 && (
               <Box sx={{ p: 3 }}>
-                <Typography variant="h6" gutterBottom>Shipments</Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6">Shipment History</Typography>
+                  <Button 
+                    variant="contained" 
+                    startIcon={<Add />}
+                    onClick={() => navigate('/shipments', { state: { newShipmentSiteId: site_id } })}
+                  >
+                    Add Shipment
+                  </Button>
+                </Box>
+                
                 {shipments.length === 0 ? (
                   <Typography color="text.secondary">No shipments found for this site.</Typography>
                 ) : (
@@ -850,29 +842,126 @@ function SiteDetail() {
                       <TableHead>
                         <TableRow>
                           <TableCell>Shipment ID</TableCell>
+                          <TableCell>What is Being Shipped</TableCell>
                           <TableCell>Status</TableCell>
-                          <TableCell>Type</TableCell>
-                          <TableCell>Created</TableCell>
+                          <TableCell>Priority</TableCell>
+                          <TableCell>Charges</TableCell>
+                          <TableCell>Tracking</TableCell>
+                          <TableCell>Date Created</TableCell>
+                          <TableCell>Date Shipped</TableCell>
                           <TableCell>Actions</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {shipments.map((shipment) => (
-                          <TableRow key={shipment.shipment_id}>
-                            <TableCell>{shipment.shipment_id}</TableCell>
+                          <TableRow 
+                            key={shipment.shipment_id}
+                            sx={{ 
+                              cursor: 'pointer',
+                              '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                            }}
+                            onClick={() => navigate('/shipments', { state: { editShipmentId: shipment.shipment_id } })}
+                          >
                             <TableCell>
-                              <Chip label={shipment.status} size="small" color="primary" />
+                              <Typography variant="body2" fontWeight="bold">
+                                {shipment.shipment_id}
+                              </Typography>
                             </TableCell>
-                            <TableCell>{shipment.type}</TableCell>
-                            <TableCell>{dayjs(shipment.date_created).format('MM/DD/YY')}</TableCell>
                             <TableCell>
-                              <IconButton
-                                component={Link}
-                                to={`/shipments/${shipment.shipment_id}`}
+                              <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {shipment.what_is_being_shipped}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={shipment.status || 'pending'} 
+                                size="small" 
+                                color={
+                                  shipment.status === 'pending' ? 'warning' :
+                                  shipment.status === 'shipped' ? 'info' :
+                                  shipment.status === 'delivered' ? 'success' : 'default'
+                                }
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                label={shipment.shipping_priority || 'normal'}
                                 size="small"
-                              >
-                                <Visibility />
-                              </IconButton>
+                                color={shipment.shipping_priority === 'urgent' ? 'error' : 
+                                       shipment.shipping_priority === 'critical' ? 'error' : 'default'}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2">
+                                Out: ${shipment.charges_out || 0}<br/>
+                                In: ${shipment.charges_in || 0}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                {shipment.tracking_number && (
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                    <Typography variant="caption" sx={{ maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {shipment.tracking_number}
+                                    </Typography>
+                                    <Tooltip title="Track on FedEx">
+                                      <IconButton 
+                                        size="small" 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          window.open(`https://www.fedex.com/fedextrack/?trknbr=${shipment.tracking_number}`, '_blank');
+                                        }}
+                                      >
+                                        <OpenInNew fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </Box>
+                                )}
+                                {shipment.return_tracking && (
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                    <Typography variant="caption" sx={{ maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      R: {shipment.return_tracking}
+                                    </Typography>
+                                    <Tooltip title="Track Return on FedEx">
+                                      <IconButton 
+                                        size="small" 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          window.open(`https://www.fedex.com/fedextrack/?trknbr=${shipment.return_tracking}`, '_blank');
+                                        }}
+                                      >
+                                        <OpenInNew fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </Box>
+                                )}
+                              </Box>
+                            </TableCell>
+                            <TableCell>
+                              <TimestampDisplay 
+                                entity={shipment} 
+                                entityType="shipments" 
+                                format="absolute"
+                                fallback="-"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {shipment.date_shipped ? dayjs(shipment.date_shipped).format('MM/DD/YY') : '-'}
+                            </TableCell>
+                            <TableCell>
+                              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                <Tooltip title="View Details">
+                                  <IconButton
+                                    size="small"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigate('/shipments', { state: { editShipmentId: shipment.shipment_id } });
+                                    }}
+                                  >
+                                    <Visibility />
+                                  </IconButton>
+                                </Tooltip>
+                              </Box>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -909,7 +998,14 @@ function SiteDetail() {
                             <TableCell>
                               <Chip label={item.status} size="small" color="primary" />
                             </TableCell>
-                            <TableCell>{dayjs(item.date_created).format('MM/DD/YY')}</TableCell>
+                            <TableCell>
+                              <TimestampDisplay 
+                                entity={item} 
+                                entityType="site_equipment" 
+                                format="absolute"
+                                fallback="N/A"
+                              />
+                            </TableCell>
                             <TableCell>
                               <IconButton
                                 component={Link}

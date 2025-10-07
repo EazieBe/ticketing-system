@@ -7,13 +7,12 @@ import {
 } from '@mui/material';
 import {
   Add, Edit, Delete, Visibility, Person, Phone, Email, LocationOn, Schedule,
-  CheckCircle, Cancel, Warning, LocalShipping, Build, Inventory, Flag, FlagOutlined,
-  Star, StarBorder, Notifications, NotificationsOff, ExpandMore, ExpandLess
+  CheckCircle, Cancel, Warning
 } from '@mui/icons-material';
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
-import useWebSocket from './hooks/useWebSocket';
+import { useDataSync } from './contexts/DataSyncContext';
 import dayjs from 'dayjs';
 import FieldTechForm from './FieldTechForm';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -25,7 +24,8 @@ import CSVImport from './components/CSVImport';
 function FieldTechs() {
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error: showError } = useToast();
+  const { updateTrigger } = useDataSync('fieldTechs');
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -37,9 +37,11 @@ function FieldTechs() {
 
   // WebSocket setup - will be configured after fetchTechs is defined
 
-  const fetchTechs = useCallback(async () => {
+  const fetchTechs = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       const response = await api.get('/fieldtechs/');
       setTechs(response || []);
       setError(null);
@@ -48,27 +50,23 @@ function FieldTechs() {
       setError('Failed to load field techs');
       setTechs([]);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, []);
 
-  // WebSocket callback functions - defined after fetchTechs
-  const handleWebSocketMessage = useCallback((data) => {
-    try {
-      const message = JSON.parse(data);
-      if (message.type === 'fieldtech_update' || message.type === 'fieldtech_created' || message.type === 'fieldtech_deleted') {
-        fetchTechs(); // Refresh field techs when there's an update
-      }
-    } catch (e) {
-      // Handle non-JSON messages
-    }
-  }, [fetchTechs]);
-
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
-
+  // Initial load with loading spinner
   useEffect(() => {
-    fetchTechs();
-  }, [fetchTechs]);
+    fetchTechs(true); // Show loading on initial load
+  }, []); // Empty dependency array for initial load only
+
+  // Auto-refresh when DataSync triggers update (no loading spinner)
+  useEffect(() => {
+    if (updateTrigger > 0) { // Only refresh on real-time updates, not initial load
+      fetchTechs(false); // Don't show loading on real-time updates
+    }
+  }, [updateTrigger]); // Only depend on updateTrigger
 
   const handleAdd = () => {
     setEditTech(null);
@@ -92,23 +90,23 @@ function FieldTechs() {
         setTechs(prevTechs => prevTechs.map(t => 
           t.field_tech_id === editTech.field_tech_id ? response : t
         ));
-        showToast('Field tech updated successfully', 'success');
+        success('Field tech updated successfully');
       } else {
         const response = await api.post('/fieldtechs/', values);
         setTechs(prevTechs => [...prevTechs, response]);
-        showToast('Field tech added successfully', 'success');
+        success('Field tech added successfully');
       }
       handleClose();
     } catch (err) {
       console.error('Error submitting field tech:', err);
       setError('Failed to save field tech');
-      showToast('Failed to save field tech', 'error');
+      showError('Failed to save field tech');
     }
   };
 
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text);
-    showToast('Phone number copied to clipboard', 'info');
+    success('Phone number copied to clipboard');
   };
 
   const handleQuickNote = (tech) => {
@@ -131,11 +129,11 @@ function FieldTechs() {
       setTechs(prevTechs => prevTechs.map(t => 
         t.field_tech_id === editTech.field_tech_id ? response : t
       ));
-      showToast('Notes updated successfully', 'success');
+              success('Notes updated successfully');
     } catch (err) {
       console.error('Error updating notes:', err);
       setError('Failed to update notes');
-      showToast('Failed to update notes', 'error');
+              showError('Failed to update notes');
     } finally {
       handleClose(); // Close the dialog after saving notes
     }
@@ -150,11 +148,11 @@ function FieldTechs() {
     try {
       await api.delete(`/fieldtechs/${deleteTech.field_tech_id}`, { data: {} });
       setTechs(prevTechs => prevTechs.filter(t => t.field_tech_id !== deleteTech.field_tech_id));
-      showToast('Field tech deleted successfully', 'success');
+              success('Field tech deleted successfully');
     } catch (err) {
       console.error('Error deleting field tech:', err);
       setError('Failed to delete field tech');
-      showToast('Failed to delete field tech', 'error');
+              showError('Failed to delete field tech');
     } finally {
       setDeleteDialog(false);
       setDeleteTech(null);
@@ -164,7 +162,7 @@ function FieldTechs() {
   const handleImportSuccess = (result) => {
     // Refresh the field techs list after successful import
     fetchTechs();
-    showToast('Field techs imported successfully', 'success');
+            success('Field techs imported successfully');
   };
 
   const handleImportClick = () => {

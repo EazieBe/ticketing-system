@@ -2,9 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, 
   Typography, CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent, 
-  DialogActions, IconButton, TextField, Box, Tooltip, Chip, ToggleButton, 
+  DialogActions, IconButton, TextField, Box, Tooltip, ToggleButton, 
   ToggleButtonGroup, FormControl, InputLabel, Select, MenuItem, Card, CardContent,
-  Grid, Divider, Snackbar
+  Grid, Snackbar
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -14,22 +14,19 @@ import UploadIcon from '@mui/icons-material/Upload';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
-import FilterListIcon from '@mui/icons-material/FilterList';
 import StoreIcon from '@mui/icons-material/Store';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
-import BusinessIcon from '@mui/icons-material/Business';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import SiteForm from './SiteForm';
 import { Link } from 'react-router-dom';
-import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
-import useWebSocket from './hooks/useWebSocket';
+import { useDataSync } from './contexts/DataSyncContext';
 
 function Sites() {
-  const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success } = useToast();
+  const { updateTrigger } = useDataSync('sites');
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -88,46 +85,44 @@ function Sites() {
     }
   };
 
-  const fetchSites = useCallback(async () => {
+  const fetchSites = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       console.log('Fetching sites...');
-      const response = await api.get('/sites/');
-      console.log('Raw response:', response.data);
-      console.log('Response data:', response.data);
-      // The response.data contains the sites array
-      const sitesArray = Array.isArray(response.data) ? response.data : [];
-      console.log('Fetched sites:', sitesArray.length, 'sites');
-      console.log('First site:', sitesArray[0]);
-      setSites(sitesArray);
-      setLoading(false);
+      const sitesArray = await api.get('/sites/');
+      console.log('Raw response:', sitesArray);
+      // The response is already the sites array (useApi returns response.data)
+      const validSitesArray = Array.isArray(sitesArray) ? sitesArray : [];
+      console.log('Fetched sites:', validSitesArray.length, 'sites');
+      console.log('First site:', validSitesArray[0]);
+      setSites(validSitesArray);
+      if (showLoading) {
+        setLoading(false);
+      }
     } catch (err) {
       console.error('Error fetching sites:', err);
       console.error('Error response:', err.response);
       setError('Failed to load sites');
       setSites([]);
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, [api]);
 
-  // WebSocket callback functions - defined after fetchSites
-  const handleWebSocketMessage = useCallback((data) => {
-    try {
-      const message = JSON.parse(data);
-      if (message.type === 'site_update' || message.type === 'site_created' || message.type === 'site_deleted') {
-        // Refresh sites when there are updates
-        fetchSites();
-      }
-    } catch (e) {
-      // Handle non-JSON messages
-    }
-  }, [fetchSites]);
-
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
-
+  // Initial load with loading spinner
   useEffect(() => {
-    fetchSites();
-  }, [fetchSites]);
+    fetchSites(true); // Show loading on initial load
+  }, []); // Empty dependency array for initial load only
+
+  // Auto-refresh when DataSync triggers update (no loading spinner)
+  useEffect(() => {
+    if (updateTrigger > 0) { // Only refresh on real-time updates, not initial load
+      fetchSites(false); // Don't show loading on real-time updates
+    }
+  }, [updateTrigger]); // Only depend on updateTrigger
 
   const handleAdd = () => {
     setEditSite(null);
@@ -151,15 +146,15 @@ function Sites() {
     if (editSite) {
       console.log('Updating site:', editSite.site_id);
       api.put(`/sites/${editSite.site_id}`, values)
-        .then((response) => {
-          console.log('Site update response:', response);
+        .then((updatedSite) => {
+          console.log('Site update response:', updatedSite);
           // Update the site in the local state immediately
           setSites(prevSites => prevSites.map(s => 
-            s.site_id === editSite.site_id ? response : s
+            s.site_id === editSite.site_id ? updatedSite : s
           ));
           handleClose();
           setError(null);
-          showToast('Site updated successfully', 'success');
+          success('Site updated successfully');
         })
         .catch((err) => {
           console.error('Update site error:', err);
@@ -172,13 +167,13 @@ function Sites() {
     } else {
       console.log('Creating new site');
       api.post('/sites/', values)
-        .then((response) => {
-          console.log('Site create response:', response);
+        .then((newSite) => {
+          console.log('Site create response:', newSite);
           // Add the new site to the local state immediately
-          setSites(prevSites => [...prevSites, response]);
+          setSites(prevSites => [...prevSites, newSite]);
           handleClose();
           setError(null);
-          showToast('Site created successfully', 'success');
+          success('Site created successfully');
         })
         .catch((err) => {
           console.error('Add site error:', err);
@@ -206,7 +201,7 @@ function Sites() {
         setSites(prevSites => prevSites.filter(s => s.site_id !== deleteSite.site_id));
         setDeleteSite(null);
         setError(null);
-        showToast('Site deleted successfully', 'success');
+        success('Site deleted successfully');
       })
       .catch((err) => {
         console.error('Delete site error:', err);

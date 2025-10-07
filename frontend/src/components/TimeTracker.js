@@ -1,29 +1,25 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Typography, Button, Card, CardContent, Chip, IconButton, Dialog, DialogTitle,
-  DialogContent, DialogActions, TextField, FormControl, InputLabel, Select, MenuItem,
-  Alert, CircularProgress, List, ListItem, ListItemText, ListItemSecondaryAction,
-  Divider, Tooltip, Badge, Stack, Grid, Paper, LinearProgress, FormControlLabel, Switch
+  DialogContent, DialogActions, TextField, Alert, CircularProgress, List, ListItem, ListItemText, ListItemSecondaryAction,
+  Divider, Grid, FormControlLabel, Switch
 } from '@mui/material';
 import {
-  PlayArrow, Stop, Pause, Add, Edit, Delete, Timer, Schedule, CheckCircle,
-  Warning, Error, Info, Person, Business, Assignment, Phone, Build, Inventory,
-  Flag, FlagOutlined, Star, StarBorder, Notifications, NotificationsOff,
-  ExpandMore, ExpandLess, FilterList, Sort, DragIndicator, Speed, AutoAwesome,
-  AttachMoney, AccessTime
+  PlayArrow, Stop, Pause, Add, Edit, Delete, Timer, AttachMoney, AccessTime
 } from '@mui/icons-material';
 import { useAuth } from '../AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import useApi from '../hooks/useApi';
+import { formatTimeTrackerTimestamp, formatTimeTrackerEndTime, getCurrentUTCTimestamp, localToUTC } from '../utils/timezone';
 import dayjs from 'dayjs';
 import duration from 'dayjs/plugin/duration';
 
 dayjs.extend(duration);
 
-function TimeTracker({ ticketId, onTimeUpdate }) {
+const TimeTracker = React.memo(function TimeTracker({ ticketId, onTimeUpdate, isDeleting = false }) {
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success } = useToast();
   const [isRunning, setIsRunning] = useState(false);
   const [currentSession, setCurrentSession] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -42,10 +38,25 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
   
   // Prevent multiple simultaneous API calls
   const fetchingRef = useRef(false);
+  const isMountedRef = useRef(true);
 
   const fetchTimeEntries = useCallback(async () => {
     // Prevent multiple simultaneous calls
     if (fetchingRef.current) return;
+    
+    // Don't fetch if component is unmounted
+    if (!isMountedRef.current) {
+      console.log('Component unmounted, skipping time entry fetch');
+      return;
+    }
+    
+    // Don't fetch if ticket is being deleted
+    if (isDeleting) {
+      console.log('Ticket is being deleted, skipping time entry fetch');
+      return;
+    }
+    
+    // No localStorage checks - just fetch directly from server
     
     try {
       fetchingRef.current = true;
@@ -55,16 +66,24 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
       setTimeEntries(response || []);
     } catch (err) {
       console.error('Error fetching time entries:', err);
-      // Don't show error for missing time entries - they might not exist yet
-      if (err.response?.status !== 404) {
+      // Handle different error types gracefully
+      if (err.response?.status === 404) {
+        // Ticket not found or no time entries - this is normal
+        setTimeEntries([]);
+      } else if (err.response?.status === 401) {
+        // Authentication error - user might need to log in
+        console.log('Authentication required for time entries');
+        setTimeEntries([]);
+      } else {
+        // Other errors
         setError('Failed to load time entries');
+        setTimeEntries([]);
       }
-      setTimeEntries([]);
     } finally {
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, [api, ticketId]);
+  }, [api, ticketId, isDeleting]);
 
   const startTimer = useCallback((startTime) => {
     setCurrentSession({ startTime });
@@ -73,11 +92,11 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
   }, [ticketId]);
 
   useEffect(() => {
-    // Only fetch if we have a valid ticketId
-    if (ticketId) {
+    // Only fetch if we have a valid ticketId and not deleting
+    if (ticketId && !isDeleting) {
       fetchTimeEntries();
     }
-  }, [fetchTimeEntries, ticketId]);
+  }, [ticketId, isDeleting]); // Removed fetchTimeEntries from dependencies to prevent infinite loops
 
   // Start timer only once when component mounts
   useEffect(() => {
@@ -104,6 +123,13 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
     return () => clearInterval(interval);
   }, [isRunning, currentSession]);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const stopTimer = async () => {
     if (!currentSession) return;
 
@@ -111,8 +137,8 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
     const durationMinutes = Math.round((endTime - currentSession.startTime) / 60000);
 
     setFormData({
-      start_time: dayjs(currentSession.startTime).format('YYYY-MM-DDTHH:mm'),
-      end_time: dayjs(endTime).format('YYYY-MM-DDTHH:mm'),
+      start_time: localToUTC(currentSession.startTime),
+      end_time: localToUTC(endTime),
       duration_minutes: durationMinutes.toString(),
       description: '',
       is_billable: true
@@ -133,8 +159,14 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
     setIsRunning(true);
   };
 
-  const handleSaveTimeEntry = async () => {
+  const handleSaveTimeEntry = useCallback(async () => {
     try {
+      // Validate required fields
+      if (!formData.start_time) {
+        setError('Start time is required');
+        return;
+      }
+
       const entryData = {
         start_time: formData.start_time,
         end_time: formData.end_time || null,
@@ -142,6 +174,8 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
         description: formData.description || '',
         is_billable: formData.is_billable
       };
+
+      console.log('Sending time entry data:', entryData);
 
       if (editingEntry) {
         await api.put(`/tickets/${ticketId}/time-entries/${editingEntry.entry_id}`, entryData);
@@ -160,18 +194,33 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
       });
       
       fetchTimeEntries();
-      if (onTimeUpdate) onTimeUpdate();
+      // Only call onTimeUpdate if it's a function and not causing re-renders
+      if (onTimeUpdate && typeof onTimeUpdate === 'function') {
+        setTimeout(() => onTimeUpdate(), 100); // Small delay to prevent immediate re-render
+      }
     } catch (err) {
       console.error('Error saving time entry:', err);
-      setError('Failed to save time entry');
+      
+      // Handle validation errors specifically
+      if (err.response?.status === 422) {
+        const validationErrors = err.response?.data?.detail;
+        if (Array.isArray(validationErrors)) {
+          const errorMessages = validationErrors.map(error => `${error.loc.join('.')}: ${error.msg}`).join(', ');
+          setError(`Validation error: ${errorMessages}`);
+        } else {
+          setError('Invalid data format. Please check your input.');
+        }
+      } else {
+        setError('Failed to save time entry');
+      }
     }
-  };
+  }, [formData, editingEntry, ticketId, api, fetchTimeEntries, onTimeUpdate]);
 
   const handleEditEntry = (entry) => {
     setEditingEntry(entry);
     setFormData({
-      start_time: dayjs(entry.start_time).format('YYYY-MM-DDTHH:mm'),
-      end_time: entry.end_time ? dayjs(entry.end_time).format('YYYY-MM-DDTHH:mm') : '',
+      start_time: localToUTC(entry.start_time),
+      end_time: entry.end_time ? localToUTC(entry.end_time) : '',
       duration_minutes: entry.duration_minutes?.toString() || '',
       description: entry.description || '',
       is_billable: entry.is_billable
@@ -358,8 +407,8 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Typography variant="body1">
-                            {dayjs(entry.start_time).format('MMM DD, YYYY HH:mm')}
-                            {entry.end_time && ` - ${dayjs(entry.end_time).format('HH:mm')}`}
+                            {formatTimeTrackerTimestamp(entry.start_time)}
+                            {entry.end_time && ` - ${formatTimeTrackerEndTime(entry.end_time)}`}
                           </Typography>
                           <Chip
                             label={`${Math.round(entry.duration_minutes / 60 * 10) / 10}h`}
@@ -482,6 +531,6 @@ function TimeTracker({ ticketId, onTimeUpdate }) {
       </Dialog>
     </Box>
   );
-}
+});
 
 export default TimeTracker; 

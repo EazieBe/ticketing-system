@@ -1,31 +1,33 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Box, Typography, TextField, Button, Card, CardContent, Chip, Avatar, Badge,
+  Box, Typography, TextField, Button, Card, CardContent, Chip, Avatar,
   IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
   CircularProgress, List, ListItem, ListItemText, ListItemAvatar, Divider,
-  Tooltip, Stack, Paper, LinearProgress, FormControlLabel, Switch
+  FormControlLabel, Switch
 } from '@mui/material';
 import {
-  Send, Edit, Delete, Reply, Flag, FlagOutlined, Star, StarBorder,
-  Notifications, NotificationsOff, Business, Person, Assignment, Phone,
-  Build, Inventory, CheckCircle, Warning, Error, Info, ExpandMore, ExpandLess,
-  Comment, Visibility, VisibilityOff
+  Send, Edit, Delete, Person, Comment, Visibility, VisibilityOff
 } from '@mui/icons-material';
 import { useAuth } from '../AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import useApi from '../hooks/useApi';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import { getBestTimestamp } from '../utils/timezone';
+import { TimestampDisplay } from './TimestampDisplay';
 
 dayjs.extend(relativeTime);
 
-function TicketComments({ ticketId, onCommentUpdate }) {
+function TicketComments({ ticketId, onCommentUpdate, isDeleting = false }) {
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success } = useToast();
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [initialLoad, setInitialLoad] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const isMountedRef = useRef(true);
   const [newComment, setNewComment] = useState('');
   const [isInternal, setIsInternal] = useState(false);
   const [editingComment, setEditingComment] = useState(null);
@@ -35,30 +37,81 @@ function TicketComments({ ticketId, onCommentUpdate }) {
     is_internal: false
   });
 
-  const fetchComments = useCallback(async () => {
+  const fetchComments = useCallback(async (showLoading = true) => {
+    // Don't fetch if component is unmounted
+    if (!isMountedRef.current) {
+      console.log('Component unmounted, skipping comment fetch');
+      return;
+    }
+    
+    // Don't fetch if ticket is being deleted
+    if (isDeleting) {
+      console.log('Ticket is being deleted, skipping comment fetch');
+      return;
+    }
+    
+    // No localStorage checks - just fetch directly from server
+    
     try {
-      setLoading(true);
+      if (showLoading && initialLoad) {
+        setLoading(true);
+      }
+      setError(null);
       const response = await api.get(`/tickets/${ticketId}/comments`);
-      setComments(response || []);
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        setComments(response || []);
+      }
     } catch (err) {
       console.error('Error fetching comments:', err);
-      setError('Failed to load comments');
-      setComments([]);
+      // Check if the error is a 404 (ticket not found) and silently handle it
+      if (err.response?.status === 404 || 
+          err.message?.includes('404') || 
+          err.message?.includes('Not Found') ||
+          err.message?.includes('Ticket not found')) {
+        if (isMountedRef.current) {
+          setComments([]);
+          setError(null); // Don't show error for missing ticket
+        }
+        console.log('Ticket not found, clearing comments silently');
+      } else {
+        if (isMountedRef.current) {
+          setError(typeof err === 'string' ? err : err.message || 'Failed to load comments');
+          setComments([]);
+        }
+      }
     } finally {
-      setLoading(false);
+      if (showLoading && initialLoad && isMountedRef.current) {
+        setLoading(false);
+        setInitialLoad(false);
+      }
     }
-  }, [api, ticketId]);
+  }, [api, ticketId, initialLoad, isDeleting]);
 
   useEffect(() => {
-    fetchComments();
-  }, [fetchComments]);
+    // Don't fetch if ticket is being deleted
+    if (!isDeleting) {
+      fetchComments();
+    }
+  }, [fetchComments, isDeleting]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      // Clear any pending state when component unmounts
+      setComments([]);
+      setError(null);
+      setLoading(false);
+    };
+  }, []);
 
   const handleSubmitComment = async () => {
-    if (!newComment.trim()) return;
+    if (!newComment.trim() || submitting) return;
 
     try {
+      setSubmitting(true);
       const commentData = {
-        ticket_id: ticketId,
         comment: newComment.trim(),
         is_internal: isInternal
       };
@@ -67,12 +120,15 @@ function TicketComments({ ticketId, onCommentUpdate }) {
       
       setNewComment('');
       setIsInternal(false);
-      fetchComments();
+      fetchComments(false); // Don't show loading spinner when refreshing
       
       if (onCommentUpdate) onCommentUpdate();
+      success('Comment added successfully');
     } catch (err) {
       console.error('Error adding comment:', err);
-      setError('Failed to add comment');
+      setError(typeof err === 'string' ? err : err.message || 'Failed to add comment');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -88,9 +144,10 @@ function TicketComments({ ticketId, onCommentUpdate }) {
       setEditDialogOpen(false);
       setEditingComment(null);
       setEditFormData({ comment: '', is_internal: false });
-      fetchComments();
+      fetchComments(false); // Don't show loading spinner
       
       if (onCommentUpdate) onCommentUpdate();
+      success('Comment updated successfully');
     } catch (err) {
       console.error('Error updating comment:', err);
       setError('Failed to update comment');
@@ -102,9 +159,10 @@ function TicketComments({ ticketId, onCommentUpdate }) {
 
     try {
       await api.delete(`/tickets/${ticketId}/comments/${commentId}`);
-      fetchComments();
+      fetchComments(false); // Don't show loading spinner
       
       if (onCommentUpdate) onCommentUpdate();
+      success('Comment deleted successfully');
     } catch (err) {
       console.error('Error deleting comment:', err);
       setError('Failed to delete comment');
@@ -132,7 +190,7 @@ function TicketComments({ ticketId, onCommentUpdate }) {
     <Box>
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
+          {typeof error === 'string' ? error : 'An error occurred while loading comments'}
         </Alert>
       )}
 
@@ -174,11 +232,11 @@ function TicketComments({ ticketId, onCommentUpdate }) {
               
               <Button
                 variant="contained"
-                startIcon={<Send />}
+                startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <Send />}
                 onClick={handleSubmitComment}
-                disabled={!newComment.trim()}
+                disabled={!newComment.trim() || submitting}
               >
-                Add Comment
+                {submitting ? 'Adding...' : 'Add Comment'}
               </Button>
             </Box>
           </Box>
@@ -186,16 +244,17 @@ function TicketComments({ ticketId, onCommentUpdate }) {
           <Divider sx={{ mb: 2 }} />
 
           {/* Comments List */}
-          {loading ? (
-            <Box display="flex" justifyContent="center" p={3}>
-              <CircularProgress />
-            </Box>
-          ) : comments.length === 0 ? (
-            <Typography color="text.secondary" textAlign="center" py={3}>
-              No comments yet
-            </Typography>
-          ) : (
-            <List>
+          <Box sx={{ minHeight: '200px' }}>
+            {loading ? (
+              <Box display="flex" justifyContent="center" p={3}>
+                <CircularProgress />
+              </Box>
+            ) : comments.length === 0 ? (
+              <Typography color="text.secondary" textAlign="center" py={3}>
+                No comments yet
+              </Typography>
+            ) : (
+              <List>
               {comments.map((comment, index) => (
                 <React.Fragment key={comment.comment_id}>
                   <ListItem alignItems="flex-start">
@@ -211,7 +270,12 @@ function TicketComments({ ticketId, onCommentUpdate }) {
                             {comment.user?.name || 'Unknown User'}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {dayjs(comment.created_at).fromNow()}
+                            <TimestampDisplay 
+                              entity={comment} 
+                              entityType="comments" 
+                              format="relative"
+                              variant="caption"
+                            />
                           </Typography>
                           {comment.is_internal && (
                             <Chip
@@ -221,7 +285,7 @@ function TicketComments({ ticketId, onCommentUpdate }) {
                               color="warning"
                             />
                           )}
-                          {comment.updated_at && comment.updated_at !== comment.created_at && (
+                          {comment.updated_at && comment.updated_at !== getBestTimestamp(comment, 'comments') && (
                             <Chip
                               label="Edited"
                               size="small"
@@ -265,7 +329,8 @@ function TicketComments({ ticketId, onCommentUpdate }) {
                 </React.Fragment>
               ))}
             </List>
-          )}
+            )}
+          </Box>
         </CardContent>
       </Card>
 

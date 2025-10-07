@@ -6,27 +6,27 @@ import {
   Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider
 } from '@mui/material';
 import {
-  Add, Edit, Delete, Visibility, Assignment, Schedule, CheckCircle, Cancel, Warning,
-  LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
-  Notifications, NotificationsOff, ExpandMore, ExpandLess, FilterList, Sort
+  Add, Edit, Delete, Visibility, Assignment, Schedule, CheckCircle, Cancel, Warning
 } from '@mui/icons-material';
-import { useAuth } from './AuthContext';
-import { useToast } from './contexts/ToastContext';
-import useApi from './hooks/useApi';
-import useWebSocket from './hooks/useWebSocket';
-import dayjs from 'dayjs';
-import TaskForm from './TaskForm';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import NoteAddIcon from '@mui/icons-material/NoteAdd';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
+import { useAuth } from './AuthContext';
+import { useToast } from './contexts/ToastContext';
+import useApi from './hooks/useApi';
+import dayjs from 'dayjs';
+import TaskForm from './TaskForm';
+import { useDataSync } from './contexts/DataSyncContext';
+import { TimestampDisplay } from './components/TimestampDisplay';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import NoteAddIcon from '@mui/icons-material/NoteAdd';
 
 
 function Tasks() {
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error: showError } = useToast();
+  const { updateTrigger } = useDataSync('all');
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -41,9 +41,11 @@ function Tasks() {
 
   // WebSocket setup - will be configured after fetchTasks is defined
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       const response = await api.get('/tasks/');
       setTasks(response || []);
       setError(null);
@@ -52,27 +54,24 @@ function Tasks() {
       setError('Failed to load tasks');
       setTasks([]);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, [api]);
 
-  // WebSocket callback functions - defined after fetchTasks
-  const handleWebSocketMessage = useCallback((data) => {
-    try {
-      const message = JSON.parse(data);
-      if (message.type === 'task_update' || message.type === 'task_created' || message.type === 'task_deleted') {
-        fetchTasks(); // Refresh tasks when there's an update
-      }
-    } catch (e) {
-      // Handle non-JSON messages
-    }
-  }, [fetchTasks]);
-
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
-
+  // Use global WebSocket for real-time updates via DataSync
+    // Initial load with loading spinner
   useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
+    fetchTasks(true); // Show loading on initial load
+  }, []); // Empty dependency array for initial load only
+
+  // Auto-refresh when DataSync triggers update (no loading spinner)
+  useEffect(() => {
+    if (updateTrigger > 0) { // Only refresh on real-time updates, not initial load
+      fetchTasks(false); // Don't show loading on real-time updates
+    }
+  }, [updateTrigger]); // Only depend on updateTrigger
 
   const handleAdd = () => {
     setEditTask(null);
@@ -96,24 +95,24 @@ function Tasks() {
         setTasks(prevTasks => prevTasks.map(t => 
           t.task_id === editTask.task_id ? response : t
         ));
-        showToast('Task updated successfully', 'success');
+        success('Task updated successfully');
       } else {
         const response = await api.post('/tasks/', values);
         setTasks(prevTasks => [...prevTasks, response]);
-        showToast('Task added successfully', 'success');
+        success('Task added successfully');
       }
       handleClose();
     } catch (err) {
       console.error('Error submitting task:', err);
       setError('Failed to save task');
-      showToast('Failed to save task', 'error');
+      showError('Failed to save task');
     }
   };
 
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text);
-    showToast('Copied!', 'success');
-    setTimeout(() => showToast('', ''), 1000);
+    success('Copied!');
+    setTimeout(() => {}, 1000);
   };
 
   const handleQuickNote = (task) => {
@@ -201,8 +200,21 @@ function Tasks() {
                 <Tooltip title={task.description}><TableCell>{task.description}</TableCell></Tooltip>
                 <TableCell>{task.status}</TableCell>
                 <TableCell>{task.due_date}</TableCell>
-                <TableCell>{task.created_at}</TableCell>
-                <TableCell>{task.updated_at}</TableCell>
+                <TableCell>
+                  <TimestampDisplay 
+                    entity={task} 
+                    entityType="tasks" 
+                    format="absolute"
+                  />
+                </TableCell>
+                <TableCell>
+                  <TimestampDisplay 
+                    entity={task} 
+                    entityType="tasks" 
+                    format="absolute"
+                    fallback="N/A"
+                  />
+                </TableCell>
                 <TableCell>
                   <Tooltip title="Edit Task"><IconButton onClick={() => handleEdit(task)} size="small"><EditIcon /></IconButton></Tooltip>
                 </TableCell>

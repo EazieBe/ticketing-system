@@ -3,6 +3,7 @@ import { Box, TextField, Button, Typography, CircularProgress, Alert, Paper, Dia
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import useApi from './hooks/useApi';
+import Logo from './components/Logo';
 
 function Login() {
   const { login, loading } = useAuth();
@@ -58,7 +59,10 @@ function Login() {
   return (
     <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', bgcolor: 'background.default' }}>
       <Paper sx={{ p: 4, minWidth: 320 }} elevation={3}>
-        <Typography variant="h5" gutterBottom>Login</Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
+          <Logo size="large" showText={true} variant="build" />
+        </Box>
+        <Typography variant="h5" gutterBottom align="center">Login</Typography>
         <form onSubmit={handleSubmit}>
           <TextField label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} fullWidth margin="normal" required />
           <TextField label="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} fullWidth margin="normal" required />

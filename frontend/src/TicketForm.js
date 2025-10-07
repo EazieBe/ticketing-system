@@ -16,6 +16,7 @@ import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
 import dayjs from 'dayjs';
+import { getCurrentUTCTimestamp } from './utils/timezone';
 
 const typeOptions = [
   { value: 'inhouse', label: 'In-House', icon: '🏢', color: '#1976d2' },
@@ -88,7 +89,7 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
   const { ticketId } = useParams();
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error: showError } = useToast();
   const [values, setValues] = useState({
     site_id: '',
     inc_number: '',
@@ -225,12 +226,6 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
     }
   }, [initialValues]);
 
-  // Fetch sites and users when component mounts
-  useEffect(() => {
-    fetchSites();
-    fetchUsers();
-  }, [fetchSites, fetchUsers]);
-
   const fetchSites = useCallback(async () => {
     setLoadingSites(true);
     try {
@@ -256,6 +251,12 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
       setLoadingUsers(false);
     }
   }, [api]);
+
+  // Fetch sites and users when component mounts
+  useEffect(() => {
+    fetchSites();
+    fetchUsers();
+  }, [fetchSites, fetchUsers]);
 
   const handleChange = (field, value) => {
     setValues(prev => {
@@ -306,7 +307,7 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
         type: values.type.trim(),
         status: values.status.trim(),
         notes: values.notes.trim(),
-        date_created: new Date().toISOString().split('T')[0] // Set current date if not provided
+        date_created: getCurrentUTCTimestamp().split('T')[0] // Set current date if not provided
       };
       
       // Add optional fields if they have values
@@ -370,8 +371,13 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
       
       if (onSubmit && typeof onSubmit === 'function') {
         console.log('Calling onSubmit function...');
-        await onSubmit(cleanedValues);
-        console.log('onSubmit function completed');
+        try {
+          await onSubmit(cleanedValues);
+          console.log('onSubmit function completed');
+        } catch (submitError) {
+          console.error('Error in onSubmit function:', submitError);
+          throw submitError;
+        }
       } else {
         console.error('onSubmit function is not provided or is not a function');
         setError('Form submission handler is not configured');
@@ -414,45 +420,56 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
             <Grid container spacing={2}>
               {/* Site Selection */}
               <Grid item xs={12} md={6}>
-                <Autocomplete
-                  options={sites}
-                  getOptionLabel={(option) => `${option.site_id} - ${option.location}`}
-                  value={sites.find(site => site.site_id === values.site_id) || null}
-                  onChange={(event, newValue) => {
-                    handleChange('site_id', newValue?.site_id || '');
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Site *"
-                      required
-                      placeholder="Search sites..."
-                      InputProps={{
-                        ...params.InputProps,
-                        startAdornment: (
-                          <>
-                            <LocationOn sx={{ mr: 1, color: 'action.active' }} />
-                            {params.InputProps.startAdornment}
-                          </>
-                        )
-                      }}
-                    />
-                  )}
-                  renderOption={(props, option) => (
-                    <Box component="li" {...props}>
-                      <Box>
-                        <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                          {option.site_id}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {option.location} • {option.city}, {option.state}
-                        </Typography>
+                <Box>
+                  <Autocomplete
+                    options={sites}
+                    getOptionLabel={(option) => `${option.site_id} - ${option.location}`}
+                    value={sites.find(site => site.site_id === values.site_id) || null}
+                    onChange={(event, newValue) => {
+                      handleChange('site_id', newValue?.site_id || '');
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Site *"
+                        required
+                        placeholder="Search sites..."
+                        error={!values.site_id && values.site_id !== ''}
+                        helperText={!values.site_id ? "Select a site to associate this ticket with" : "This ticket will be linked to the selected site"}
+                        InputProps={{
+                          ...params.InputProps,
+                          startAdornment: (
+                            <>
+                              <LocationOn sx={{ mr: 1, color: values.site_id ? 'success.main' : 'action.active' }} />
+                              {params.InputProps.startAdornment}
+                            </>
+                          )
+                        }}
+                      />
+                    )}
+                    renderOption={(props, option) => (
+                      <Box component="li" {...props}>
+                        <Box>
+                          <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                            {option.site_id}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {option.location} • {option.city}, {option.state}
+                          </Typography>
+                        </Box>
                       </Box>
-                    </Box>
+                    )}
+                    loading={loadingSites}
+                    noOptionsText="No sites found"
+                  />
+                  {values.site_id && (
+                    <Alert severity="info" sx={{ mt: 1 }}>
+                      <Typography variant="body2">
+                        This ticket will be visible on the <strong>{sites.find(s => s.site_id === values.site_id)?.site_id}</strong> site details page
+                      </Typography>
+                    </Alert>
                   )}
-                  loading={loadingSites}
-                  noOptionsText="No sites found"
-                />
+                </Box>
               </Grid>
 
               {/* Ticket Numbers */}

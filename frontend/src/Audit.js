@@ -1,26 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Container, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   IconButton, Chip, Box, TextField, FormControl, InputLabel, Select, MenuItem, Button,
   Dialog, DialogTitle, DialogContent, DialogActions, Alert, CircularProgress, Grid,
-  Card, CardContent, Avatar, Badge, Tooltip, List, ListItem, ListItemText, Divider, TablePagination
+  Card, CardContent, Tooltip, Divider, TablePagination
 } from '@mui/material';
 import {
-  Visibility, Edit, Delete, Person, Schedule, CheckCircle, Cancel, Warning,
-  LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
-  Notifications, NotificationsOff, ExpandMore, ExpandLess, FilterList, Sort,
-  Assignment, Store, Group, Info, History, Refresh, Download, Timeline, Search
+  Person, Assignment, Store, Group, Info, History, Refresh, Download, Timeline, Search,
+  LocalShipping, Inventory, Build, FilterList
 } from '@mui/icons-material';
-import { useAuth } from './AuthContext';
-import { useToast } from './contexts/ToastContext';
+
 import useApi from './hooks/useApi';
-import useWebSocket from './hooks/useWebSocket';
+import { useDataSync } from './contexts/DataSyncContext';
+import { formatAuditTimestamp, formatDetailedAuditTimestamp, getCurrentUTCTimestamp } from './utils/timezone';
 import dayjs from 'dayjs';
 
 function Audit() {
-  const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { updateTrigger } = useDataSync('all');
   const [audits, setAudits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -35,16 +32,10 @@ function Audit() {
   const [selectedAudit, setSelectedAudit] = useState(null);
   const [users, setUsers] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState({
-    user: 'all',
-    action: 'all',
-    dateFrom: '',
-    dateTo: ''
-  });
 
   // WebSocket setup - will be configured after fetchAudits is defined
 
-  const fetchAudits = useCallback(async () => {
+  const fetchAudits = useCallback(async (showLoading = true) => {
     try {
       setLoading(true);
       const response = await api.get('/audits/');
@@ -60,23 +51,23 @@ function Audit() {
   }, []);
 
   // WebSocket callback functions - defined after fetchAudits
-  const handleWebSocketMessage = useCallback((data) => {
+  const handleWebSocketMessage = useCallback((message) => {
     try {
-      const message = JSON.parse(data);
-      if (message.type === 'audit_update' || message.type === 'audit_created') {
+      if (message && (
+        message.type === 'audit_update' || 
+        message.type === 'audit_created'
+      )) {
         // Use a timeout to avoid calling fetchAudits before it's defined
         setTimeout(() => {
           if (typeof fetchAudits === 'function') {
-            fetchAudits();
+            fetchAudits(false); // Real-time update, no loading spinner
           }
         }, 100);
       }
     } catch (e) {
       // Handle non-JSON messages
     }
-  }, []);
-
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
+  }, [fetchAudits]);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -184,7 +175,7 @@ function Audit() {
     const csvContent = [
       ['Timestamp', 'User', 'Entity', 'Field', 'Old Value', 'New Value', 'Change Type'],
       ...filteredAudits.map(audit => [
-        dayjs(audit.change_time).format('YYYY-MM-DD HH:mm:ss'),
+        formatAuditTimestamp(audit.change_time),
         getUserName(audit.user_id),
         audit.ticket_id || 'N/A',
         audit.field_changed,
@@ -198,7 +189,7 @@ function Audit() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `audit_log_${dayjs().format('YYYY-MM-DD')}.csv`;
+    a.download = `audit_log_${getCurrentUTCTimestamp().split('T')[0]}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -401,7 +392,7 @@ function Audit() {
                     <TableCell>
                       <Box display="flex" alignItems="center">
                         <Timeline sx={{ mr: 1, fontSize: 'small' }} />
-                        {dayjs(audit.change_time).format('MMM DD, YYYY HH:mm')}
+                        {formatAuditTimestamp(audit.change_time)}
                       </Box>
                     </TableCell>
                     <TableCell>
@@ -498,7 +489,7 @@ function Audit() {
                         <Grid item xs={6}>
                           <Typography variant="body2" color="text.secondary">Timestamp</Typography>
                           <Typography variant="body1">
-                            {dayjs(selectedAudit.change_time).format('MMMM DD, YYYY HH:mm:ss')}
+                            {formatDetailedAuditTimestamp(selectedAudit.change_time)}
                           </Typography>
                         </Grid>
                         <Grid item xs={6}>

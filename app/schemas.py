@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from typing import Optional, List
 from datetime import date, datetime
 import enum
@@ -29,13 +29,20 @@ class UserBase(BaseModel):
     region: Optional[str] = None
     preferences: Optional[str] = None
     must_change_password: Optional[bool] = False
+    active: Optional[bool] = True
 
 class UserCreate(UserBase):
     password: Optional[str] = None
 
+class AdminUserCreate(UserBase):
+    """Schema for admin-created users with proper password handling"""
+    password: Optional[str] = None  # Will be ignored - temp password always generated
+
 class UserOut(UserBase):
     user_id: str
     temp_password: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class FieldTechBase(BaseModel):
     name: str
@@ -52,6 +59,8 @@ class FieldTechCreate(FieldTechBase):
 
 class FieldTechOut(FieldTechBase):
     field_tech_id: str
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class SiteBase(BaseModel):
     site_id: str
@@ -77,7 +86,7 @@ class SiteCreate(SiteBase):
     pass
 
 class SiteOut(SiteBase):
-    pass
+    model_config = ConfigDict(from_attributes=True)
 
 class EquipmentBase(BaseModel):
     type: str
@@ -91,7 +100,7 @@ class EquipmentCreate(EquipmentBase):
 
 class EquipmentOut(EquipmentBase):
     equipment_id: str
-    site_id: str
+    site_id: Optional[str] = None
 
 class TicketType(str, enum.Enum):
     inhouse = 'inhouse'
@@ -266,6 +275,12 @@ class TicketUpdate(BaseModel):
 
 class TicketOut(TicketBase):
     ticket_id: str
+    created_at: Optional[datetime] = None  # Timestamp when ticket was created
+    site: Optional['SiteOut'] = None
+    assigned_user: Optional['UserOut'] = None
+    onsite_tech: Optional['FieldTechOut'] = None
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class TicketAuditBase(BaseModel):
     ticket_id: Optional[str] = None
@@ -291,7 +306,7 @@ class ShipmentBase(BaseModel):
     charges_in: Optional[float] = None
     tracking_number: Optional[str] = None
     return_tracking: Optional[str] = None
-    date_shipped: Optional[date] = None
+    date_shipped: Optional[datetime] = None
     date_returned: Optional[date] = None
     notes: Optional[str] = None
     
@@ -301,12 +316,19 @@ class ShipmentBase(BaseModel):
     parts_cost: Optional[float] = 0.0
     total_cost: Optional[float] = 0.0
     status: Optional[str] = 'pending'
+    remove_from_inventory: Optional[bool] = False
 
 class ShipmentCreate(ShipmentBase):
     pass
 
 class ShipmentOut(ShipmentBase):
     shipment_id: str
+    date_created: Optional[datetime] = None
+
+class ShipmentStatusUpdate(BaseModel):
+    status: str
+    tracking_number: Optional[str] = None
+    return_tracking: Optional[str] = None
 
 class InventoryItemBase(BaseModel):
     name: str
@@ -365,12 +387,8 @@ class TaskOut(TaskBase):
     task_id: str 
 
 class TicketCommentBase(BaseModel):
-    ticket_id: str
-    user_id: str
     comment: str
     is_internal: Optional[bool] = False
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
 
 class TicketCommentCreate(TicketCommentBase):
     pass
@@ -381,6 +399,13 @@ class TicketCommentUpdate(BaseModel):
 
 class TicketCommentOut(TicketCommentBase):
     comment_id: str
+    ticket_id: str
+    user_id: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    user: Optional['UserOut'] = None
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class TimeEntryBase(BaseModel):
     ticket_id: str
@@ -392,8 +417,12 @@ class TimeEntryBase(BaseModel):
     is_billable: Optional[bool] = True
     created_at: Optional[datetime] = None
 
-class TimeEntryCreate(TimeEntryBase):
-    pass
+class TimeEntryCreate(BaseModel):
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    description: Optional[str] = None
+    is_billable: Optional[bool] = True
 
 class TimeEntryUpdate(BaseModel):
     start_time: Optional[datetime] = None

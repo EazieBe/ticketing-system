@@ -33,6 +33,7 @@ class User(Base):
     preferences = Column(Text)
     hashed_password = Column(String)  # Dedicated password field
     must_change_password = Column(Boolean, default=False)
+    active = Column(Boolean, default=True)
     tickets = relationship('Ticket', back_populates='assigned_user', foreign_keys='Ticket.assigned_user_id')
     last_updated_tickets = relationship('Ticket', foreign_keys='Ticket.last_updated_by')
     claimed_tickets = relationship('Ticket', foreign_keys='Ticket.claimed_by')
@@ -114,7 +115,7 @@ class TicketPriority(enum.Enum):
 class Ticket(Base):
     __tablename__ = 'tickets'
     ticket_id = Column(String, primary_key=True, index=True)
-    site_id = Column(String, ForeignKey('sites.site_id'))
+    site_id = Column(String, ForeignKey('sites.site_id'), nullable=False)
     inc_number = Column(String)
     so_number = Column(String)
     type = Column(Enum(TicketType), nullable=False, default=TicketType.onsite)
@@ -124,6 +125,7 @@ class Ticket(Base):
     assigned_user_id = Column(String, ForeignKey('users.user_id'))
     onsite_tech_id = Column(String, ForeignKey('field_techs.field_tech_id'))
     date_created = Column(Date, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)  # Timestamp when created
     date_scheduled = Column(Date)
     date_closed = Column(Date)
     time_spent = Column(Integer)
@@ -191,7 +193,7 @@ class Ticket(Base):
     assigned_user = relationship('User', foreign_keys=[assigned_user_id], back_populates='tickets')
     last_updated_user = relationship('User', foreign_keys=[last_updated_by], back_populates='last_updated_tickets')
     approved_user = relationship('User', foreign_keys=[approved_by])
-    claimed_user = relationship('User', foreign_keys=[claimed_by])
+    claimed_user = relationship('User', foreign_keys=[claimed_by], overlaps="claimed_tickets")
     onsite_tech = relationship('FieldTech', back_populates='onsite_tickets')
     audits = relationship('TicketAudit', back_populates='ticket')
     tasks = relationship('Task', back_populates='ticket')
@@ -216,7 +218,7 @@ class TicketAudit(Base):
 class Shipment(Base):
     __tablename__ = 'shipments'
     shipment_id = Column(String, primary_key=True, index=True)
-    site_id = Column(String, ForeignKey('sites.site_id'))
+    site_id = Column(String, ForeignKey('sites.site_id'), nullable=False)
     ticket_id = Column(String, ForeignKey('tickets.ticket_id'))
     item_id = Column(String, ForeignKey('inventory_items.item_id'))
     what_is_being_shipped = Column(String, nullable=False)
@@ -225,7 +227,8 @@ class Shipment(Base):
     charges_in = Column(Float)
     tracking_number = Column(String)
     return_tracking = Column(String)
-    date_shipped = Column(Date)
+    date_created = Column(DateTime, default=lambda: datetime.now(timezone.utc))  # Auto-filled when created
+    date_shipped = Column(DateTime)  # Auto-filled when marked as shipped
     date_returned = Column(Date)
     notes = Column(Text)
     
@@ -235,6 +238,7 @@ class Shipment(Base):
     parts_cost = Column(Float, default=0.0)  # Cost of parts being shipped
     total_cost = Column(Float, default=0.0)  # Total cost including shipping
     status = Column(String, default='pending')  # pending, shipped, delivered, returned
+    remove_from_inventory = Column(Boolean, default=False)  # Whether to remove item from inventory
     site = relationship('Site', back_populates='shipments')
     ticket = relationship('Ticket', back_populates='shipments')
     item = relationship('InventoryItem', back_populates='shipments')
@@ -362,4 +366,40 @@ class TicketAttachment(Base):
     uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     description = Column(Text)  # Optional description of the attachment
     ticket = relationship('Ticket', back_populates='attachments')
-    user = relationship('User') 
+    user = relationship('User')
+
+class RevokedToken(Base):
+    __tablename__ = 'revoked_tokens'
+    jti = Column(String, primary_key=True, index=True)  # JWT ID
+    user_id = Column(String, ForeignKey('users.user_id'), nullable=False)
+    token_type = Column(String, nullable=False)  # 'access' or 'refresh'
+    revoked_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    expires_at = Column(DateTime, nullable=False)  # When the token would have expired
+    reason = Column(String)  # Optional reason for revocation (logout, security, etc.)
+    user = relationship('User')
+
+class FrontendLog(Base):
+    __tablename__ = 'frontend_logs'
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    level = Column(String, nullable=False)  # ERROR, WARN, INFO, DEBUG
+    context = Column(String, nullable=False)  # frontend, api, component, etc.
+    message = Column(Text, nullable=False)
+    data = Column(Text)  # JSON string of additional data
+    url = Column(String)
+    user_agent = Column(Text)
+    client_ip = Column(String)
+    error_id = Column(String)  # For correlating related errors
+
+class FrontendError(Base):
+    __tablename__ = 'frontend_errors'
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    error_id = Column(String, unique=True, index=True)  # Unique identifier for the error
+    message = Column(Text, nullable=False)
+    stack = Column(Text)  # JavaScript stack trace
+    component_stack = Column(Text)  # React component stack
+    url = Column(String)
+    user_agent = Column(Text)
+    client_ip = Column(String)
+    additional_data = Column(Text)  # JSON string of additional error data 

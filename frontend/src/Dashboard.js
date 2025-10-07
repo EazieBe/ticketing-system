@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
   Card,
   CardContent,
-  Grid,
   Chip,
   IconButton,
   Button,
@@ -12,131 +11,111 @@ import {
   CircularProgress,
   Tabs,
   Tab,
-  Paper,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  Divider,
-  Badge,
-  Tooltip
+  Paper
 } from '@mui/material';
 import {
   Assignment,
   Person,
-  Schedule,
-  CheckCircle,
-  Cancel,
-  Warning,
   Business,
-  LocalShipping,
-  Build,
   Phone,
-  NetworkCheck,
   Refresh,
   Visibility,
-  Edit,
-  MoreVert,
-  CalendarToday,
-  Notifications,
-  NotificationsOff,
-  Star,
-  StarBorder,
-  Flag,
-  FlagOutlined,
-  ExpandMore,
-  ExpandLess,
-  FilterList,
-  Download,
-  Assessment,
-  Timeline,
-  Analytics,
-  Dashboard as DashboardIcon,
-  Today,
-  ViewWeek,
-  CalendarViewMonth,
-  CalendarMonth,
   Error,
   PriorityHigh,
-  Timer,
-  Add
+  Add,
+  Build
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import useApi from './hooks/useApi';
 import { useToast } from './contexts/ToastContext';
-import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
+import { formatDashboardTimestamp, getBestTimestamp } from './utils/timezone';
 import ClickableTicketId from './components/ClickableTicketId';
-
-dayjs.extend(relativeTime);
 
 function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error: showError } = useToast();
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const isMountedRef = useRef(true);
   const [tickets, setTickets] = useState([]);
   const [selectedTab, setSelectedTab] = useState(0);
-  const [timeRange, setTimeRange] = useState('today'); // 'today', 'week', 'month'
+  const [timeRange] = useState('today'); // 'today', 'week', 'month'
 
   const fetchDailyTickets = useCallback(async () => {
+    // Don't fetch if component is unmounted
+    if (!isMountedRef.current) {
+      console.log('Component unmounted, skipping daily tickets fetch');
+      setLoading(false);
+      return;
+    }
+    
     setLoading(true);
     try {
-      const date = timeRange === 'today' ? dayjs().format('YYYY-MM-DD') : 
-                   timeRange === 'week' ? dayjs().startOf('week').format('YYYY-MM-DD') :
-                   dayjs().startOf('month').format('YYYY-MM-DD');
+      const today = new Date();
+      const date = timeRange === 'today' ? today.toISOString().split('T')[0] : 
+                   timeRange === 'week' ? new Date(today.setDate(today.getDate() - today.getDay())).toISOString().split('T')[0] :
+                   new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
       
       const response = await api.get(`/tickets/daily/${date}`);
-      setTickets(response || []);
-      setError(null);
+      if (isMountedRef.current) {
+        setTickets(response || []);
+        setError(null);
+      }
     } catch (err) {
       console.error('Error fetching daily tickets:', err);
       setError('Failed to load daily tickets');
-      showToast('Error loading daily tickets', 'error');
+      showError('Error loading daily tickets');
       setTickets([]); // Set empty array on error
     } finally {
       setLoading(false);
     }
-  }, [api, timeRange, showToast]);
+      }, [api, timeRange, showError]);
 
   useEffect(() => {
     fetchDailyTickets();
   }, [fetchDailyTickets]);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const handleClaim = async (ticketId) => {
     try {
       await api.put(`/tickets/${ticketId}/claim`, { claimed_by: user.user_id });
-      showToast('Ticket claimed successfully', 'success');
+              success('Ticket claimed successfully');
       fetchDailyTickets(); // Refresh data
     } catch (err) {
       console.error('Error claiming ticket:', err);
-      showToast('Failed to claim ticket', 'error');
+              showError('Failed to claim ticket');
     }
   };
 
   const handleCheckIn = async (ticketId) => {
     try {
       await api.put(`/tickets/${ticketId}/check-in`);
-      showToast('Ticket checked in successfully', 'success');
+              success('Ticket checked in successfully');
       fetchDailyTickets(); // Refresh data
     } catch (err) {
       console.error('Error checking in ticket:', err);
-      showToast('Failed to check in ticket', 'error');
+              showError('Failed to check in ticket');
     }
   };
 
   const handleCheckOut = async (ticketId) => {
     try {
       await api.put(`/tickets/${ticketId}/check-out`);
-      showToast('Ticket checked out successfully', 'success');
+              success('Ticket checked out successfully');
       fetchDailyTickets(); // Refresh data
     } catch (err) {
       console.error('Error checking out ticket:', err);
-      showToast('Failed to check out ticket', 'error');
+              showError('Failed to check out ticket');
     }
   };
 
@@ -235,7 +214,9 @@ function Dashboard() {
     }
     
     // Then by creation date (newest first)
-    return new Date(b.created_at) - new Date(a.created_at);
+    const aTimestamp = getBestTimestamp(a, 'tickets');
+    const bTimestamp = getBestTimestamp(b, 'tickets');
+    return new Date(bTimestamp || 0) - new Date(aTimestamp || 0);
   });
 
   const renderTicketCard = (ticket) => (
@@ -284,7 +265,7 @@ function Dashboard() {
             </Box>
             
             <Typography variant="caption" color="text.secondary">
-              Created: {dayjs(ticket.created_at).format('MMM D, YYYY h:mm A')}
+              Created: {formatDashboardTimestamp(getBestTimestamp(ticket, 'tickets'))}
             </Typography>
           </Box>
           

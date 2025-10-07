@@ -1,20 +1,17 @@
 import React, { useState } from 'react';
 import {
-  Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Alert,
-  CircularProgress, Box, Typography, Paper, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, Chip, IconButton, Tooltip
+  Dialog, DialogTitle, DialogContent, DialogActions, Button, Alert,
+  CircularProgress, Box, Typography
 } from '@mui/material';
 import {
-  Upload, Download, CheckCircle, Error, Info, Warning, Delete, Visibility
+  Upload, Download
 } from '@mui/icons-material';
 import { useAuth } from '../AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import useApi from '../hooks/useApi';
 
 const CSVImport = ({ open, onClose, onSuccess, title = "Import CSV", endpoint, templateData }) => {
-  const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
   const [selectedFile, setSelectedFile] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);

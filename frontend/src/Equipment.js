@@ -6,14 +6,12 @@ import {
   Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider
 } from '@mui/material';
 import {
-  Add, Edit, Delete, Visibility, Build, Schedule, CheckCircle, Cancel, Warning,
-  LocalShipping, Inventory, Flag, FlagOutlined, Star, StarBorder, Notifications, NotificationsOff,
-  ExpandMore, ExpandLess, FilterList, Sort, DragIndicator, Speed, AutoAwesome
+  Add, Edit, Delete, Visibility, Build, Schedule, CheckCircle, Cancel, Warning
 } from '@mui/icons-material';
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
-import useWebSocket from './hooks/useWebSocket';
+import { useDataSync } from './contexts/DataSyncContext';
 import dayjs from 'dayjs';
 import EquipmentForm from './EquipmentForm';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -23,7 +21,8 @@ import NoteAddIcon from '@mui/icons-material/NoteAdd';
 function Equipment() {
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error: showError } = useToast();
+  const { updateTrigger } = useDataSync('all');
   const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -40,9 +39,11 @@ function Equipment() {
 
   // WebSocket setup - will be configured after fetchEquipment is defined
 
-  const fetchEquipment = useCallback(async () => {
+  const fetchEquipment = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       const response = await api.get('/equipment/');
       setEquipment(response || []);
       setError(null);
@@ -51,32 +52,25 @@ function Equipment() {
       setError('Failed to fetch equipment');
       setEquipment([]);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, [api]);
 
-  // WebSocket callback functions - defined after fetchEquipment
-  const handleWebSocketMessage = useCallback((data) => {
-    try {
-      const message = JSON.parse(data);
-      if (message.type === 'equipment_update' || message.type === 'equipment_created' || message.type === 'equipment_deleted') {
-        // Use a timeout to avoid calling fetchEquipment before it's defined
-        setTimeout(() => {
-          if (typeof fetchEquipment === 'function') {
-            fetchEquipment();
-          }
-        }, 100);
-      }
-    } catch (e) {
-      // Handle non-JSON messages
-    }
-  }, []);
+  // Use global WebSocket for real-time updates via DataSync
 
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
-
+    // Initial load with loading spinner
   useEffect(() => {
-    fetchEquipment();
-  }, []);
+    fetchEquipment(true); // Show loading on initial load
+  }, []); // Empty dependency array for initial load only
+
+  // Auto-refresh when DataSync triggers update (no loading spinner)
+  useEffect(() => {
+    if (updateTrigger > 0) { // Only refresh on real-time updates, not initial load
+      fetchEquipment(false); // Don't show loading on real-time updates
+    }
+  }, [updateTrigger]); // Only depend on updateTrigger
 
   const handleAdd = () => {
     setEditEquipment(null);
@@ -100,23 +94,23 @@ function Equipment() {
         setEquipment(prevEquipment => prevEquipment.map(e => 
           e.equipment_id === editEquipment.equipment_id ? response : e
         ));
-        showToast('Equipment updated successfully', 'success');
+        success('Equipment updated successfully');
       } else {
         const response = await api.post('/equipment/', values);
         setEquipment(prevEquipment => [...prevEquipment, response]);
-        showToast('Equipment added successfully', 'success');
+        success('Equipment added successfully');
       }
       handleClose();
     } catch (err) {
       console.error('Error submitting equipment:', err);
       setError('Failed to save equipment');
-      showToast('Failed to save equipment', 'error');
+      showError('Failed to save equipment');
     }
   };
 
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text);
-    showToast('Copied to clipboard', 'success');
+    success('Copied to clipboard');
   };
 
   const handleQuickNote = (eq) => {
@@ -135,13 +129,13 @@ function Equipment() {
         notes: (noteEquipment.notes || '') + '\n' + noteText,
         site_id: noteEquipment.site_id
       });
-      showToast('Note added successfully', 'success');
+              success('Note added successfully');
       setNoteDialog(false);
       fetchEquipment();
     } catch (err) {
       console.error('Error adding note:', err);
       setError('Failed to add note');
-      showToast('Failed to add note', 'error');
+              showError('Failed to add note');
     }
   };
 
@@ -153,7 +147,7 @@ function Equipment() {
   const handleDeleteConfirm = async () => {
     try {
       await api.delete(`/equipment/${deleteEquipment.equipment_id}`, { data: {} });
-      showToast('Equipment deleted successfully', 'success');
+              success('Equipment deleted successfully');
       setDeleteDialog(false);
       // Remove the equipment from the local state immediately
       setEquipment(prevEquipment => prevEquipment.filter(e => e.equipment_id !== deleteEquipment.equipment_id));
@@ -162,7 +156,7 @@ function Equipment() {
     } catch (err) {
       console.error('Error deleting equipment:', err);
       setError('Failed to delete equipment');
-      showToast('Failed to delete equipment', 'error');
+              showError('Failed to delete equipment');
     }
   };
 

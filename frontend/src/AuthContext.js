@@ -18,6 +18,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
   const refreshTimeoutRef = useRef(null);
+  const isMountedRef = useRef(true);
   
   // Function to clear all auth data
   const clearAuth = useCallback(() => {
@@ -89,6 +90,18 @@ export const AuthProvider = ({ children }) => {
   // Initialize auth state
   useEffect(() => {
     console.log('AuthContext useEffect - accessToken:', accessToken ? 'exists' : 'none', 'user:', user ? 'exists' : 'none', 'loading:', loading);
+    console.log('SessionStorage tokens:', {
+      access: sessionStorage.getItem('access_token') ? 'exists' : 'none',
+      refresh: sessionStorage.getItem('refresh_token') ? 'exists' : 'none'
+    });
+    
+    // Set a timeout to prevent infinite loading
+    const loadingTimeout = setTimeout(() => {
+      if (loading && isMountedRef.current) {
+        console.log('Loading timeout reached, setting loading to false');
+        setLoading(false);
+      }
+    }, 10000); // 10 second timeout
     
     // Check if we have tokens in sessionStorage but not in state
     const storedAccessToken = sessionStorage.getItem('access_token');
@@ -111,6 +124,7 @@ export const AuthProvider = ({ children }) => {
         api.get(`/users/${decoded.sub}`)
           .then(res => {
             console.log('User fetch successful:', res.data);
+            console.log('Setting user data:', res.data);
             setUser(res.data);
             
             // Load user-specific dark mode preference
@@ -134,26 +148,44 @@ export const AuthProvider = ({ children }) => {
           })
           .catch(err => {
             console.error('Error fetching user:', err);
-            clearAuth();
+            // Only clear auth if it's a 401 (unauthorized) error
+            if (err.response?.status === 401) {
+              console.log('Token invalid, clearing auth');
+              clearAuth();
+            } else if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
+              console.log('Network error - backend might be down, keeping user logged in');
+              // For network errors, keep the user logged in
+            } else {
+              console.log('Other error, keeping user logged in:', err.message);
+              // For other errors, keep the user logged in
+            }
           })
           .finally(() => {
             setLoading(false);
           });
       } else {
         console.log('Invalid or expired access token, attempting refresh...');
+        console.log('Token validation failed - decoded:', decoded);
         refreshAccessToken().finally(() => {
           setLoading(false);
         });
       }
-    } else if (!accessToken) {
-      console.log('No access token found');
+    } else if (!accessToken && !sessionStorage.getItem('access_token')) {
+      // Only set loading to false if there's truly no token anywhere
+      console.log('No access token found anywhere');
       setLoading(false);
     }
+    
+    // Cleanup timeout
+    return () => {
+      clearTimeout(loadingTimeout);
+    };
   }, [accessToken, user, loading, refreshAccessToken]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      isMountedRef.current = false;
       if (refreshTimeoutRef.current) {
         clearTimeout(refreshTimeoutRef.current);
       }

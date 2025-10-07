@@ -23,6 +23,7 @@ import {
   Business
 } from '@mui/icons-material';
 import { useAuth } from './AuthContext';
+import { TimestampDisplay } from './components/TimestampDisplay';
 
 function Profile() {
   const { user, updateUser } = useAuth();
@@ -271,7 +272,12 @@ function Profile() {
                   Member Since
                 </Typography>
                 <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
-                  {user?.date_created ? new Date(user.date_created).toLocaleDateString() : 'N/A'}
+                  <TimestampDisplay 
+                    entity={user} 
+                    entityType="users" 
+                    format="absolute"
+                    fallback="N/A"
+                  />
                 </Typography>
               </Box>
             </CardContent>

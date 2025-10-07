@@ -1,13 +1,18 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { config } from '../config';
+
+// Global registry to prevent multiple WebSocket connections to the same URL
+const activeConnections = new Map();
 
 const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
   const ws = useRef(null);
   const reconnectTimeout = useRef(null);
   const reconnectAttempts = useRef(0);
-  const maxReconnectAttempts = 2; // Reduced from 3
-  const reconnectDelay = 5000; // Increased from 2000ms
+  const maxReconnectAttempts = config.MAX_RECONNECT_ATTEMPTS;
+  const reconnectDelay = config.RECONNECT_DELAY;
   const isConnecting = useRef(false);
   const pingInterval = useRef(null);
+  const [isConnected, setIsConnected] = useState(false);
   
   // Store callback functions in refs to avoid dependency issues
   const onMessageRef = useRef(onMessage);
@@ -15,15 +20,29 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
   const onOpenRef = useRef(onOpen);
   const onCloseRef = useRef(onClose);
   
-  // Update refs when callbacks change
+  // Update refs when callbacks change - but don't trigger reconnection
   useEffect(() => {
     onMessageRef.current = onMessage;
     onErrorRef.current = onError;
     onOpenRef.current = onOpen;
     onCloseRef.current = onClose;
-  }, [onMessage, onError, onOpen, onClose]);
+  }); // Remove dependency array to avoid reconnections
 
   const connect = useCallback(() => {
+    if (!url) return; // nothing to connect to
+    
+    // Check if there's already an active connection to this URL
+    if (activeConnections.has(url)) {
+      console.log('WebSocket connection already exists for URL:', url);
+      const existingWs = activeConnections.get(url);
+      if (existingWs && existingWs.readyState === WebSocket.OPEN) {
+        console.log('Using existing WebSocket connection');
+        ws.current = existingWs;
+        setIsConnected(true);
+        return;
+      }
+    }
+    
     if (isConnecting.current || (ws.current && ws.current.readyState === WebSocket.CONNECTING)) {
       return; // Already connecting
     }
@@ -32,17 +51,21 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
       isConnecting.current = true;
       ws.current = new WebSocket(url);
       
+      // Register this connection
+      activeConnections.set(url, ws.current);
+      
       ws.current.onopen = () => {
         console.log('WebSocket connected');
         isConnecting.current = false;
         reconnectAttempts.current = 0;
+        setIsConnected(true);
         
         // Start ping interval to keep connection alive
         pingInterval.current = setInterval(() => {
           if (ws.current && ws.current.readyState === WebSocket.OPEN) {
             ws.current.send(JSON.stringify({ type: 'ping' }));
           }
-        }, 60000); // Send ping every 60 seconds (reduced frequency)
+        }, config.PING_INTERVAL);
         
         if (onOpenRef.current) onOpenRef.current();
       };
@@ -63,12 +86,14 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
       ws.current.onerror = (error) => {
         console.error('WebSocket error:', error);
         isConnecting.current = false;
+        setIsConnected(false);
         if (onErrorRef.current) onErrorRef.current(error);
       };
 
       ws.current.onclose = (event) => {
         console.log('WebSocket disconnected:', event.code, event.reason);
         isConnecting.current = false;
+        setIsConnected(false);
         
         // Clear ping interval
         if (pingInterval.current) {
@@ -95,8 +120,9 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
     } catch (error) {
       console.error('Error creating WebSocket connection:', error);
       isConnecting.current = false;
+      setIsConnected(false);
     }
-  }, [url]);
+  }, [url, maxReconnectAttempts, reconnectDelay]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeout.current) {
@@ -111,10 +137,13 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
     
     if (ws.current) {
       ws.current.close(1000, 'Component unmounting');
+      // Remove from registry
+      activeConnections.delete(url);
       ws.current = null;
     }
     isConnecting.current = false;
-  }, []);
+    setIsConnected(false);
+  }, [url]);
 
   const sendMessage = useCallback((message) => {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
@@ -132,7 +161,7 @@ const useWebSocket = (url, onMessage, onError, onOpen, onClose) => {
     };
   }, [connect, disconnect]);
 
-  return { sendMessage, disconnect };
+  return { sendMessage, disconnect, isConnected };
 };
 
 export default useWebSocket; 

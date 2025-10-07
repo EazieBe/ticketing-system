@@ -1,20 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Container, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   IconButton, Chip, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Alert,
-  CircularProgress, FormControl, InputLabel, Select, MenuItem, Grid, Card, CardContent,
-  Avatar, Badge, Tooltip, List, ListItem, ListItemText, ListItemAvatar, Divider
+  CircularProgress, FormControl, InputLabel, Select, MenuItem, Tooltip
 } from '@mui/material';
-import {
-  Add, Edit, Delete, Visibility, Person, Schedule, CheckCircle, Cancel, Warning,
-  LocalShipping, Build, Inventory, Flag, FlagOutlined, Star, StarBorder,
-  Notifications, NotificationsOff, ExpandMore, ExpandLess, FilterList, Sort
-} from '@mui/icons-material';
+
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
-import useWebSocket from './hooks/useWebSocket';
-import dayjs from 'dayjs';
+import { useDataSync } from './contexts/DataSyncContext';
+
 import { 
   Switch, FormControlLabel, 
   DialogContentText, ToggleButton, ToggleButtonGroup
@@ -33,7 +28,8 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 function Users() {
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error: showError } = useToast();
+  const { updateTrigger } = useDataSync('users');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -55,9 +51,11 @@ function Users() {
 
   // WebSocket setup - will be configured after fetchUsers is defined
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       const response = await api.get('/users/');
       setUsers(response || []);
       setError(null);
@@ -66,32 +64,25 @@ function Users() {
       setError('Failed to load users');
       setUsers([]);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [api]);
 
   // WebSocket callback functions - defined after fetchUsers
-  const handleWebSocketMessage = useCallback((data) => {
-    try {
-      const message = JSON.parse(data);
-      if (message.type === 'user_update' || message.type === 'user_created' || message.type === 'user_deleted') {
-        // Use a timeout to avoid calling fetchUsers before it's defined
-        setTimeout(() => {
-          if (typeof fetchUsers === 'function') {
-            fetchUsers();
-          }
-        }, 100);
-      }
-    } catch (e) {
-      // Handle non-JSON messages
-    }
-  }, []);
-
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
-
+  // Use global WebSocket for real-time updates via DataSync
+    // Initial load with loading spinner
   useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+    fetchUsers(true); // Show loading on initial load
+  }, []); // Empty dependency array for initial load only
+
+  // Auto-refresh when DataSync triggers update (no loading spinner)
+  useEffect(() => {
+    if (updateTrigger > 0) { // Only refresh on real-time updates, not initial load
+      fetchUsers(false); // Don't show loading on real-time updates
+    }
+  }, [updateTrigger]); // Only depend on updateTrigger
 
   const handleAdd = () => {
     setEditUser(null);
@@ -117,11 +108,11 @@ function Users() {
         ));
         handleClose();
         setError(null);
-        showToast('User updated successfully', 'success');
+        success('User updated successfully');
       } catch (err) {
         console.error('Error updating user:', err);
         setError('Failed to update user');
-        showToast('Failed to update user', 'error');
+        showError('Failed to update user');
       }
     } else {
       try {
@@ -129,7 +120,7 @@ function Users() {
         setUsers(prevUsers => [...prevUsers, res]);
         handleClose();
         setError(null);
-        showToast('User added successfully', 'success');
+        success('User added successfully');
         if (res.temp_password) {
           setTempPassword(res.temp_password);
           setTempPasswordDialog(true);
@@ -137,7 +128,7 @@ function Users() {
       } catch (err) {
         console.error('Error adding user:', err);
         setError('Failed to add user');
-        showToast('Failed to add user', 'error');
+        showError('Failed to add user');
       }
     }
   };
@@ -172,7 +163,7 @@ function Users() {
   const handleResetPassword = async (user) => {
     try {
       const res = await api.post(`/users/${user.user_id}/reset_password`);
-      setTempPassword(res.data.temp_password);
+      setTempPassword(res.temp_password);
       setTempPasswordDialog(true);
     } catch {
       setError('Failed to reset password');
@@ -247,7 +238,7 @@ function Users() {
         setUsers(prevUsers => prevUsers.filter(u => u.user_id !== deleteUser.user_id));
         setDeleteUser(null);
         setError(null);
-        showToast('User deleted successfully', 'success');
+        success('User deleted successfully');
       })
       .catch(() => setError('Failed to delete user'));
   };

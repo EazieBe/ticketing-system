@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -64,8 +64,9 @@ import {
   ExpandLess
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
-import api from './axiosConfig';
 import { useAuth } from './AuthContext';
+import useApi from './hooks/useApi';
+import { formatTimestampWithRelative, formatTimestamp, formatTimeTrackerTimestamp, formatTimeTrackerEndTime } from './utils/timezone';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import TicketForm from './TicketForm';
@@ -79,13 +80,16 @@ function TicketDetail() {
   const { ticket_id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const api = useApi();
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [editDialog, setEditDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [selectedTab, setSelectedTab] = useState(0);
+  const fetchingRef = useRef(false);
   const [expandedSections, setExpandedSections] = useState({
     basic: true,
     customer: false,
@@ -95,20 +99,55 @@ function TicketDetail() {
   });
 
   const fetchTicket = useCallback(async () => {
+    // Prevent multiple simultaneous calls
+    if (fetchingRef.current) {
+      console.log('Already fetching ticket, skipping');
+      return;
+    }
+    
+    fetchingRef.current = true;
+    setLoading(true);
+    setError(null);
+    
     try {
       const response = await api.get(`/tickets/${ticket_id}`);
-      setTicket(response || {});
+      console.log('Ticket data received:', response);
+      
+      // Always update state regardless of mount status - React will handle cleanup
+      if (response && Object.keys(response).length > 0) {
+        console.log('Setting ticket data:', response);
+        setTicket(response);
+        setError(null);
+      } else {
+        console.log('Empty ticket response, setting not found error');
+        setError('Ticket not found');
+        setTicket(null);
+      }
       setLoading(false);
     } catch (err) {
       console.error('Error fetching ticket:', err);
-      setError('Failed to load ticket');
+      if (err.response?.status === 404) {
+        setError('Ticket not found');
+        setTicket(null);
+      } else {
+        setError('Failed to load ticket');
+      }
       setLoading(false);
+    } finally {
+      fetchingRef.current = false;
     }
-  }, [ticket_id]);
+  }, [ticket_id, api]);
 
   useEffect(() => {
     fetchTicket();
-  }, [ticket_id, fetchTicket]);
+  }, [fetchTicket]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      fetchingRef.current = false;
+    };
+  }, []);
 
   const handleEdit = () => {
     setEditDialog(true);
@@ -146,10 +185,18 @@ function TicketDetail() {
     }
     
     try {
+      setIsDeleting(true); // Set deleting state to prevent other API calls
+      setDeleteDialog(false); // Close dialog immediately
+      
+      // Delete the ticket
       await api.delete(`/tickets/${ticket_id}`, { data: {} });
+      
+      // Navigate after successful deletion
       navigate('/tickets');
     } catch (err) {
+      console.error('Error deleting ticket:', err);
       setError('Failed to delete ticket');
+      setIsDeleting(false); // Reset deleting state on error
     }
   };
 
@@ -200,7 +247,7 @@ function TicketDetail() {
     if (!ticket) return 'unknown';
     
     const now = dayjs();
-    const created = dayjs(ticket.date_created);
+    const created = dayjs(ticket.created_at || ticket.date_created);
     const hoursSinceCreated = now.diff(created, 'hour');
     
     if (hoursSinceCreated > (ticket.sla_breach_hours || 48)) return 'breached';
@@ -226,7 +273,7 @@ function TicketDetail() {
     }
   };
 
-  if (loading) {
+  if (loading && !ticket) {
     return (
       <Box sx={{ p: 3, display: 'flex', justifyContent: 'center' }}>
         <CircularProgress />
@@ -234,7 +281,7 @@ function TicketDetail() {
     );
   }
 
-  if (error) {
+  if (error && !ticket) {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error">{error}</Alert>
@@ -250,39 +297,143 @@ function TicketDetail() {
     );
   }
 
+  const getStatusColor = (status) => {
+    const colors = {
+      open: '#2196f3',
+      scheduled: '#9c27b0',
+      checked_in: '#ff9800',
+      in_progress: '#ff5722',
+      pending: '#795548',
+      needs_parts: '#f44336',
+      go_back_scheduled: '#ff9800',
+      completed: '#4caf50',
+      closed: '#757575'
+    };
+    return colors[status] || '#757575';
+  };
+
+  const getPriorityColor = (priority) => {
+    const colors = {
+      normal: '#4caf50',
+      critical: '#ff9800',
+      emergency: '#f44336'
+    };
+    return colors[priority] || '#757575';
+  };
+
   return (
-    <Box sx={{ p: 3, backgroundColor: '#fafafa', minHeight: '100vh' }}>
+    <Box sx={{ p: 3, backgroundColor: '#f5f7fa', minHeight: '100vh' }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <IconButton onClick={() => navigate('/tickets')}>
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'flex-start', 
+        mb: 3,
+        flexWrap: 'wrap',
+        gap: 2
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, flex: 1 }}>
+          <IconButton 
+            onClick={() => navigate('/tickets')}
+            sx={{ 
+              mt: 0.5,
+              backgroundColor: 'white',
+              boxShadow: 1,
+              '&:hover': { backgroundColor: 'grey.100' }
+            }}
+          >
             <ArrowBack />
           </IconButton>
           <Box>
-            <Typography variant="h4" component="h1" fontWeight="bold">
-              Ticket {ticket.ticket_id}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {ticket.inc_number && `INC: ${ticket.inc_number}`}
-              {ticket.so_number && ` • SO: ${ticket.so_number}`}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+              <Typography variant="h4" component="h1" fontWeight="bold">
+                {ticket.ticket_id}
+              </Typography>
+              <Chip 
+                label={ticket.type} 
+                size="medium" 
+                sx={{ 
+                  fontWeight: 600,
+                  textTransform: 'capitalize'
+                }}
+              />
+              {ticket.priority && (
+                <Chip 
+                  label={ticket.priority} 
+                  size="medium" 
+                  sx={{ 
+                    backgroundColor: getPriorityColor(ticket.priority),
+                    color: 'white',
+                    fontWeight: 600,
+                    textTransform: 'capitalize'
+                  }}
+                />
+              )}
+              <Chip 
+                label={ticket.status ? String(ticket.status).replace(/_/g, ' ') : 'Unknown'} 
+                size="medium" 
+                sx={{ 
+                  backgroundColor: getStatusColor(ticket.status),
+                  color: 'white',
+                  fontWeight: 600,
+                  textTransform: 'capitalize'
+                }}
+              />
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              {ticket.inc_number && (
+                <Chip 
+                  label={`INC: ${ticket.inc_number}`} 
+                  size="small" 
+                  variant="outlined"
+                />
+              )}
+              {ticket.so_number && (
+                <Chip 
+                  label={`SO: ${ticket.so_number}`} 
+                  size="small" 
+                  variant="outlined"
+                />
+              )}
+              {ticket.is_urgent && (
+                <Chip 
+                  icon={<Warning />}
+                  label="URGENT" 
+                  size="small" 
+                  color="error"
+                />
+              )}
+              {ticket.is_vip && (
+                <Chip 
+                  icon={<Star />}
+                  label="VIP" 
+                  size="small" 
+                  color="warning"
+                />
+              )}
+              <Typography variant="body2" color="text.secondary">
+                Created {formatTimestampWithRelative(ticket.created_at || ticket.date_created)}
+              </Typography>
+            </Box>
           </Box>
         </Box>
         
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           {ticket.assigned_user_id !== user?.user_id && ticket.status === 'open' && (
             <Button
               variant="contained"
               startIcon={<Assignment />}
               onClick={handleClaim}
+              sx={{ borderRadius: 2 }}
             >
-              Claim Ticket
+              Claim
             </Button>
           )}
           <Button
             variant="outlined"
             startIcon={<Edit />}
             onClick={handleEdit}
+            sx={{ borderRadius: 2 }}
           >
             Edit
           </Button>
@@ -291,6 +442,7 @@ function TicketDetail() {
             color="error"
             startIcon={<Delete />}
             onClick={handleDelete}
+            sx={{ borderRadius: 2 }}
           >
             Delete
           </Button>
@@ -329,10 +481,27 @@ function TicketDetail() {
               {expandedSections.basic && (
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
-                    <Typography variant="subtitle2" color="text.secondary">Site</Typography>
-                    <Typography variant="body1" sx={{ mb: 2 }}>
-                      {ticket.site_id} - {ticket.site?.location || 'Unknown Site'}
-                    </Typography>
+                    <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>Site</Typography>
+                    <Chip
+                      icon={<Business />}
+                      label={ticket.site_id ? `${ticket.site_id}${ticket.site?.location ? ' - ' + ticket.site.location : ''}` : 'No Site'}
+                      onClick={() => {
+                        if (ticket.site_id) {
+                          navigate(`/sites/${ticket.site_id}`);
+                        }
+                      }}
+                      sx={{ 
+                        cursor: ticket.site_id ? 'pointer' : 'default',
+                        backgroundColor: ticket.site_id ? 'primary.main' : 'grey.300',
+                        color: 'white',
+                        fontWeight: 600,
+                        mb: 2,
+                        '&:hover': ticket.site_id ? { 
+                          backgroundColor: 'primary.dark',
+                          boxShadow: 2
+                        } : {}
+                      }}
+                    />
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <Typography variant="subtitle2" color="text.secondary">Type</Typography>
@@ -369,7 +538,7 @@ function TicketDetail() {
                   <Grid item xs={12} md={6}>
                     <Typography variant="subtitle2" color="text.secondary">Created</Typography>
                     <Typography variant="body1" sx={{ mb: 2 }}>
-                      {dayjs(ticket.date_created).format('MMM DD, YYYY HH:mm')}
+                      {formatTimestamp(ticket.created_at || ticket.date_created, 'MMM DD, YYYY HH:mm')}
                     </Typography>
                   </Grid>
                   {ticket.notes && (
@@ -530,7 +699,7 @@ function TicketDetail() {
                       <Grid item xs={12} md={6}>
                         <Typography variant="subtitle2" color="text.secondary">Follow-up Date</Typography>
                         <Typography variant="body1" sx={{ mb: 2 }}>
-                          {dayjs(ticket.follow_up_date).format('MMM DD, YYYY')}
+                          {formatTimestamp(ticket.follow_up_date, 'MMM DD, YYYY')}
                         </Typography>
                       </Grid>
                     )}
@@ -619,7 +788,7 @@ function TicketDetail() {
               )}
               {ticket.due_date && (
                 <Typography variant="body2" color="text.secondary">
-                  Due: {dayjs(ticket.due_date).format('MMM DD, HH:mm')}
+                  Due: {formatTimestamp(ticket.due_date, 'MMM DD, HH:mm')}
                 </Typography>
               )}
             </CardContent>
@@ -637,24 +806,26 @@ function TicketDetail() {
           </Tabs>
           
           <Box sx={{ mt: 2 }}>
-            {selectedTab === 0 && (
+            <Box sx={{ display: selectedTab === 0 ? 'block' : 'none' }}>
               <TimeTracker 
                 ticketId={ticket_id} 
                 onTimeUpdate={fetchTicket}
+                isDeleting={isDeleting}
               />
-            )}
-            {selectedTab === 1 && (
+            </Box>
+            <Box sx={{ display: selectedTab === 1 ? 'block' : 'none' }}>
               <TicketComments 
                 ticketId={ticket_id} 
                 onCommentUpdate={fetchTicket}
+                isDeleting={isDeleting}
               />
-            )}
-            {selectedTab === 2 && (
+            </Box>
+            <Box sx={{ display: selectedTab === 2 ? 'block' : 'none' }}>
               <WorkflowAutomation 
                 ticket={ticket} 
                 onWorkflowUpdate={fetchTicket}
               />
-            )}
+            </Box>
           </Box>
         </CardContent>
       </Card>

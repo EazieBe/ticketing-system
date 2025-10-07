@@ -45,10 +45,11 @@ import {
 } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
-import useWebSocket from './hooks/useWebSocket';
+import { useDataSync } from './contexts/DataSyncContext';
 import LoadingSpinner from './components/LoadingSpinner';
 
 function SLAManagement() {
+  const { updateTrigger } = useDataSync('all');
   const [slaRules, setSlaRules] = useState([]);
   const [editDialog, setEditDialog] = useState(false);
   const [editingRule, setEditingRule] = useState(null);
@@ -79,22 +80,31 @@ function SLAManagement() {
   }, [get, showError]);
 
   // WebSocket callback functions - defined after fetchSLARules
-  const handleWebSocketMessage = useCallback((data) => {
+  const handleWebSocketMessage = useCallback((message) => {
     try {
-      const message = JSON.parse(data);
-      if (message.type === 'sla_update' || message.type === 'sla_created' || message.type === 'sla_deleted') {
-        fetchSLARules(); // Refresh SLA rules when there's an update
+      if (message && (
+        message.type === 'sla_update' || 
+        message.type === 'sla_created' || 
+        message.type === 'sla_deleted'
+      )) {
+        fetchSLARules(false); // Real-time update, no loading spinner // Refresh SLA rules when there's an update
       }
     } catch (e) {
       // Handle non-JSON messages
     }
   }, [fetchSLARules]);
 
-  const { isConnected } = useWebSocket(`ws://192.168.43.50:8000/ws/updates`, handleWebSocketMessage);
-
+    // Initial load with loading spinner
   useEffect(() => {
-    fetchSLARules();
-  }, [fetchSLARules]);
+    fetchSLARules(true); // Show loading on initial load
+  }, []); // Empty dependency array for initial load only
+
+  // Auto-refresh when DataSync triggers update (no loading spinner)
+  useEffect(() => {
+    if (updateTrigger > 0) { // Only refresh on real-time updates, not initial load
+      fetchSLARules(false); // Don't show loading on real-time updates
+    }
+  }, [updateTrigger]); // Only depend on updateTrigger
 
   const handleAddRule = () => {
     setEditingRule(null);

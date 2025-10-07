@@ -65,7 +65,10 @@ import {
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { NotificationProvider, useNotifications } from './contexts/NotificationProvider';
+import { DataSyncProvider } from './contexts/DataSyncContext';
 import ThemePreview from './components/ThemePreview';
+import Logo from './components/Logo';
 import Login from './Login';
 import Dashboard from './Dashboard';
 import Tickets from './Tickets';
@@ -84,7 +87,7 @@ import FieldTechForm from './FieldTechForm';
 import FieldTechMap from './FieldTechMap';
 import SLAManagement from './SLAManagement';
 import DailyOperationsDashboard from './components/DailyOperationsDashboard';
-import ShippingManagement from './components/ShippingManagement';
+
 import Shipments from './Shipments';
 import Inventory from './Inventory';
 import FieldTechs from './FieldTechs';
@@ -106,24 +109,30 @@ const drawerWidth = 280;
 function TicketFormWrapper() {
   const navigate = useNavigate();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error } = useToast();
 
   const handleSubmit = async (values) => {
     try {
       console.log('TicketFormWrapper: Submitting values:', values);
       console.log('TicketFormWrapper: api object:', api);
+      console.log('TicketFormWrapper: api.post type:', typeof api?.post);
       
-      if (!api || typeof api.post !== 'function') {
-        throw new Error('API object is not properly initialized');
+      if (!api) {
+        throw new Error('API object is null or undefined');
+      }
+      
+      if (typeof api.post !== 'function') {
+        throw new Error(`API post method is not a function. Type: ${typeof api.post}`);
       }
       
       const response = await api.post('/tickets/', values);
       console.log('TicketFormWrapper: Response:', response);
-      showToast('Ticket created successfully', 'success');
+      success('Ticket created successfully');
       navigate('/tickets');
     } catch (err) {
       console.error('Error creating ticket:', err);
-      showToast('Error creating ticket', 'error');
+      error('Error creating ticket');
+      throw err; // Re-throw to let TicketForm handle it
     }
   };
 
@@ -134,16 +143,16 @@ function TicketFormWrapper() {
 function SiteFormWrapper() {
   const navigate = useNavigate();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error } = useToast();
 
   const handleSubmit = async (values) => {
     try {
       await api.post('/sites/', values);
-      showToast('Site created successfully', 'success');
+      success('Site created successfully');
       navigate('/sites');
     } catch (err) {
       console.error('Error creating site:', err);
-      showToast('Error creating site', 'error');
+      error('Error creating site');
     }
   };
 
@@ -154,16 +163,16 @@ function SiteFormWrapper() {
 function UserFormWrapper() {
   const navigate = useNavigate();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error } = useToast();
 
   const handleSubmit = async (values) => {
     try {
       await api.post('/users/', values);
-      showToast('User created successfully', 'success');
+      success('User created successfully');
       navigate('/users');
     } catch (err) {
       console.error('Error creating user:', err);
-      showToast('Error creating user', 'error');
+      error('Error creating user');
     }
   };
 
@@ -174,16 +183,16 @@ function UserFormWrapper() {
 function EquipmentFormWrapper() {
   const navigate = useNavigate();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error } = useToast();
 
   const handleSubmit = async (values) => {
     try {
       await api.post('/equipment/', values);
-      showToast('Equipment created successfully', 'success');
+      success('Equipment created successfully');
       navigate('/equipment');
     } catch (err) {
       console.error('Error creating equipment:', err);
-      showToast('Error creating equipment', 'error');
+      error('Error creating equipment');
     }
   };
 
@@ -194,16 +203,16 @@ function EquipmentFormWrapper() {
 function InventoryFormWrapper() {
   const navigate = useNavigate();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error } = useToast();
 
   const handleSubmit = async (values) => {
     try {
       await api.post('/inventory/', values);
-      showToast('Inventory item created successfully', 'success');
+      success('Inventory item created successfully');
       navigate('/inventory');
     } catch (err) {
       console.error('Error creating inventory item:', err);
-      showToast('Error creating inventory item', 'error');
+      error('Error creating inventory item');
     }
   };
 
@@ -214,16 +223,16 @@ function InventoryFormWrapper() {
 function TaskFormWrapper() {
   const navigate = useNavigate();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error } = useToast();
 
   const handleSubmit = async (values) => {
     try {
       await api.post('/tasks/', values);
-      showToast('Task created successfully', 'success');
+      success('Task created successfully');
       navigate('/tasks');
     } catch (err) {
       console.error('Error creating task:', err);
-      showToast('Error creating task', 'error');
+      error('Error creating task');
     }
   };
 
@@ -234,36 +243,49 @@ function TaskFormWrapper() {
 function ShipmentFormWrapper() {
   const navigate = useNavigate();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error } = useToast();
 
   const handleSubmit = async (values) => {
     try {
       await api.post('/shipments/', values);
-      showToast('Shipment created successfully', 'success');
+      success('Shipment created successfully');
       navigate('/shipments');
     } catch (err) {
       console.error('Error creating shipment:', err);
-      showToast('Error creating shipment', 'error');
+      error('Error creating shipment');
     }
   };
 
-  return <ShipmentForm onSubmit={handleSubmit} />;
+  const handleClose = () => {
+    navigate('/shipments');
+  };
+
+  return (
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h4" gutterBottom>Add New Shipment</Typography>
+      <ShipmentForm 
+        onSubmit={handleSubmit} 
+        onClose={handleClose}
+        isEdit={false}
+      />
+    </Box>
+  );
 }
 
 // FieldTechFormWrapper component to handle form submission
 function FieldTechFormWrapper() {
   const navigate = useNavigate();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success, error } = useToast();
 
   const handleSubmit = async (values) => {
     try {
       await api.post('/fieldtechs/', values);
-      showToast('Field tech created successfully', 'success');
+      success('Field tech created successfully');
       navigate('/fieldtechs');
     } catch (err) {
       console.error('Error creating field tech:', err);
-      showToast('Error creating field tech', 'error');
+      error('Error creating field tech');
     }
   };
 
@@ -275,7 +297,7 @@ function TicketEditWrapper() {
   const navigate = useNavigate();
   const { ticket_id } = useParams();
   const api = useApi();
-  const { showToast } = useToast();
+  const { error, success } = useToast();
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -286,23 +308,23 @@ function TicketEditWrapper() {
         setTicket(response);
       } catch (err) {
         console.error('Error fetching ticket:', err);
-        showToast('Error loading ticket', 'error');
+        error('Error loading ticket');
         navigate('/tickets');
       } finally {
         setLoading(false);
       }
     };
     fetchTicket();
-  }, [ticket_id, api, navigate, showToast]);
+  }, [ticket_id, api, navigate, error]);
 
   const handleSubmit = async (values) => {
     try {
       await api.put(`/tickets/${ticket_id}`, values);
-      showToast('Ticket updated successfully', 'success');
+      success('Ticket updated successfully');
       navigate('/tickets');
     } catch (err) {
       console.error('Error updating ticket:', err);
-      showToast('Error updating ticket', 'error');
+      error('Error updating ticket');
     }
   };
 
@@ -316,7 +338,7 @@ function SiteEditWrapper() {
   const navigate = useNavigate();
   const { site_id } = useParams();
   const api = useApi();
-  const { showToast } = useToast();
+  const { error, success } = useToast();
   const [site, setSite] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -327,23 +349,23 @@ function SiteEditWrapper() {
         setSite(response);
       } catch (err) {
         console.error('Error fetching site:', err);
-        showToast('Error loading site', 'error');
+        error('Error loading site');
         navigate('/sites');
       } finally {
         setLoading(false);
       }
     };
     fetchSite();
-  }, [site_id, api, navigate, showToast]);
+  }, [site_id, api, navigate, error]);
 
   const handleSubmit = async (values) => {
     try {
       await api.put(`/sites/${site_id}`, values);
-      showToast('Site updated successfully', 'success');
+      success('Site updated successfully');
       navigate('/sites');
     } catch (err) {
       console.error('Error updating site:', err);
-      showToast('Error updating site', 'error');
+      error('Error updating site');
     }
   };
 
@@ -357,7 +379,7 @@ function UserEditWrapper() {
   const navigate = useNavigate();
   const { user_id } = useParams();
   const api = useApi();
-  const { showToast } = useToast();
+  const { error, success } = useToast();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -368,23 +390,23 @@ function UserEditWrapper() {
         setUser(response);
       } catch (err) {
         console.error('Error fetching user:', err);
-        showToast('Error loading user', 'error');
+        error('Error loading user');
         navigate('/users');
       } finally {
         setLoading(false);
       }
     };
     fetchUser();
-  }, [user_id, api, navigate, showToast]);
+  }, [user_id, api, navigate, error]);
 
   const handleSubmit = async (values) => {
     try {
       await api.put(`/users/${user_id}`, values);
-      showToast('User updated successfully', 'success');
+      success('User updated successfully');
       navigate('/users');
     } catch (err) {
       console.error('Error updating user:', err);
-      showToast('Error updating user', 'error');
+      error('Error updating user');
     }
   };
 
@@ -398,7 +420,7 @@ function EquipmentEditWrapper() {
   const navigate = useNavigate();
   const { equipment_id } = useParams();
   const api = useApi();
-  const { showToast } = useToast();
+  const { error, success } = useToast();
   const [equipment, setEquipment] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -409,23 +431,23 @@ function EquipmentEditWrapper() {
         setEquipment(response);
       } catch (err) {
         console.error('Error fetching equipment:', err);
-        showToast('Error loading equipment', 'error');
+        error('Error loading equipment');
         navigate('/equipment');
       } finally {
         setLoading(false);
       }
     };
     fetchEquipment();
-  }, [equipment_id, api, navigate, showToast]);
+  }, [equipment_id, api, navigate, error]);
 
   const handleSubmit = async (values) => {
     try {
       await api.put(`/equipment/${equipment_id}`, values);
-      showToast('Equipment updated successfully', 'success');
+      success('Equipment updated successfully');
       navigate('/equipment');
     } catch (err) {
       console.error('Error updating equipment:', err);
-      showToast('Error updating equipment', 'error');
+      error('Error updating equipment');
     }
   };
 
@@ -439,7 +461,7 @@ function InventoryEditWrapper() {
   const navigate = useNavigate();
   const { item_id } = useParams();
   const api = useApi();
-  const { showToast } = useToast();
+  const { error, success } = useToast();
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -450,23 +472,23 @@ function InventoryEditWrapper() {
         setItem(response);
       } catch (err) {
         console.error('Error fetching inventory item:', err);
-        showToast('Error loading inventory item', 'error');
+        error('Error loading inventory item');
         navigate('/inventory');
       } finally {
         setLoading(false);
       }
     };
     fetchItem();
-  }, [item_id, api, navigate, showToast]);
+  }, [item_id, api, navigate, error]);
 
   const handleSubmit = async (values) => {
     try {
       await api.put(`/inventory/${item_id}`, values);
-      showToast('Inventory item updated successfully', 'success');
+      success('Inventory item updated successfully');
       navigate('/inventory');
     } catch (err) {
       console.error('Error updating inventory item:', err);
-      showToast('Error updating inventory item', 'error');
+      error('Error updating inventory item');
     }
   };
 
@@ -480,7 +502,7 @@ function TaskEditWrapper() {
   const navigate = useNavigate();
   const { task_id } = useParams();
   const api = useApi();
-  const { showToast } = useToast();
+  const { error, success } = useToast();
   const [task, setTask] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -491,23 +513,23 @@ function TaskEditWrapper() {
         setTask(response);
       } catch (err) {
         console.error('Error fetching task:', err);
-        showToast('Error loading task', 'error');
+        error('Error loading task');
         navigate('/tasks');
       } finally {
         setLoading(false);
       }
     };
     fetchTask();
-  }, [task_id, api, navigate, showToast]);
+  }, [task_id, api, navigate, error]);
 
   const handleSubmit = async (values) => {
     try {
       await api.put(`/tasks/${task_id}`, values);
-      showToast('Task updated successfully', 'success');
+      success('Task updated successfully');
       navigate('/tasks');
     } catch (err) {
       console.error('Error updating task:', err);
-      showToast('Error updating task', 'error');
+      error('Error updating task');
     }
   };
 
@@ -521,7 +543,7 @@ function ShipmentEditWrapper() {
   const navigate = useNavigate();
   const { shipment_id } = useParams();
   const api = useApi();
-  const { showToast } = useToast();
+  const { error, success } = useToast();
   const [shipment, setShipment] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -532,37 +554,51 @@ function ShipmentEditWrapper() {
         setShipment(response);
       } catch (err) {
         console.error('Error fetching shipment:', err);
-        showToast('Error loading shipment', 'error');
+        error('Error loading shipment');
         navigate('/shipments');
       } finally {
         setLoading(false);
       }
     };
     fetchShipment();
-  }, [shipment_id, api, navigate, showToast]);
+  }, [shipment_id, api, navigate, error]);
 
   const handleSubmit = async (values) => {
     try {
       await api.put(`/shipments/${shipment_id}`, values);
-      showToast('Shipment updated successfully', 'success');
+      success('Shipment updated successfully');
       navigate('/shipments');
     } catch (err) {
       console.error('Error updating shipment:', err);
-      showToast('Error updating shipment', 'error');
+      error('Error updating shipment');
     }
+  };
+
+  const handleClose = () => {
+    navigate('/shipments');
   };
 
   if (loading) return <div>Loading...</div>;
   if (!shipment) return <div>Shipment not found</div>;
 
-  return <ShipmentForm onSubmit={handleSubmit} initialValues={shipment} isEdit={true} />;
+  return (
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h4" gutterBottom>Edit Shipment</Typography>
+      <ShipmentForm 
+        onSubmit={handleSubmit} 
+        initialValues={shipment} 
+        isEdit={true}
+        onClose={handleClose}
+      />
+    </Box>
+  );
 }
 
 function FieldTechEditWrapper() {
   const navigate = useNavigate();
   const { field_tech_id } = useParams();
   const api = useApi();
-  const { showToast } = useToast();
+  const { error, success } = useToast();
   const [fieldTech, setFieldTech] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -573,23 +609,23 @@ function FieldTechEditWrapper() {
         setFieldTech(response);
       } catch (err) {
         console.error('Error fetching field tech:', err);
-        showToast('Error loading field tech', 'error');
+        error('Error loading field tech');
         navigate('/fieldtechs');
       } finally {
         setLoading(false);
       }
     };
     fetchFieldTech();
-  }, [field_tech_id, api, navigate, showToast]);
+  }, [field_tech_id, api, navigate, error]);
 
   const handleSubmit = async (values) => {
     try {
       await api.put(`/fieldtechs/${field_tech_id}`, values);
-      showToast('Field tech updated successfully', 'success');
+      success('Field tech updated successfully');
       navigate('/fieldtechs');
     } catch (err) {
       console.error('Error updating field tech:', err);
-      showToast('Error updating field tech', 'error');
+      error('Error updating field tech');
     }
   };
 
@@ -784,16 +820,16 @@ const adminItems = [
 
 function AppLayout() {
   const { user, logout, loading } = useAuth();
+  
+  // Debug logging
+  console.log('AppLayout render - user:', user ? 'exists' : 'none', 'loading:', loading);
+  console.log('AppLayout sessionStorage token:', sessionStorage.getItem('access_token') ? 'exists' : 'none');
+  const { notifications, unreadCount, markAsRead, markAllAsRead, clearAll, clearNotification } = useNotifications();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState(null);
   const [notificationsAnchor, setNotificationsAnchor] = useState(null);
   const [expandedItems, setExpandedItems] = useState(new Set(['main']));
   const [themeDialogOpen, setThemeDialogOpen] = useState(false);
-  const [notifications, setNotifications] = useState([
-    { id: 1, message: 'New ticket assigned', type: 'info', read: false },
-    { id: 2, message: 'Site maintenance scheduled', type: 'warning', read: false },
-    { id: 3, message: 'Inventory low on parts', type: 'error', read: false }
-  ]);
   
   // Load theme preferences from localStorage
   const [darkMode, setDarkMode] = useState(() => {
@@ -841,18 +877,16 @@ function AppLayout() {
   };
 
   const handleClearAllNotifications = () => {
-    setNotifications([]);
+    clearAll();
     setNotificationsAnchor(null);
   };
 
   const handleMarkAsRead = (notificationId) => {
-    setNotifications(prev => 
-      prev.map(notif => 
-        notif.id === notificationId 
-          ? { ...notif, read: true }
-          : notif
-      )
-    );
+    markAsRead(notificationId);
+  };
+
+  const handleMarkAllAsRead = () => {
+    markAllAsRead();
   };
 
   const handleThemeChange = (newTheme) => {
@@ -863,8 +897,6 @@ function AppLayout() {
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
   };
-
-  const unreadNotifications = notifications.filter(n => !n.read).length;
 
   const toggleExpanded = (section) => {
     const newExpanded = new Set(expandedItems);
@@ -934,26 +966,9 @@ function AppLayout() {
       <Box sx={{ 
         p: 3, 
         borderBottom: 1, 
-        borderColor: 'divider',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2
+        borderColor: 'divider'
       }}>
-        <Avatar sx={{ 
-          bgcolor: 'primary.main',
-          width: 40,
-          height: 40
-        }}>
-          <Build />
-        </Avatar>
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: 'primary.main' }}>
-            Ticketing System
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Professional Support
-          </Typography>
-        </Box>
+        <Logo size="medium" showText={true} variant="build" />
       </Box>
 
       {/* Navigation */}
@@ -1076,8 +1091,24 @@ function AppLayout() {
     );
   }
 
-  if (!user) {
+  // Only redirect to login if we're not loading AND there's no user AND no tokens in sessionStorage
+  if (!user && !sessionStorage.getItem('access_token')) {
     return <Navigate to="/login" replace />;
+  }
+
+  // If we have tokens but no user yet, show loading (this handles the refresh case)
+  if (!user && sessionStorage.getItem('access_token')) {
+    return (
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        minHeight: '100vh',
+        backgroundColor: 'background.default'
+      }}>
+        <CircularProgress size={60} />
+      </Box>
+    );
   }
 
   return (
@@ -1138,7 +1169,7 @@ function AppLayout() {
                   onClick={handleNotificationsOpen}
                   sx={{ position: 'relative' }}
                 >
-                  <Badge badgeContent={unreadNotifications} color="error">
+                  <Badge badgeContent={unreadCount} color="error">
                     <Notifications />
                   </Badge>
                 </IconButton>
@@ -1270,7 +1301,7 @@ function AppLayout() {
             <Route path="/tasks/:task_id/edit" element={<TaskEditWrapper />} />
             
             {/* Shipment Routes */}
-            <Route path="/shipments" element={<ShippingManagement />} />
+            <Route path="/shipments" element={<Shipments />} />
             <Route path="/shipments/new" element={<ShipmentFormWrapper />} />
             <Route path="/shipments/:shipment_id/edit" element={<ShipmentEditWrapper />} />
             
@@ -1339,11 +1370,18 @@ function AppLayout() {
           <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6">Notifications</Typography>
-              {notifications.length > 0 && (
-                <IconButton size="small" onClick={handleClearAllNotifications}>
-                  <Clear fontSize="small" />
-                </IconButton>
-              )}
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                {unreadCount > 0 && (
+                  <Button size="small" onClick={handleMarkAllAsRead}>
+                    Mark all read
+                  </Button>
+                )}
+                {notifications.length > 0 && (
+                  <IconButton size="small" onClick={handleClearAllNotifications}>
+                    <Clear fontSize="small" />
+                  </IconButton>
+                )}
+              </Box>
             </Box>
           </Box>
           
@@ -1376,7 +1414,12 @@ function AppLayout() {
                     {notification.message}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {notification.read ? 'Read' : 'Unread'}
+                    {notification.timestamp ? new Date(notification.timestamp).toLocaleString([], { 
+                      month: 'short', 
+                      day: 'numeric', 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    }) : 'Just now'} • {notification.read ? 'Read' : 'Unread'}
                   </Typography>
                 </Box>
               </MenuItem>
@@ -1453,16 +1496,20 @@ function App() {
   return (
     <AuthProvider>
       <ToastProvider>
-        <Router>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/*" element={
-              <RequireAuth>
-                <AppLayout />
-              </RequireAuth>
-            } />
-          </Routes>
-        </Router>
+        <DataSyncProvider>
+          <NotificationProvider>
+            <Router>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/*" element={
+                  <RequireAuth>
+                    <AppLayout />
+                  </RequireAuth>
+                } />
+              </Routes>
+            </Router>
+          </NotificationProvider>
+        </DataSyncProvider>
       </ToastProvider>
     </AuthProvider>
   );

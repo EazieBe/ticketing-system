@@ -18,6 +18,8 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import { TimestampDisplay } from './components/TimestampDisplay';
+import { getBestTimestamp, getCurrentUTCTimestamp } from './utils/timezone';
 import dayjs from 'dayjs';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
@@ -25,7 +27,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'
 function Reports() {
   const { user } = useAuth();
   const api = useApi();
-  const { showToast } = useToast();
+  const { success } = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dateRange, setDateRange] = useState(30);
@@ -75,7 +77,7 @@ function Reports() {
   };
 
   // Filter data by date range
-  const getFilteredData = (data, dateField = 'date_created') => {
+  const getFilteredData = (data, dateField = 'created_at') => {
     const daysAgo = dayjs().subtract(parseInt(dateRange), 'day');
     return data.filter(item => {
       const itemDate = dayjs(item[dateField]);
@@ -93,7 +95,9 @@ function Reports() {
   const inProgressTickets = tickets.filter(t => t.status === 'in_progress').length;
   const overdueTickets = tickets.filter(t => {
     if (t.status === 'closed') return false;
-    const created = dayjs(t.date_created);
+    const timestamp = getBestTimestamp(t, 'tickets');
+    if (!timestamp) return false;
+    const created = dayjs(timestamp);
     return dayjs().diff(created, 'day') > 1;
   }).length;
 
@@ -122,7 +126,9 @@ function Reports() {
   const monthlyData = Array.from({ length: 12 }, (_, i) => {
     const month = dayjs().subtract(11 - i, 'month');
     const monthTickets = tickets.filter(t => {
-      const ticketDate = dayjs(t.date_created);
+      const timestamp = getBestTimestamp(t, 'tickets');
+      if (!timestamp) return false;
+      const ticketDate = dayjs(timestamp);
       return ticketDate.month() === month.month() && ticketDate.year() === month.year();
     });
     return {
@@ -470,7 +476,11 @@ function Reports() {
                   </TableCell>
                   <TableCell>{ticket.assigned_user_id || 'Unassigned'}</TableCell>
                   <TableCell>
-                    {dayjs(ticket.date_created).format('MMM DD, YYYY')}
+                    <TimestampDisplay 
+                      entity={ticket} 
+                      entityType="tickets" 
+                      format="absolute"
+                    />
                   </TableCell>
                   <TableCell>
                     <Button size="small" variant="outlined">
