@@ -68,6 +68,48 @@ npx serve -s build -l 3000 --single
 - **Backend API**: http://192.168.43.50:8000
 - **API Documentation**: http://192.168.43.50:8000/docs
 
+## Build Output and Locations
+
+### Frontend (React)
+- Build command: `cd frontend && npm run build`
+- Served from: `frontend/build` (static)
+- Key files:
+  - `frontend/build/index.html`
+  - `frontend/build/static/js/main.*.js`
+  - `frontend/build/static/css/main.*.css`
+- Local dev server command: `npx serve -s build -l 3000 --single`
+
+### Backend (FastAPI)
+- Entry point: `app/main.py`
+- Routers: `app/routers/*.py` (tickets, sites, users, shipments, inventory, fieldtechs, tasks, sla, audit, search)
+- Schemas: `app/schemas.py`
+- Models: `app/models.py`
+- CRUD: `app/crud.py`
+- Auth utils: `app/utils/auth.py`
+
+### WebSocket
+- Endpoint: `ws://<backend-host>:8000/ws/updates?token=<JWT>`
+
+## Frontend Components (New Compact Build)
+- Tickets: `frontend/src/CompactTickets.js`, `frontend/src/CompactTicketDetail.js`, `frontend/src/CompactTicketFormComplete.js`
+- Sites: `frontend/src/CompactSites.js`, `frontend/src/CompactSiteDetail.js`, `frontend/src/CompactSiteForm.js`
+- Users: `frontend/src/CompactUsers.js`, `frontend/src/CompactUserForm.js`
+- Tasks: `frontend/src/CompactTasks.js`, `frontend/src/CompactTaskForm.js`
+- Shipments: `frontend/src/CompactShipments.js`, `frontend/src/CompactShipmentForm.js`
+- Inventory: `frontend/src/CompactInventory.js`, `frontend/src/CompactInventoryForm.js`
+- Field Techs: `frontend/src/CompactFieldTechs.js`, `frontend/src/CompactFieldTechForm.js`
+- Dashboard: `frontend/src/components/CompactOperationsDashboard.js`
+
+## Removed Legacy Forms
+Legacy form components were removed in favor of compact forms:
+- `frontend/src/TicketForm.js`
+- `frontend/src/SiteForm.js`
+- `frontend/src/UserForm.js`
+- `frontend/src/InventoryForm.js`
+- `frontend/src/TaskForm.js`
+- `frontend/src/ShipmentForm.js`
+- `frontend/src/FieldTechForm.js`
+
 ## Systemd Service (Optional)
 
 To enable automatic startup on boot:

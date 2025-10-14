@@ -88,15 +88,8 @@ import CompactTasks from './CompactTasks';
 import CompactTaskForm from './CompactTaskForm';
 import CompactUsers from './CompactUsers';
 import CompactUserForm from './CompactUserForm';
-// OLD COMPONENTS (still used for Equipment & old wrappers)
-import TicketForm from './TicketForm';
-import SiteForm from './SiteForm';
-import UserForm from './UserForm';
+// OLD COMPONENTS (still used for Equipment only)
 import EquipmentForm from './EquipmentForm';
-import InventoryForm from './InventoryForm';
-import TaskForm from './TaskForm';
-import ShipmentForm from './ShipmentForm';
-import FieldTechForm from './FieldTechForm';
 // OTHER COMPONENTS
 import FieldTechMap from './FieldTechMap';
 import SLAManagement from './SLAManagement';
@@ -144,7 +137,7 @@ function TicketFormWrapper() {
     }
   };
 
-  return <TicketForm onSubmit={handleSubmit} />;
+  return null;
 }
 
 // SiteFormWrapper component to handle form submission
@@ -164,7 +157,7 @@ function SiteFormWrapper() {
     }
   };
 
-  return <SiteForm onSubmit={handleSubmit} />;
+  return null;
 }
 
 // UserFormWrapper component to handle form submission
@@ -184,7 +177,7 @@ function UserFormWrapper() {
     }
   };
 
-  return <UserForm onSubmit={handleSubmit} />;
+  return null;
 }
 
 // EquipmentFormWrapper component to handle form submission
@@ -224,7 +217,7 @@ function InventoryFormWrapper() {
     }
   };
 
-  return <InventoryForm onSubmit={handleSubmit} />;
+  return null;
 }
 
 // TaskFormWrapper component to handle form submission
@@ -244,7 +237,7 @@ function TaskFormWrapper() {
     }
   };
 
-  return <TaskForm onSubmit={handleSubmit} />;
+  return null;
 }
 
 // ShipmentFormWrapper component to handle form submission
@@ -271,11 +264,7 @@ function ShipmentFormWrapper() {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>Add New Shipment</Typography>
-      <ShipmentForm 
-        onSubmit={handleSubmit} 
-        onClose={handleClose}
-        isEdit={false}
-      />
+      {/* Legacy ShipmentForm removed */}
     </Box>
   );
 }
@@ -297,7 +286,7 @@ function FieldTechFormWrapper() {
     }
   };
 
-  return <FieldTechForm onSubmit={handleSubmit} />;
+  return null;
 }
 
 // Edit wrapper components
@@ -339,7 +328,7 @@ function TicketEditWrapper() {
   if (loading) return <div>Loading...</div>;
   if (!ticket) return <div>Ticket not found</div>;
 
-  return <TicketForm onSubmit={handleSubmit} initialValues={ticket} isEdit={true} />;
+  return null;
 }
 
 function SiteEditWrapper() {
@@ -380,7 +369,7 @@ function SiteEditWrapper() {
   if (loading) return <div>Loading...</div>;
   if (!site) return <div>Site not found</div>;
 
-  return <SiteForm onSubmit={handleSubmit} initialValues={site} isEdit={true} />;
+  return null;
 }
 
 function UserEditWrapper() {
@@ -421,7 +410,7 @@ function UserEditWrapper() {
   if (loading) return <div>Loading...</div>;
   if (!user) return <div>User not found</div>;
 
-  return <UserForm onSubmit={handleSubmit} initialValues={user} isEdit={true} />;
+  return null;
 }
 
 function EquipmentEditWrapper() {
@@ -503,7 +492,7 @@ function InventoryEditWrapper() {
   if (loading) return <div>Loading...</div>;
   if (!item) return <div>Inventory item not found</div>;
 
-  return <InventoryForm onSubmit={handleSubmit} initialValues={item} isEdit={true} />;
+  return null;
 }
 
 function TaskEditWrapper() {
@@ -544,7 +533,7 @@ function TaskEditWrapper() {
   if (loading) return <div>Loading...</div>;
   if (!task) return <div>Task not found</div>;
 
-  return <TaskForm onSubmit={handleSubmit} initialValues={task} isEdit={true} />;
+  return null;
 }
 
 function ShipmentEditWrapper() {
@@ -592,12 +581,7 @@ function ShipmentEditWrapper() {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>Edit Shipment</Typography>
-      <ShipmentForm 
-        onSubmit={handleSubmit} 
-        initialValues={shipment} 
-        isEdit={true}
-        onClose={handleClose}
-      />
+      {/* Legacy ShipmentForm removed */}
     </Box>
   );
 }
@@ -640,7 +624,7 @@ function FieldTechEditWrapper() {
   if (loading) return <div>Loading...</div>;
   if (!fieldTech) return <div>Field tech not found</div>;
 
-  return <FieldTechForm onSubmit={handleSubmit} initialValues={fieldTech} isEdit={true} />;
+  return null;
 }
 
 // ========================================
