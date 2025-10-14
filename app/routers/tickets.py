@@ -302,7 +302,9 @@ def delete_ticket(
         audit_log(db, current_user.user_id, "delete", prev.status if hasattr(prev, 'status') else None, "deleted", ticket_id)
     if background_tasks:
         _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"delete"}')
-    return result
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return {"success": True, "message": "Ticket deleted"}
 
 # ============================
 # Bulk operations
