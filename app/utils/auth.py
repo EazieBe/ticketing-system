@@ -5,7 +5,7 @@ Authentication utilities
 import jwt
 import os
 from datetime import datetime, timedelta
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -74,4 +74,22 @@ def require_role(allowed_roles: list):
             )
         return current_user
     return role_checker
+
+# Simple in-memory per-process rate limiter (best-effort)
+_RATE_BUCKETS = {}
+
+def rate_limit(key_prefix: str, limit: int = 60, window_seconds: int = 60):
+    """Dependency to rate limit actions per user per window.
+    Not distributed-safe; per-process best effort.
+    """
+    def _limiter(current_user: models.User = Depends(get_current_user)):
+        from time import time
+        now = int(time())
+        window = now // window_seconds
+        bucket_key = f"{key_prefix}:{current_user.user_id}:{window}"
+        count = _RATE_BUCKETS.get(bucket_key, 0)
+        if count >= limit:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        _RATE_BUCKETS[bucket_key] = count + 1
+    return _limiter
 

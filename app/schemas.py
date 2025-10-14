@@ -453,6 +453,10 @@ class RefreshTokenRequest(BaseModel):
 class StatusUpdate(BaseModel):
     status: TicketStatus
 
+class BulkTicketStatusUpdate(BaseModel):
+    ticket_ids: List[str]
+    status: TicketStatus
+
 class TicketClaim(BaseModel):
     claimed_by: str
 
@@ -478,6 +482,10 @@ class DailyTicketFilter(BaseModel):
 class TicketCostUpdate(BaseModel):
     billing_rate: Optional[float] = None
     total_cost: Optional[float] = None
+
+class BulkTicketStatusUpdate(BaseModel):
+    ticket_ids: List[str]
+    status: TicketStatus
 
 class TokenData(BaseModel):
     user_id: Optional[str] = None

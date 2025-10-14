@@ -7,6 +7,7 @@ import models, schemas, crud
 from database import get_db
 from utils.main_utils import get_current_user, require_role, audit_log, _as_ticket_status, _as_role
 from utils.main_utils import _enqueue_broadcast
+from utils.auth import rate_limit
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
@@ -15,10 +16,15 @@ def create_ticket(
     ticket: schemas.TicketCreate, 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user), 
+    _rl: None = Depends(rate_limit("tickets:create", limit=30, window_seconds=60)),
     background_tasks: BackgroundTasks = None
 ):
     """Create a new ticket"""
-    result = crud.create_ticket(db=db, ticket=ticket)
+    # Wrap to return cleaner errors
+    try:
+        result = crud.create_ticket(db=db, ticket=ticket)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not create ticket: {str(e)}")
     
     # Create audit log for ticket creation
     audit = schemas.TicketAuditCreate(
@@ -49,13 +55,27 @@ def get_ticket(
 
 @router.get("/", response_model=List[schemas.TicketOut])
 def list_tickets(
-    skip: int = 0, 
-    limit: int = 100, 
-    db: Session = Depends(get_db), 
+    skip: int = 0,
+    limit: int = 100,
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    assigned_user_id: Optional[str] = None,
+    site_id: Optional[str] = None,
+    ticket_type: Optional[str] = None,
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    """List all tickets with pagination"""
-    return crud.get_tickets(db, skip=skip, limit=limit)
+    """List tickets with pagination and filters"""
+    return crud.get_tickets(
+        db,
+        skip=skip,
+        limit=limit,
+        status=status,
+        priority=priority,
+        assigned_user_id=assigned_user_id,
+        site_id=site_id,
+        ticket_type=ticket_type,
+    )
 
 @router.put("/{ticket_id}", response_model=schemas.TicketOut)
 def update_ticket(
@@ -69,6 +89,14 @@ def update_ticket(
     prev_ticket = crud.get_ticket(db, ticket_id)
     if not prev_ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
+
+    # RBAC: Only admin/dispatcher or assigned/claimer can update
+    user_role = _as_role(current_user.role)
+    is_admin_or_dispatcher = user_role in (models.UserRole.admin, models.UserRole.dispatcher)
+    is_assigned = prev_ticket.assigned_user_id == current_user.user_id
+    is_claimer = (getattr(prev_ticket, 'claimed_by', None) == current_user.user_id)
+    if not (is_admin_or_dispatcher or is_assigned or is_claimer):
+        raise HTTPException(status_code=403, detail="Not authorized to update this ticket")
 
     if ticket.status is not None:
         requested = _as_ticket_status(ticket.status)
@@ -256,14 +284,56 @@ def check_out_ticket(
 def delete_ticket(
     ticket_id: str, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user), 
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value])), 
     background_tasks: BackgroundTasks = None
 ):
     """Delete a ticket"""
+    # Audit before delete (capture snapshot minimal info)
+    prev = crud.get_ticket(db, ticket_id)
     result = crud.delete_ticket(db, ticket_id=ticket_id)
+    if prev:
+        audit_log(db, current_user.user_id, "delete", prev.status if hasattr(prev, 'status') else None, "deleted", ticket_id)
     if background_tasks:
         _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"delete"}')
     return result
+
+# ============================
+# Bulk operations
+# ============================
+
+@router.post("/bulk/status", response_model=List[schemas.TicketOut])
+def bulk_update_ticket_status(
+    payload: schemas.BulkTicketStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Bulk update status for multiple tickets"""
+    updated: List[models.Ticket] = []
+    user_role = _as_role(current_user.role)
+    is_admin_or_dispatcher = user_role in (models.UserRole.admin, models.UserRole.dispatcher)
+
+    requested = _as_ticket_status(payload.status)
+    for tid in payload.ticket_ids:
+        t = crud.get_ticket(db, tid)
+        if not t:
+            continue
+        # Permission: same as single update - only admin/dispatcher can close
+        new_status = requested if not (requested == schemas.TicketStatus.closed and not is_admin_or_dispatcher) else schemas.TicketStatus.pending
+        ticket_update = schemas.TicketUpdate(
+            status=new_status.value,
+            last_updated_by=current_user.user_id,
+            last_updated_at=datetime.now(timezone.utc),
+        )
+        res = crud.update_ticket(db, ticket_id=tid, ticket=ticket_update)
+        if res:
+            if getattr(t, 'status', None) != new_status.value:
+                audit_log(db, current_user.user_id, "status", getattr(t, 'status', None), new_status, tid)
+            updated.append(res)
+
+    if background_tasks and updated:
+        _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"bulk_status"}')
+    return updated
 
 @router.get("/daily/{date_str}")
 def get_daily_tickets(
