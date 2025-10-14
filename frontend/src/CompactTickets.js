@@ -6,7 +6,7 @@ import {
   Typography, Tooltip, TextField, InputAdornment, Popover, FormControlLabel, Divider
 } from '@mui/material';
 import {
-  Add, Visibility, Edit, Delete, PlayArrow, CheckCircle, LocalShipping, Search, Refresh, DoneAll, ViewColumn
+  Add, Visibility, Edit, Delete, PlayArrow, CheckCircle, LocalShipping, Search, Refresh, DoneAll, ViewColumn, UploadFile, Download
 } from '@mui/icons-material';
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
@@ -124,6 +124,34 @@ function CompactTickets() {
           <Button size="small" variant="contained" startIcon={<Add />} onClick={() => navigate('/tickets/new')}>
             New Ticket
           </Button>
+          <IconButton size="small" title="Export CSV" onClick={() => {
+            const headers = ['ticket_id','type','site_id','status','priority','date_created','date_scheduled'];
+            const rows = tickets.map(t => headers.map(h => (t[h] ?? '')).join(','));
+            const csv = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'tickets.csv'; a.click(); URL.revokeObjectURL(url);
+          }}>
+            <Download fontSize="small" />
+          </IconButton>
+          <IconButton size="small" component="label" title="Import CSV">
+            <UploadFile fontSize="small" />
+            <input type="file" accept=".csv" hidden onChange={async (e) => {
+              const file = e.target.files?.[0]; if (!file) return;
+              const text = await file.text();
+              const [headerLine, ...lines] = text.split(/\r?\n/).filter(Boolean);
+              const headers = headerLine.split(',');
+              let imported = 0;
+              for (const line of lines) {
+                const cols = line.split(',');
+                const record = Object.fromEntries(headers.map((h, i) => [h, cols[i] ?? '']));
+                try { await api.post('/tickets/', record); imported++; } catch {}
+              }
+              await fetchTickets();
+              if (imported === 0) showError('No records imported');
+            }} />
+          </IconButton>
           <IconButton size="small" onClick={fetchTickets}><Refresh fontSize="small" /></IconButton>
         </Stack>
       </Stack>

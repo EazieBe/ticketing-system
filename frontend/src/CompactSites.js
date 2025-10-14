@@ -5,7 +5,7 @@ import {
   Button, IconButton, Stack, TextField, InputAdornment, Typography, Popover,
   FormControlLabel, Checkbox, Divider
 } from '@mui/material';
-import { Add, Visibility, Edit, Delete, Search, Refresh, ViewColumn } from '@mui/icons-material';
+import { Add, Visibility, Edit, Delete, Search, Refresh, ViewColumn, UploadFile, Download } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
 
@@ -62,6 +62,34 @@ function CompactSites() {
           <IconButton size="small" onClick={(e) => setColumnAnchor(e.currentTarget)} title="Show/Hide Columns">
             <ViewColumn fontSize="small" />
           </IconButton>
+          <IconButton size="small" title="Export CSV" onClick={() => {
+            const headers = ['site_id','ip_address','location','city','state','zip','brand','region'];
+            const rows = sites.map(s => headers.map(h => (s[h] ?? '')).join(','));
+            const csv = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'sites.csv'; a.click(); URL.revokeObjectURL(url);
+          }}>
+            <Download fontSize="small" />
+          </IconButton>
+          <IconButton size="small" component="label" title="Import CSV">
+            <UploadFile fontSize="small" />
+            <input type="file" accept=".csv" hidden onChange={async (e) => {
+              const file = e.target.files?.[0]; if (!file) return;
+              const text = await file.text();
+              const [headerLine, ...lines] = text.split(/\r?\n/).filter(Boolean);
+              const headers = headerLine.split(',');
+              let imported = 0;
+              for (const line of lines) {
+                const cols = line.split(',');
+                const record = Object.fromEntries(headers.map((h, i) => [h, cols[i] ?? '']));
+                try { await api.post('/sites/', record); imported++; } catch {}
+              }
+              await fetchSites();
+              if (imported === 0) showError('No records imported');
+            }} />
+          </IconButton>
           <Button size="small" variant="contained" startIcon={<Add />} onClick={() => navigate('/sites/new')}>New Site</Button>
           <IconButton size="small" onClick={fetchSites}><Refresh fontSize="small" /></IconButton>
         </Stack>
@@ -108,8 +136,17 @@ function CompactSites() {
                   )}
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Stack direction="row" spacing={0.5}>
-                      <IconButton size="small" sx={{ p: 0.3 }}><Visibility sx={{ fontSize: 16 }} /></IconButton>
+                      <IconButton size="small" sx={{ p: 0.3 }} onClick={() => navigate(`/sites/${s.site_id}`)}><Visibility sx={{ fontSize: 16 }} /></IconButton>
                       <IconButton size="small" sx={{ p: 0.3 }} onClick={() => navigate(`/sites/${s.site_id}/edit`)}><Edit sx={{ fontSize: 16 }} /></IconButton>
+                      <IconButton size="small" sx={{ p: 0.3 }} onClick={async () => {
+                        if (!window.confirm(`Delete site ${s.site_id}? This will remove related tickets and shipments.`)) return;
+                        try {
+                          await api.delete(`/sites/${s.site_id}`);
+                          setSites(prev => prev.filter(x => x.site_id !== s.site_id));
+                        } catch {
+                          showError('Failed to delete site');
+                        }
+                      }}><Delete sx={{ fontSize: 16 }} color="error" /></IconButton>
                     </Stack>
                   </TableCell>
                 </TableRow>

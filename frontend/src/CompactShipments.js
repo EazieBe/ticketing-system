@@ -5,7 +5,7 @@ import {
   Button, IconButton, Stack, TextField, InputAdornment, Typography, Chip,
   Popover, FormControlLabel, Checkbox, Divider
 } from '@mui/material';
-import { Add, Visibility, Edit, Search, Refresh, ViewColumn } from '@mui/icons-material';
+import { Add, Visibility, Edit, Delete, Search, Refresh, ViewColumn } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
 
@@ -90,8 +90,17 @@ function CompactShipments() {
                   {visibleColumns.date && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{s.date_created ? new Date(s.date_created).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '-'}</Typography></TableCell>}
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Stack direction="row" spacing={0.5}>
-                      <IconButton size="small" sx={{ p: 0.3 }}><Visibility sx={{ fontSize: 16 }} /></IconButton>
+                      <IconButton size="small" sx={{ p: 0.3 }} onClick={() => navigate(`/shipments/${s.shipment_id}/edit`)}><Visibility sx={{ fontSize: 16 }} /></IconButton>
                       <IconButton size="small" sx={{ p: 0.3 }} onClick={() => navigate(`/shipments/${s.shipment_id}/edit`)}><Edit sx={{ fontSize: 16 }} /></IconButton>
+                      <IconButton size="small" sx={{ p: 0.3 }} onClick={async () => {
+                        if (!window.confirm(`Delete shipment ${s.shipment_id}?`)) return;
+                        try {
+                          await api.delete(`/shipments/${s.shipment_id}`);
+                          setShipments(prev => prev.filter(x => x.shipment_id !== s.shipment_id));
+                        } catch {
+                          showError('Failed to delete shipment');
+                        }
+                      }}><Delete sx={{ fontSize: 16 }} color="error" /></IconButton>
                     </Stack>
                   </TableCell>
                 </TableRow>

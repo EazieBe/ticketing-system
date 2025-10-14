@@ -139,10 +139,20 @@ def delete_site(db: Session, site_id: str):
     if not db_site:
         return None
     
-    # Check for dependencies
-    ticket_count = db.query(models.Ticket).filter(models.Ticket.site_id == site_id).count()
-    if ticket_count > 0:
-        raise ValueError(f"Cannot delete site with {ticket_count} associated tickets")
+    # Clean up dependencies to avoid FK constraint errors
+    # 1) Delete equipment and site_equipment
+    db.query(models.Equipment).filter(models.Equipment.site_id == site_id).delete(synchronize_session=False)
+    db.query(models.SiteEquipment).filter(models.SiteEquipment.site_id == site_id).delete(synchronize_session=False)
+    # 2) Delete shipments (and any inventory transactions linked)
+    shipment_ids = [s.shipment_id for s in db.query(models.Shipment).filter(models.Shipment.site_id == site_id).all()]
+    if shipment_ids:
+        db.query(models.InventoryTransaction).filter(models.InventoryTransaction.shipment_id.in_(shipment_ids)).delete(synchronize_session=False)
+        db.query(models.Shipment).filter(models.Shipment.shipment_id.in_(shipment_ids)).delete(synchronize_session=False)
+    # 3) Delete tickets and their children
+    ticket_ids = [t.ticket_id for t in db.query(models.Ticket).filter(models.Ticket.site_id == site_id).all()]
+    for tid in ticket_ids:
+        # Reuse delete_ticket logic
+        delete_ticket(db, tid)
     
     db.delete(db_site)
     db.commit()
