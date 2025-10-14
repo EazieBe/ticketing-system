@@ -364,7 +364,8 @@ def delete_ticket(db: Session, ticket_id: str):
     db.query(models.TimeEntry).filter(models.TimeEntry.ticket_id == ticket_id).delete(synchronize_session=False)
     db.query(models.Task).filter(models.Task.ticket_id == ticket_id).delete(synchronize_session=False)
     db.query(models.InventoryTransaction).filter(models.InventoryTransaction.ticket_id == ticket_id).delete(synchronize_session=False)
-    db.query(models.Shipment).filter(models.Shipment.ticket_id == ticket_id).update({models.Shipment.ticket_id: None}, synchronize_session=False)
+    # Remove shipments linked to this ticket (column may be non-nullable in DB)
+    db.query(models.Shipment).filter(models.Shipment.ticket_id == ticket_id).delete(synchronize_session=False)
     db.query(models.TicketAudit).filter(models.TicketAudit.ticket_id == ticket_id).delete(synchronize_session=False)
 
     # Finally delete the ticket
