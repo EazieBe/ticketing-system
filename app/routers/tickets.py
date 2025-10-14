@@ -83,7 +83,8 @@ def update_ticket(
     ticket: schemas.TicketUpdate, 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user), 
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
+    _rl: None = Depends(rate_limit("tickets:update", limit=60, window_seconds=60))
 ):
     """Update a ticket"""
     prev_ticket = crud.get_ticket(db, ticket_id)
@@ -110,7 +111,10 @@ def update_ticket(
     ticket.last_updated_by = current_user.user_id
     ticket.last_updated_at = datetime.now(timezone.utc)
     
-    result = crud.update_ticket(db, ticket_id=ticket_id, ticket=ticket)
+    try:
+        result = crud.update_ticket(db, ticket_id=ticket_id, ticket=ticket)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not update ticket: {str(e)}")
     
     # Audit comparisons
     if ticket.status is not None and not (prev_ticket.status == ticket.status):
@@ -126,7 +130,8 @@ def update_ticket_status(
     status_update: schemas.StatusUpdate, 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user), 
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
+    _rl: None = Depends(rate_limit("tickets:status", limit=120, window_seconds=60))
 ):
     """Quick endpoint for status changes only"""
     prev_ticket = crud.get_ticket(db, ticket_id)
@@ -145,7 +150,10 @@ def update_ticket_status(
         last_updated_at=datetime.now(timezone.utc),
     )
     
-    result = crud.update_ticket(db, ticket_id=ticket_id, ticket=ticket_update)
+    try:
+        result = crud.update_ticket(db, ticket_id=ticket_id, ticket=ticket_update)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not update status: {str(e)}")
     
     # Audit log
     if prev_ticket.status != new_status:
@@ -285,12 +293,16 @@ def delete_ticket(
     ticket_id: str, 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(require_role([models.UserRole.admin.value])), 
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
+    _rl: None = Depends(rate_limit("tickets:delete", limit=30, window_seconds=60))
 ):
     """Delete a ticket"""
     # Audit before delete (capture snapshot minimal info)
     prev = crud.get_ticket(db, ticket_id)
-    result = crud.delete_ticket(db, ticket_id=ticket_id)
+    try:
+        result = crud.delete_ticket(db, ticket_id=ticket_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not delete ticket: {str(e)}")
     if prev:
         audit_log(db, current_user.user_id, "delete", prev.status if hasattr(prev, 'status') else None, "deleted", ticket_id)
     if background_tasks:
@@ -306,7 +318,8 @@ def bulk_update_ticket_status(
     payload: schemas.BulkTicketStatusUpdate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
+    _rl: None = Depends(rate_limit("tickets:bulk", limit=10, window_seconds=60))
 ):
     """Bulk update status for multiple tickets"""
     updated: List[models.Ticket] = []
@@ -325,7 +338,10 @@ def bulk_update_ticket_status(
             last_updated_by=current_user.user_id,
             last_updated_at=datetime.now(timezone.utc),
         )
-        res = crud.update_ticket(db, ticket_id=tid, ticket=ticket_update)
+        try:
+            res = crud.update_ticket(db, ticket_id=tid, ticket=ticket_update)
+        except Exception:
+            res = None
         if res:
             if getattr(t, 'status', None) != new_status.value:
                 audit_log(db, current_user.user_id, "status", getattr(t, 'status', None), new_status, tid)
