@@ -88,7 +88,7 @@ const TimeTracker = React.memo(function TimeTracker({ ticketId, onTimeUpdate, is
   const startTimer = useCallback((startTime) => {
     setCurrentSession({ startTime });
     setIsRunning(true);
-    localStorage.setItem(`active_session_${ticketId}`, JSON.stringify({ startTime }));
+    // Do not persist in browser storage; server is source of truth
   }, [ticketId]);
 
   useEffect(() => {
@@ -100,17 +100,7 @@ const TimeTracker = React.memo(function TimeTracker({ ticketId, onTimeUpdate, is
 
   // Start timer only once when component mounts
   useEffect(() => {
-    // Check if there's an active session in localStorage
-    const activeSession = localStorage.getItem(`active_session_${ticketId}`);
-    if (activeSession) {
-      try {
-        const session = JSON.parse(activeSession);
-        setCurrentSession(session);
-        setIsRunning(true);
-      } catch (err) {
-        localStorage.removeItem(`active_session_${ticketId}`);
-      }
-    }
+    // Do not read browser storage; rely on server time entries instead
   }, [ticketId]);
 
   useEffect(() => {
@@ -148,7 +138,7 @@ const TimeTracker = React.memo(function TimeTracker({ ticketId, onTimeUpdate, is
     setIsRunning(false);
     setCurrentSession(null);
     setElapsedTime(0);
-    localStorage.removeItem(`active_session_${ticketId}`);
+    // No browser storage cleanup needed
   };
 
   const pauseTimer = () => {

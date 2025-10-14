@@ -357,7 +357,17 @@ def delete_ticket(db: Session, ticket_id: str):
     if not db_ticket:
         return None
     
-    # Use cascade delete for better performance
+    # Manually delete dependent rows to satisfy FK constraints (DB may not have ON DELETE CASCADE)
+    # Order matters to avoid FK issues
+    db.query(models.TicketAttachment).filter(models.TicketAttachment.ticket_id == ticket_id).delete(synchronize_session=False)
+    db.query(models.TicketComment).filter(models.TicketComment.ticket_id == ticket_id).delete(synchronize_session=False)
+    db.query(models.TimeEntry).filter(models.TimeEntry.ticket_id == ticket_id).delete(synchronize_session=False)
+    db.query(models.Task).filter(models.Task.ticket_id == ticket_id).delete(synchronize_session=False)
+    db.query(models.InventoryTransaction).filter(models.InventoryTransaction.ticket_id == ticket_id).delete(synchronize_session=False)
+    db.query(models.Shipment).filter(models.Shipment.ticket_id == ticket_id).update({models.Shipment.ticket_id: None}, synchronize_session=False)
+    db.query(models.TicketAudit).filter(models.TicketAudit.ticket_id == ticket_id).delete(synchronize_session=False)
+
+    # Finally delete the ticket
     db.delete(db_ticket)
     db.commit()
     return db_ticket

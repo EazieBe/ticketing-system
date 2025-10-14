@@ -6,6 +6,16 @@ const api = axios.create({
   timeout: config.TIMEOUT,
 });
 
+// Initialize Authorization header if token exists (session or local storage)
+(() => {
+  try {
+    const bootToken = sessionStorage.getItem('access_token');
+    if (bootToken) {
+      api.defaults.headers.common['Authorization'] = `Bearer ${bootToken}`;
+    }
+  } catch {}
+})();
+
 // Flag to prevent multiple refresh attempts
 let isRefreshing = false;
 let failedQueue = [];
