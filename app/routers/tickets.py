@@ -7,7 +7,6 @@ import models, schemas, crud
 from database import get_db
 from utils.main_utils import get_current_user, require_role, audit_log, _as_ticket_status, _as_role
 from utils.main_utils import _enqueue_broadcast
-from utils.auth import rate_limit
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
@@ -16,7 +15,6 @@ def create_ticket(
     ticket: schemas.TicketCreate, 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user), 
-    _rl: None = Depends(rate_limit("tickets:create", limit=30, window_seconds=60)),
     background_tasks: BackgroundTasks = None
 ):
     """Create a new ticket"""
@@ -83,8 +81,7 @@ def update_ticket(
     ticket: schemas.TicketUpdate, 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user), 
-    background_tasks: BackgroundTasks = None,
-    _rl: None = Depends(rate_limit("tickets:update", limit=60, window_seconds=60))
+    background_tasks: BackgroundTasks = None
 ):
     """Update a ticket"""
     prev_ticket = crud.get_ticket(db, ticket_id)
@@ -130,8 +127,7 @@ def update_ticket_status(
     status_update: schemas.StatusUpdate, 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user), 
-    background_tasks: BackgroundTasks = None,
-    _rl: None = Depends(rate_limit("tickets:status", limit=120, window_seconds=60))
+    background_tasks: BackgroundTasks = None
 ):
     """Quick endpoint for status changes only"""
     prev_ticket = crud.get_ticket(db, ticket_id)
@@ -293,8 +289,7 @@ def delete_ticket(
     ticket_id: str, 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(require_role([models.UserRole.admin.value])), 
-    background_tasks: BackgroundTasks = None,
-    _rl: None = Depends(rate_limit("tickets:delete", limit=30, window_seconds=60))
+    background_tasks: BackgroundTasks = None
 ):
     """Delete a ticket"""
     # Audit before delete (capture snapshot minimal info)
@@ -318,8 +313,7 @@ def bulk_update_ticket_status(
     payload: schemas.BulkTicketStatusUpdate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None,
-    _rl: None = Depends(rate_limit("tickets:bulk", limit=10, window_seconds=60))
+    background_tasks: BackgroundTasks = None
 ):
     """Bulk update status for multiple tickets"""
     updated: List[models.Ticket] = []
