@@ -73,11 +73,16 @@ def get_user(
 @router.get("/", response_model=List[schemas.UserOut])
 def list_users(
     skip: int = 0, 
-    limit: int = 100, 
+    limit: int = 100,
+    email: str = None,
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(require_role([models.UserRole.admin.value]))
 ):
-    """List all users with pagination (admin only)"""
+    """List all users with pagination and optional email filter (admin only)"""
+    # If email filter is provided, return matching user
+    if email:
+        user = crud.get_user_by_email(db, email=email)
+        return [user] if user else []
     return crud.get_users(db, skip=skip, limit=limit)
 
 @router.put("/{user_id}", response_model=schemas.UserOut)

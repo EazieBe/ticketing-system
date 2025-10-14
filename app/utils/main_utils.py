@@ -6,6 +6,8 @@ import jwt
 import hashlib
 import secrets
 import string
+import bcrypt
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import Depends, HTTPException, status
@@ -15,26 +17,32 @@ import schemas
 import crud
 from database import get_db
 
-# Security
-SECRET_KEY = "your-secret-key-here"  # Should be from environment
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
 def generate_temp_password(length: int = 12) -> str:
     """Generate a temporary password"""
     alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 def get_password_hash(password: str) -> str:
-    """Hash a password"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password using bcrypt"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password"""
-    return get_password_hash(plain_password) == hashed_password
+    """Verify a password - supports both bcrypt and SHA256 (legacy)"""
+    # Check if it's a bcrypt hash (starts with $2b$ or $2a$ or $2y$)
+    if hashed_password.startswith('$2'):
+        try:
+            return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+        except Exception:
+            return False
+    # Fall back to SHA256 for legacy hashes
+    else:
+        sha256_hash = hashlib.sha256(plain_password.encode()).hexdigest()
+        return sha256_hash == hashed_password
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create an access token"""
+    # Import here to avoid circular imports
+    from utils.auth import SECRET_KEY, ALGORITHM
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -58,21 +66,8 @@ def _as_role(role_str: str) -> models.UserRole:
     except ValueError:
         return models.UserRole.technician
 
-def require_role(allowed_roles: list):
-    """Dependency to require specific roles"""
-    def role_checker(current_user: models.User = Depends(get_current_user)):
-        if current_user.role not in allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not enough permissions"
-            )
-        return current_user
-    return role_checker
-
-def get_current_user(token: str = Depends(lambda: None), db: Session = Depends(get_db)):
-    """Get current user from token"""
-    # This will be overridden by the OAuth2PasswordBearer in main.py
-    pass
+# Import auth functions from auth module
+from utils.auth import get_current_user, require_role
 
 def audit_log(db: Session, user_id: str, field: str, old_value: str, new_value: str, ticket_id: str = None):
     """Create an audit log entry"""

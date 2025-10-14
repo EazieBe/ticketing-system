@@ -117,6 +117,7 @@ function DailyOperationsDashboard() {
     { key: 'onsite', label: 'Onsite Tickets', icon: <LocationOn /> },
     { key: 'projects', label: 'Projects', icon: <Schedule /> },
     { key: 'misc', label: 'Misc Tickets', icon: <Info /> },
+    { key: 'needs_shipping', label: 'Needs Shipping', icon: <Warning />, color: 'warning' },
     { key: 'shipping', label: 'Shipping', icon: <LocalShipping /> }
   ];
 
@@ -135,10 +136,23 @@ function DailyOperationsDashboard() {
         inhouse: [],
         onsite: [],
         projects: [],
-        misc: []
+        misc: [],
+        needs_shipping: [] // Special view for tickets needing parts
       };
 
+      // Filter out approved tickets - they go to history only
       ticketsResponse.forEach(ticket => {
+        // Skip approved tickets - they're in history now
+        if (ticket.status === 'approved') {
+          return;
+        }
+        
+        // Group tickets needing parts into special "needs_shipping" view
+        if (ticket.status === 'needs_parts') {
+          groupedTickets.needs_shipping.push(ticket);
+        }
+        
+        // Also add to their normal type group
         if (groupedTickets[ticket.type]) {
           groupedTickets[ticket.type].push(ticket);
         }
@@ -194,6 +208,9 @@ function DailyOperationsDashboard() {
   const filteredTickets = useMemo(() => {
     const allTickets = Object.values(tickets).flat();
     let filtered = filterTickets(allTickets, filters);
+    
+    // Always filter out approved tickets (they're historical only)
+    filtered = filtered.filter(ticket => ticket.status !== 'approved');
     
     // Show completed toggle (dashboard-specific)
     if (!showCompleted) {

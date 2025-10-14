@@ -34,6 +34,14 @@ function useApi() {
     } catch (err) {
       console.error('API Error:', err);
       
+      // Handle timeout errors
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        const timeoutError = 'Request timed out - the server may be slow or overloaded. Please try again.';
+        console.error(timeoutError);
+        showError(timeoutError);
+        throw new Error(timeoutError);
+      }
+      
       // Handle network errors specifically
       if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
         const networkError = 'Network error - please check if the server is running';
@@ -53,8 +61,27 @@ function useApi() {
         throw new Error(errorMessage);
       }
       
+      // Handle 422 validation errors (FastAPI/Pydantic)
+      if (err.response?.status === 422) {
+        const validationErrors = err.response?.data?.detail || err.response?.data;
+        let errorMessage = 'Validation error';
+        
+        if (Array.isArray(validationErrors)) {
+          // Pydantic returns array of errors
+          const messages = validationErrors.map(e => `${e.loc?.join?.('.') || 'field'}: ${e.msg}`).join(', ');
+          errorMessage = `Validation error: ${messages}`;
+        } else if (typeof validationErrors === 'string') {
+          errorMessage = validationErrors;
+        } else if (validationErrors?.msg) {
+          errorMessage = validationErrors.msg;
+        }
+        
+        showError(errorMessage);
+        throw new Error(errorMessage);
+      }
+      
       const errorMessage = err.response?.data?.detail || err.message || 'An error occurred';
-      showError(errorMessage);
+      showError(String(errorMessage)); // Ensure it's a string
       throw new Error(errorMessage);
     } finally {
       setLoading(false);

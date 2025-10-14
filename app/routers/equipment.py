@@ -46,12 +46,14 @@ def get_equipment(
 @router.get("/")
 def list_equipment(
     skip: int = 0, 
-    limit: int = 100, 
+    limit: int = 100,
+    site_id: str = None,
+    equipment_type: str = None,
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
-    """List all equipment with pagination"""
-    return crud.get_equipments(db, skip=skip, limit=limit)
+    """List all equipment with pagination and optional filtering by site_id or equipment_type"""
+    return crud.get_equipments(db, skip=skip, limit=limit, site_id=site_id, equipment_type=equipment_type)
 
 @router.put("/{equipment_id}")
 def update_equipment(

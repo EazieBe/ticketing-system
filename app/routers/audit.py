@@ -26,7 +26,7 @@ def get_audit_log(
     current_user: models.User = Depends(get_current_user)
 ):
     """Get a specific audit log entry"""
-    db_item = crud.get_audit(db, audit_id=audit_id)
+    db_item = crud.get_ticket_audit(db, audit_id=audit_id)
     if not db_item:
         raise HTTPException(status_code=404, detail="Audit not found")
     return db_item

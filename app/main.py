@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -57,7 +57,7 @@ app.add_middleware(
 )
 
 # Include routers
-from routers import tickets, users, sites, shipments, fieldtechs, tasks, equipment, inventory, sla, audit, logging
+from routers import tickets, users, sites, shipments, fieldtechs, tasks, equipment, inventory, sla, audit, logging, search
 
 app.include_router(tickets.router)
 app.include_router(users.router)
@@ -70,29 +70,10 @@ app.include_router(inventory.router)
 app.include_router(sla.router)
 app.include_router(audit.router)
 app.include_router(logging.router)
+app.include_router(search.router)
 
-# Security
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-# Override get_current_user with proper implementation
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Get current user from token"""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    user = crud.get_user(db, user_id=user_id)
-    if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
+# Import authentication from auth module
+from utils.auth import get_current_user, require_role, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 # Override _enqueue_broadcast with redis_client access
 def _enqueue_broadcast(background_tasks: BackgroundTasks, message: str):
@@ -110,8 +91,8 @@ async def broadcast_message(message: str):
 
 # Authentication endpoints
 @app.post("/token")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Login endpoint"""
+def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Login endpoint (OAuth2 form)"""
     user = crud.get_user_by_email(db, email=form_data.username)
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
@@ -132,6 +113,36 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "must_change_password": user.must_change_password
     }
 
+@app.post("/login")
+def login_json(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Login endpoint (form-encoded for frontend)"""
+    user = crud.get_user_by_email(db, email=form_data.username)
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.user_id}, expires_delta=access_token_expires
+    )
+    
+    # Create refresh token (longer expiration)
+    refresh_token_expires = timedelta(days=7)
+    refresh_token = create_access_token(
+        data={"sub": user.user_id, "type": "refresh"}, expires_delta=refresh_token_expires
+    )
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        "must_change_password": user.must_change_password
+    }
+
 @app.post("/refresh")
 def refresh_token(refresh_data: dict, db: Session = Depends(get_db)):
     """Refresh access token"""
@@ -139,53 +150,71 @@ def refresh_token(refresh_data: dict, db: Session = Depends(get_db)):
     if not refresh_token:
         raise HTTPException(status_code=400, detail="Refresh token required")
     
-    # In a real implementation, you'd validate the refresh token
-    # For now, we'll just create a new access token
-    user_id = refresh_data.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=400, detail="User ID required")
+    try:
+        # Decode the refresh token to get the user_id
+        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        token_type = payload.get("type")
+        
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid refresh token")
+        
+        # Verify it's actually a refresh token
+        if token_type != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+            
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
     
     user = crud.get_user(db, user_id=user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Create new access token
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.user_id}, expires_delta=access_token_expires
     )
     
+    # Create new refresh token
+    refresh_token_expires = timedelta(days=7)
+    new_refresh_token = create_access_token(
+        data={"sub": user.user_id, "type": "refresh"}, expires_delta=refresh_token_expires
+    )
+    
     return {
         "access_token": access_token,
-        "refresh_token": refresh_token,
+        "refresh_token": new_refresh_token,
         "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
     }
 
 # WebSocket endpoint
 @app.websocket("/ws/updates")
-async def websocket_endpoint(websocket):
+async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time updates"""
     await websocket.accept()
     
-    if redis_client:
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe("websocket_updates")
-        
+    try:
+        # Simple keepalive implementation (Redis not required for basic functionality)
+        while True:
+            # Keep connection alive by receiving messages
+            # In a full implementation, you'd process these messages
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                # Echo back for now (can be extended with actual message handling)
+                await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
+            except asyncio.TimeoutError:
+                # Send ping to keep connection alive
+                await websocket.send_text(json.dumps({"type": "ping", "timestamp": datetime.now(timezone.utc).isoformat()}))
+    except Exception as e:
+        print(f"WebSocket disconnected: {e}")
+    finally:
         try:
-            while True:
-                message = pubsub.get_message(timeout=1.0)
-                if message and message['type'] == 'message':
-                    await websocket.send_text(message['data'])
-        except Exception as e:
-            print(f"WebSocket error: {e}")
-        finally:
-            pubsub.close()
-    else:
-        # Fallback: just keep connection alive
-        try:
-            while True:
-                await websocket.receive_text()
-        except Exception as e:
-            print(f"WebSocket error: {e}")
+            await websocket.close()
+        except:
+            pass
 
 # Health check
 @app.get("/health")

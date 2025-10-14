@@ -419,6 +419,67 @@ function TicketDetail() {
         </Box>
         
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          {/* QUICK STATUS BUTTONS - For fast updates when field tech calls */}
+          {ticket.type === 'onsite' && !ticket.check_in_time && (
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<CheckCircle />}
+              onClick={async () => {
+                try {
+                  await api.put(`/tickets/${ticket_id}/check-in`, {});
+                  fetchTicket();
+                  setSuccessMessage('Tech checked in!');
+                } catch (err) {
+                  setError('Failed to check in');
+                }
+              }}
+              sx={{ borderRadius: 2, fontWeight: 600 }}
+            >
+              Tech Arrived
+            </Button>
+          )}
+          
+          {ticket.type === 'onsite' && ticket.check_in_time && !ticket.check_out_time && (
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<CheckCircle />}
+              onClick={async () => {
+                try {
+                  await api.put(`/tickets/${ticket_id}/check-out`, {});
+                  fetchTicket();
+                  setSuccessMessage('Tech checked out!');
+                } catch (err) {
+                  setError('Failed to check out');
+                }
+              }}
+              sx={{ borderRadius: 2, fontWeight: 600 }}
+            >
+              Tech Done
+            </Button>
+          )}
+          
+          {!['completed', 'closed', 'approved'].includes(ticket.status) && (
+            <Button
+              variant="contained"
+              color="warning"
+              startIcon={<LocalShipping />}
+              onClick={async () => {
+                try {
+                  await api.patch(`/tickets/${ticket_id}/status`, { status: 'needs_parts' });
+                  fetchTicket();
+                  setSuccessMessage('Marked as needs parts');
+                } catch (err) {
+                  setError('Failed to update status');
+                }
+              }}
+              sx={{ borderRadius: 2, fontWeight: 600 }}
+            >
+              Needs Parts
+            </Button>
+          )}
+          
           {ticket.assigned_user_id !== user?.user_id && ticket.status === 'open' && (
             <Button
               variant="contained"

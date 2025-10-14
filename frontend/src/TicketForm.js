@@ -596,6 +596,35 @@ function TicketForm({ initialValues, onSubmit, isEdit = false }) {
                 </Grid>
               </Grid>
 
+              {/* SCHEDULED DATE - For Onsite Tickets */}
+              {(values.type === 'onsite' || values.type === 'projects') && (
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label={values.type === 'onsite' ? "Scheduled Date ⭐" : "Scheduled Date"}
+                    type="date"
+                    value={values.date_scheduled}
+                    onChange={(e) => handleChange('date_scheduled', e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    helperText={values.type === 'onsite' ? "⭐ When is field tech visiting? Ticket shows on this date!" : "When is this scheduled?"}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        bgcolor: values.type === 'onsite' ? 'rgba(33, 150, 243, 0.08)' : 'inherit',
+                        ...(values.type === 'onsite' && !values.date_scheduled && {
+                          borderColor: 'warning.main',
+                          borderWidth: 2
+                        })
+                      }
+                    }}
+                  />
+                  {values.type === 'onsite' && !values.date_scheduled && (
+                    <Alert severity="warning" sx={{ mt: 1 }}>
+                      <strong>Important:</strong> Set scheduled date so this ticket appears on the correct day!
+                    </Alert>
+                  )}
+                </Grid>
+              )}
+
               {/* Assignment */}
               <Grid item xs={12} md={6}>
                 <Grid container spacing={2}>

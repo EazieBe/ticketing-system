@@ -118,6 +118,7 @@ class TicketStatus(str, enum.Enum):
     go_back_scheduled = 'go_back_scheduled'
     completed = 'completed'
     closed = 'closed'
+    approved = 'approved'  # Final approval - moves to history
 
 class TicketPriority(str, enum.Enum):
     normal = 'normal'
@@ -476,8 +477,6 @@ class DailyTicketFilter(BaseModel):
 
 class TicketCostUpdate(BaseModel):
     billing_rate: Optional[float] = None
-    parts_cost: Optional[float] = None
-    shipping_cost: Optional[float] = None
     total_cost: Optional[float] = None
 
 class TokenData(BaseModel):

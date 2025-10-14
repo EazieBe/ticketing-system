@@ -149,13 +149,83 @@ def delete_site(db: Session, site_id: str):
     return db_site
 
 # Ticket CRUD - Highly Optimized
+# =============================================================================
+# ID GENERATION FUNCTIONS
+# =============================================================================
+
+def generate_ticket_id(db: Session) -> str:
+    """Generate a sequential ticket ID in format: YYYY-NNNNNN"""
+    from datetime import datetime, timezone
+    
+    current_year = datetime.now(timezone.utc).year
+    year_prefix = str(current_year)
+    
+    # Get the highest ticket number for this year
+    latest_ticket = db.query(models.Ticket).filter(
+        models.Ticket.ticket_id.like(f"{year_prefix}-%")
+    ).order_by(models.Ticket.ticket_id.desc()).first()
+    
+    if latest_ticket:
+        # Extract the number part and increment
+        try:
+            last_number = int(latest_ticket.ticket_id.split('-')[1])
+            new_number = last_number + 1
+        except (ValueError, IndexError):
+            new_number = 1
+    else:
+        # First ticket of the year
+        new_number = 1
+    
+    # Format: YYYY-NNNNNN (6 digits, can handle up to 999,999 tickets per year)
+    ticket_id = f"{year_prefix}-{new_number:06d}"
+    
+    return ticket_id
+
+def generate_sequential_id(db: Session, model, id_field: str, prefix: str, digits: int = 6) -> str:
+    """
+    Generate a sequential ID with prefix: PREFIX-NNNNNN
+    
+    Args:
+        db: Database session
+        model: SQLAlchemy model class
+        id_field: Name of the ID field (e.g., 'shipment_id')
+        prefix: Prefix for the ID (e.g., 'SHIP')
+        digits: Number of digits for the counter (default 6)
+    
+    Returns:
+        Sequential ID string (e.g., 'SHIP-000001')
+    """
+    # Get the highest ID with this prefix
+    latest = db.query(model).filter(
+        getattr(model, id_field).like(f"{prefix}-%")
+    ).order_by(getattr(model, id_field).desc()).first()
+    
+    if latest:
+        # Extract the number part and increment
+        try:
+            current_id = getattr(latest, id_field)
+            last_number = int(current_id.split('-')[1])
+            new_number = last_number + 1
+        except (ValueError, IndexError):
+            new_number = 1
+    else:
+        # First ID with this prefix
+        new_number = 1
+    
+    # Format: PREFIX-NNNNNN
+    new_id = f"{prefix}-{new_number:0{digits}d}"
+    
+    return new_id
+
 def create_ticket(db: Session, ticket: schemas.TicketCreate):
     """Create ticket with optimized query"""
     from timezone_utils import get_eastern_today
     
     db_ticket = models.Ticket(
-        ticket_id=str(uuid.uuid4()),
+        ticket_id=generate_ticket_id(db),
         site_id=ticket.site_id,
+        inc_number=ticket.inc_number,
+        so_number=ticket.so_number,
         type=ticket.type,
         status=ticket.status,
         priority=ticket.priority,
@@ -171,7 +241,25 @@ def create_ticket(db: Session, ticket: schemas.TicketCreate):
         special_flag=ticket.special_flag,
         last_updated_by=ticket.last_updated_by,
         last_updated_at=ticket.last_updated_at,
-        # SLA Management Fields
+        # New Ticket Type System Fields
+        claimed_by=ticket.claimed_by,
+        claimed_at=ticket.claimed_at,
+        check_in_time=ticket.check_in_time,
+        check_out_time=ticket.check_out_time,
+        onsite_duration_minutes=ticket.onsite_duration_minutes,
+        billing_rate=ticket.billing_rate,
+        total_cost=ticket.total_cost,
+        # Enhanced Workflow Fields
+        estimated_hours=ticket.estimated_hours,
+        actual_hours=ticket.actual_hours,
+        start_time=ticket.start_time,
+        end_time=ticket.end_time,
+        is_billable=ticket.is_billable,
+        requires_approval=ticket.requires_approval,
+        approved_by=ticket.approved_by,
+        approved_at=ticket.approved_at,
+        rejection_reason=ticket.rejection_reason,
+        # Enhanced SLA Management Fields
         sla_target_hours=ticket.sla_target_hours,
         sla_breach_hours=ticket.sla_breach_hours,
         first_response_time=ticket.first_response_time,
@@ -180,20 +268,26 @@ def create_ticket(db: Session, ticket: schemas.TicketCreate):
         escalation_notified=ticket.escalation_notified,
         customer_impact=ticket.customer_impact,
         business_priority=ticket.business_priority,
-        # Workflow Fields
-        claimed_by=ticket.claimed_by,
-        claimed_at=ticket.claimed_at,
-        approved_by=ticket.approved_by,
-        approved_at=ticket.approved_at,
-        approval_status=ticket.approval_status,
-        approval_notes=ticket.approval_notes,
-        follow_up_date=ticket.follow_up_date,
+        # New Workflow Fields
+        workflow_step=ticket.workflow_step,
+        next_action_required=ticket.next_action_required,
         due_date=ticket.due_date,
-        # Cost Fields
-        labor_cost=ticket.labor_cost,
-        material_cost=ticket.material_cost,
-        travel_cost=ticket.travel_cost,
-        total_cost=ticket.total_cost
+        is_urgent=ticket.is_urgent,
+        is_vip=ticket.is_vip,
+        customer_name=ticket.customer_name,
+        customer_phone=ticket.customer_phone,
+        customer_email=ticket.customer_email,
+        # Equipment and Parts
+        equipment_affected=ticket.equipment_affected,
+        parts_needed=ticket.parts_needed,
+        parts_ordered=ticket.parts_ordered,
+        parts_received=ticket.parts_received,
+        # Quality and Follow-up
+        quality_score=ticket.quality_score,
+        customer_satisfaction=ticket.customer_satisfaction,
+        follow_up_required=ticket.follow_up_required,
+        follow_up_date=ticket.follow_up_date,
+        follow_up_notes=ticket.follow_up_notes
     )
     db.add(db_ticket)
     db.commit()
@@ -272,7 +366,7 @@ def delete_ticket(db: Session, ticket_id: str):
 def create_shipment(db: Session, shipment: schemas.ShipmentCreate):
     """Create shipment with optimized query"""
     db_shipment = models.Shipment(
-        shipment_id=str(uuid.uuid4()),
+        shipment_id=generate_sequential_id(db, models.Shipment, 'shipment_id', 'SHIP', 6),
         site_id=shipment.site_id,
         ticket_id=shipment.ticket_id,
         item_id=shipment.item_id,
@@ -287,6 +381,10 @@ def create_shipment(db: Session, shipment: schemas.ShipmentCreate):
         notes=shipment.notes,
         source_ticket_type=shipment.source_ticket_type,
         shipping_priority=shipment.shipping_priority,
+        parts_cost=shipment.parts_cost,
+        total_cost=shipment.total_cost,
+        status=shipment.status,
+        remove_from_inventory=shipment.remove_from_inventory,
         date_created=datetime.now(timezone.utc)
     )
     db.add(db_shipment)
@@ -415,7 +513,7 @@ def delete_field_tech(db: Session, field_tech_id: str):
 def create_task(db: Session, task: schemas.TaskCreate):
     """Create task with optimized query"""
     db_task = models.Task(
-        task_id=str(uuid.uuid4()),
+        task_id=generate_sequential_id(db, models.Task, 'task_id', 'TASK', 6),
         ticket_id=task.ticket_id,
         title=task.title,
         description=task.description,
@@ -486,7 +584,7 @@ def delete_task(db: Session, task_id: str):
 def create_equipment(db: Session, equipment: schemas.EquipmentCreate):
     """Create equipment with optimized query"""
     db_equipment = models.Equipment(
-        equipment_id=str(uuid.uuid4()),
+        equipment_id=generate_sequential_id(db, models.Equipment, 'equipment_id', 'EQUIP', 6),
         site_id=equipment.site_id,
         type=equipment.type,
         make_model=equipment.make_model,
@@ -549,16 +647,14 @@ def delete_equipment(db: Session, equipment_id: str):
 def create_inventory_item(db: Session, item: schemas.InventoryItemCreate):
     """Create inventory item with optimized query"""
     db_item = models.InventoryItem(
-        item_id=str(uuid.uuid4()),
+        item_id=generate_sequential_id(db, models.InventoryItem, 'item_id', 'INV', 6),
         name=item.name,
+        sku=item.sku,
         description=item.description,
-        category=item.category,
-        quantity=item.quantity,
-        unit_price=item.unit_price,
-        supplier=item.supplier,
-        part_number=item.part_number,
+        quantity_on_hand=item.quantity_on_hand,
+        cost=item.cost,
         location=item.location,
-        notes=item.notes
+        barcode=item.barcode
     )
     db.add(db_item)
     db.commit()
@@ -614,6 +710,18 @@ def delete_inventory_item(db: Session, item_id: str):
     db.commit()
     return db_item
 
+def get_transactions_by_item(db: Session, item_id: str):
+    """Get all transactions for an inventory item"""
+    return db.query(models.InventoryTransaction).options(
+        joinedload(models.InventoryTransaction.user),
+        joinedload(models.InventoryTransaction.shipment),
+        joinedload(models.InventoryTransaction.ticket)
+    ).filter(models.InventoryTransaction.item_id == item_id).order_by(desc(models.InventoryTransaction.date)).all()
+
+def get_inventory_item_by_barcode(db: Session, barcode: str):
+    """Get inventory item by barcode"""
+    return db.query(models.InventoryItem).filter(models.InventoryItem.barcode == barcode).first()
+
 # Audit CRUD - Optimized
 def create_ticket_audit(db: Session, audit: schemas.TicketAuditCreate):
     """Create audit log entry with optimized query"""
@@ -667,9 +775,9 @@ def create_sla_rule(db: Session, rule: schemas.SLARuleCreate):
         ticket_type=rule.ticket_type,
         customer_impact=rule.customer_impact,
         business_priority=rule.business_priority,
-        target_hours=rule.target_hours,
-        breach_hours=rule.breach_hours,
-        escalation_level=rule.escalation_level,
+        sla_target_hours=rule.sla_target_hours,
+        sla_breach_hours=rule.sla_breach_hours,
+        escalation_levels=rule.escalation_levels,
         is_active=rule.is_active,
         created_at=datetime.now(timezone.utc)
     )
@@ -968,7 +1076,13 @@ def delete_ticket_attachment(db: Session, attachment_id: str):
 # Daily Operations Dashboard - Highly Optimized
 def get_daily_tickets(db: Session, date: date = None, ticket_type: str = None, 
                      priority: str = None, status: str = None, assigned_user_id: str = None):
-    """Get tickets for daily operations dashboard with comprehensive eager loading"""
+    """
+    Get tickets for daily operations dashboard
+    Shows:
+    - Tickets scheduled for this date
+    - Unscheduled tickets created today
+    - Overdue tickets from previous days (not completed/approved)
+    """
     query = db.query(models.Ticket).options(
         joinedload(models.Ticket.site),
         joinedload(models.Ticket.assigned_user),
@@ -978,9 +1092,32 @@ def get_daily_tickets(db: Session, date: date = None, ticket_type: str = None,
         selectinload(models.Ticket.tasks)
     )
     
-    # Apply filters
+    # Filter by date: Show tickets scheduled for this date OR overdue from past
     if date:
-        query = query.filter(models.Ticket.date_created == date)
+        query = query.filter(
+            or_(
+                # Tickets scheduled for this date
+                models.Ticket.date_scheduled == date,
+                # Unscheduled tickets created today
+                and_(
+                    models.Ticket.date_created == date,
+                    models.Ticket.date_scheduled.is_(None)
+                ),
+                # Overdue tickets from previous days (not completed/approved)
+                and_(
+                    or_(
+                        models.Ticket.date_scheduled < date,
+                        and_(
+                            models.Ticket.date_created < date,
+                            models.Ticket.date_scheduled.is_(None)
+                        )
+                    ),
+                    models.Ticket.status.notin_(['completed', 'closed', 'approved'])
+                )
+            )
+        )
+    
+    # Apply additional filters
     if ticket_type:
         query = query.filter(models.Ticket.type == ticket_type)
     if priority:
@@ -990,7 +1127,11 @@ def get_daily_tickets(db: Session, date: date = None, ticket_type: str = None,
     if assigned_user_id:
         query = query.filter(models.Ticket.assigned_user_id == assigned_user_id)
     
-    return query.order_by(desc(models.Ticket.created_at)).all()
+    # Order by: overdue first, then by scheduled date, then by creation
+    return query.order_by(
+        models.Ticket.date_scheduled.asc().nullsfirst(),
+        desc(models.Ticket.created_at)
+    ).all()
 
 # Ticket Cost Management - Optimized
 def update_ticket_costs(db: Session, ticket_id: str, cost_data: dict):
@@ -999,17 +1140,11 @@ def update_ticket_costs(db: Session, ticket_id: str, cost_data: dict):
     if not db_ticket:
         return None
     
-    # Update cost fields
-    if 'labor_cost' in cost_data:
-        db_ticket.labor_cost = cost_data['labor_cost']
-    if 'material_cost' in cost_data:
-        db_ticket.material_cost = cost_data['material_cost']
-    if 'travel_cost' in cost_data:
-        db_ticket.travel_cost = cost_data['travel_cost']
-    
-    # Calculate total cost
-    total = (db_ticket.labor_cost or 0) + (db_ticket.material_cost or 0) + (db_ticket.travel_cost or 0)
-    db_ticket.total_cost = total
+    # Update cost fields (using billing_rate and total_cost from the model)
+    if 'billing_rate' in cost_data:
+        db_ticket.billing_rate = cost_data['billing_rate']
+    if 'total_cost' in cost_data:
+        db_ticket.total_cost = cost_data['total_cost']
     
     db.commit()
     db.refresh(db_ticket)
@@ -1117,3 +1252,47 @@ def get_user_statistics(db: Session, user_id: str, start_date: date = None, end_
             db.func.avg(models.Ticket.resolution_time)
         ).scalar() or 0
     }
+
+# =============================================================================
+# AUDIT CRUD OPERATIONS
+# =============================================================================
+
+def create_ticket_audit(db: Session, audit: schemas.TicketAuditCreate):
+    """Create an audit log entry"""
+    db_audit = models.TicketAudit(
+        audit_id=str(uuid.uuid4()),
+        ticket_id=audit.ticket_id,
+        user_id=audit.user_id,
+        change_time=audit.change_time or datetime.now(timezone.utc),
+        field_changed=audit.field_changed,
+        old_value=audit.old_value,
+        new_value=audit.new_value
+    )
+    db.add(db_audit)
+    db.commit()
+    db.refresh(db_audit)
+    return db_audit
+
+def get_audit(db: Session, audit_id: str):
+    """Get a specific audit log entry with user details"""
+    return db.query(models.TicketAudit)\
+        .options(joinedload(models.TicketAudit.user))\
+        .filter(models.TicketAudit.audit_id == audit_id)\
+        .first()
+
+def get_audits(db: Session, skip: int = 0, limit: int = 100):
+    """Get all audit log entries with user details, ordered by most recent"""
+    return db.query(models.TicketAudit)\
+        .options(joinedload(models.TicketAudit.user))\
+        .order_by(desc(models.TicketAudit.change_time))\
+        .offset(skip)\
+        .limit(limit)\
+        .all()
+
+def get_ticket_audits(db: Session, ticket_id: str):
+    """Get audit log entries for a specific ticket"""
+    return db.query(models.TicketAudit)\
+        .options(joinedload(models.TicketAudit.user))\
+        .filter(models.TicketAudit.ticket_id == ticket_id)\
+        .order_by(desc(models.TicketAudit.change_time))\
+        .all()

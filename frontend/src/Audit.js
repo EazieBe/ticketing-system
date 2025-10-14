@@ -38,7 +38,7 @@ function Audit() {
   const fetchAudits = useCallback(async (showLoading = true) => {
     try {
       setLoading(true);
-      const response = await api.get('/audits/');
+      const response = await api.get('/audit/');
       setAudits(response || []);
       setError(null);
     } catch (err) {

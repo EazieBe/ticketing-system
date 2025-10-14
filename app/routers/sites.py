@@ -84,3 +84,19 @@ def delete_site(
     if not result:
         raise HTTPException(status_code=404, detail="Site not found")
     return {"success": True, "message": "Site deleted successfully"}
+
+@router.get("/{site_id}/shipments")
+def get_site_shipments(
+    site_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get all shipments for a specific site"""
+    # Verify site exists
+    db_site = crud.get_site(db, site_id=site_id)
+    if not db_site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    
+    # Get shipments for this site
+    shipments = crud.get_shipments_by_site(db, site_id=site_id)
+    return shipments

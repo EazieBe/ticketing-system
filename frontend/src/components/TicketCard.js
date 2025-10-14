@@ -7,7 +7,8 @@ import {
   Chip,
   IconButton,
   Stack,
-  Tooltip
+  Tooltip,
+  Alert
 } from '@mui/material';
 import {
   Visibility,
@@ -17,7 +18,9 @@ import {
   CalendarToday,
   Build,
   Home,
-  Assignment
+  Assignment,
+  AccessTime,
+  Warning
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { formatDashboardTimestamp } from '../utils/timezone';
@@ -57,6 +60,28 @@ function TicketCard({ ticket, onEdit }) {
     }
   };
 
+  // Check if tech has been onsite too long (2+ hours)
+  const checkOnsiteDuration = () => {
+    if (!ticket.check_in_time || ticket.check_out_time) {
+      return null; // Not checked in or already checked out
+    }
+    
+    const checkInTime = new Date(ticket.check_in_time);
+    const now = new Date();
+    const hoursOnsite = (now - checkInTime) / (1000 * 60 * 60);
+    
+    if (hoursOnsite >= 2) {
+      return {
+        isAlert: true,
+        hours: hoursOnsite.toFixed(1),
+        message: `Tech onsite ${hoursOnsite.toFixed(1)} hours - Follow up!`
+      };
+    }
+    
+    return null;
+  };
+
+  const onsiteAlert = checkOnsiteDuration();
   const priorityColors = getPriorityColor(ticket.priority);
 
   return (
@@ -69,11 +94,25 @@ function TicketCard({ ticket, onEdit }) {
           boxShadow: 6,
           transform: 'translateY(-2px)'
         },
-        borderLeft: `5px solid ${priorityColors.bg}`
+        borderLeft: `5px solid ${onsiteAlert ? '#d32f2f' : priorityColors.bg}`,
+        bgcolor: onsiteAlert ? 'rgba(211, 47, 47, 0.05)' : 'background.paper'
       }}
       onClick={() => navigate(`/tickets/${ticket.ticket_id}`)}
     >
       <CardContent>
+        {/* ONSITE ALERT - Shows at top if tech has been onsite 2+ hours */}
+        {onsiteAlert && (
+          <Alert 
+            severity="error" 
+            icon={<Warning />}
+            sx={{ mb: 2, fontWeight: 600 }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AccessTime fontSize="small" />
+              {onsiteAlert.message}
+            </Box>
+          </Alert>
+        )}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
           {/* Left side - Main info */}
           <Box sx={{ flex: 1 }}>

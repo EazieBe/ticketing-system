@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -151,6 +151,107 @@ def approve_ticket(
     _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"approval"}')
     return ticket
 
+@router.put("/{ticket_id}/claim")
+def claim_ticket(
+    ticket_id: str,
+    claim_data: dict,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Claim a ticket (for in-house technicians)"""
+    ticket = crud.get_ticket(db, ticket_id=ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Update ticket with claim info - auto-assign to claiming user
+    from datetime import datetime, timezone
+    ticket.claimed_by = claim_data.get('claimed_by', current_user.user_id)
+    ticket.claimed_at = datetime.now(timezone.utc)
+    ticket.assigned_user_id = current_user.user_id  # Auto-assign to claimer
+    ticket.status = models.TicketStatus.in_progress.value
+    
+    db.commit()
+    db.refresh(ticket)
+    
+    # Audit log
+    audit_log(db, current_user.user_id, "claimed", None, ticket.claimed_by, ticket_id)
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"claimed"}')
+    
+    return ticket
+
+@router.put("/{ticket_id}/check-in")
+def check_in_ticket(
+    ticket_id: str,
+    check_in_data: dict = Body(None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Field tech check-in at site"""
+    ticket = crud.get_ticket(db, ticket_id=ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Update ticket with check-in info
+    from datetime import datetime, timezone
+    ticket.check_in_time = datetime.now(timezone.utc)
+    ticket.status = models.TicketStatus.checked_in.value
+    
+    db.commit()
+    db.refresh(ticket)
+    
+    # Audit log
+    audit_log(db, current_user.user_id, "check_in", None, str(ticket.check_in_time), ticket_id)
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"check_in"}')
+    
+    return ticket
+
+@router.put("/{ticket_id}/check-out")
+def check_out_ticket(
+    ticket_id: str,
+    check_out_data: dict = Body(None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Field tech check-out from site"""
+    ticket = crud.get_ticket(db, ticket_id=ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Update ticket with check-out info
+    from datetime import datetime, timezone
+    ticket.check_out_time = datetime.now(timezone.utc)
+    
+    # Calculate onsite duration if check-in exists
+    if ticket.check_in_time:
+        # Ensure both datetimes are timezone-aware for comparison
+        check_in = ticket.check_in_time
+        if check_in.tzinfo is None:
+            # Make timezone-naive datetime aware (assume UTC)
+            check_in = check_in.replace(tzinfo=timezone.utc)
+        
+        duration = ticket.check_out_time - check_in
+        ticket.onsite_duration_minutes = int(duration.total_seconds() / 60)
+    
+    ticket.status = models.TicketStatus.completed.value
+    
+    db.commit()
+    db.refresh(ticket)
+    
+    # Audit log
+    audit_log(db, current_user.user_id, "check_out", None, str(ticket.check_out_time), ticket_id)
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"check_out"}')
+    
+    return ticket
+
 @router.delete("/{ticket_id}")
 def delete_ticket(
     ticket_id: str, 
@@ -208,3 +309,201 @@ def update_ticket_costs(
         _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"costs_updated"}')
     
     return result
+
+# ============================================================================
+# COMMENTS ENDPOINTS
+# ============================================================================
+
+@router.get("/{ticket_id}/comments")
+def get_ticket_comments(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get all comments for a ticket"""
+    # Verify ticket exists
+    ticket = crud.get_ticket(db, ticket_id=ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    comments = crud.get_comments_by_ticket(db, ticket_id=ticket_id)
+    return comments
+
+@router.post("/{ticket_id}/comments")
+def create_comment(
+    ticket_id: str,
+    comment_data: schemas.TicketCommentCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Create a comment on a ticket"""
+    # Verify ticket exists
+    ticket = crud.get_ticket(db, ticket_id=ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create comment with user info
+    comment_dict = comment_data.dict()
+    comment_dict['ticket_id'] = ticket_id
+    comment_dict['user_id'] = current_user.user_id
+    
+    result = crud.create_ticket_comment(db, comment_dict)
+    
+    # Broadcast update
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"comment","action":"create"}')
+    
+    return result
+
+@router.put("/{ticket_id}/comments/{comment_id}")
+def update_comment(
+    ticket_id: str,
+    comment_id: str,
+    comment_data: schemas.TicketCommentUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Update a comment"""
+    # Verify comment exists and belongs to ticket
+    comment = crud.get_ticket_comment(db, comment_id=comment_id)
+    if not comment or comment.ticket_id != ticket_id:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    # Only allow user to edit their own comments (or admin)
+    if comment.user_id != current_user.user_id and current_user.role != models.UserRole.admin:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this comment")
+    
+    result = crud.update_ticket_comment(db, comment_id=comment_id, comment_data=comment_data.dict(exclude_unset=True))
+    
+    # Broadcast update
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"comment","action":"update"}')
+    
+    return result
+
+@router.delete("/{ticket_id}/comments/{comment_id}")
+def delete_comment(
+    ticket_id: str,
+    comment_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Delete a comment"""
+    # Verify comment exists and belongs to ticket
+    comment = crud.get_ticket_comment(db, comment_id=comment_id)
+    if not comment or comment.ticket_id != ticket_id:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    # Only allow user to delete their own comments (or admin)
+    if comment.user_id != current_user.user_id and current_user.role != models.UserRole.admin:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this comment")
+    
+    crud.delete_ticket_comment(db, comment_id=comment_id)
+    
+    # Broadcast update
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"comment","action":"delete"}')
+    
+    return {"success": True, "message": "Comment deleted successfully"}
+
+# ============================================================================
+# TIME ENTRIES ENDPOINTS
+# ============================================================================
+
+@router.get("/{ticket_id}/time-entries/")
+def get_ticket_time_entries(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get all time entries for a ticket"""
+    # Verify ticket exists
+    ticket = crud.get_ticket(db, ticket_id=ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    time_entries = crud.get_time_entries_by_ticket(db, ticket_id=ticket_id)
+    return time_entries
+
+@router.post("/{ticket_id}/time-entries/")
+def create_time_entry(
+    ticket_id: str,
+    entry_data: schemas.TimeEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Create a time entry for a ticket"""
+    # Verify ticket exists
+    ticket = crud.get_ticket(db, ticket_id=ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create time entry with user and ticket info
+    entry_dict = entry_data.dict()
+    entry_dict['ticket_id'] = ticket_id
+    entry_dict['user_id'] = current_user.user_id
+    
+    result = crud.create_time_entry(db, entry_dict)
+    
+    # Broadcast update
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"time_entry","action":"create"}')
+    
+    return result
+
+@router.put("/{ticket_id}/time-entries/{entry_id}")
+def update_time_entry(
+    ticket_id: str,
+    entry_id: str,
+    entry_data: schemas.TimeEntryUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Update a time entry"""
+    # Verify time entry exists and belongs to ticket
+    entry = crud.get_time_entry(db, entry_id=entry_id)
+    if not entry or entry.ticket_id != ticket_id:
+        raise HTTPException(status_code=404, detail="Time entry not found")
+    
+    # Only allow user to edit their own entries (or admin)
+    if entry.user_id != current_user.user_id and current_user.role != models.UserRole.admin:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this time entry")
+    
+    result = crud.update_time_entry(db, entry_id=entry_id, time_entry_data=entry_data.dict(exclude_unset=True))
+    
+    # Broadcast update
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"time_entry","action":"update"}')
+    
+    return result
+
+@router.delete("/{ticket_id}/time-entries/{entry_id}")
+def delete_time_entry(
+    ticket_id: str,
+    entry_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Delete a time entry"""
+    # Verify time entry exists and belongs to ticket
+    entry = crud.get_time_entry(db, entry_id=entry_id)
+    if not entry or entry.ticket_id != ticket_id:
+        raise HTTPException(status_code=404, detail="Time entry not found")
+    
+    # Only allow user to delete their own entries (or admin)
+    if entry.user_id != current_user.user_id and current_user.role != models.UserRole.admin:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this time entry")
+    
+    crud.delete_time_entry(db, entry_id=entry_id)
+    
+    # Broadcast update
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"time_entry","action":"delete"}')
+    
+    return {"success": True, "message": "Time entry deleted successfully"}

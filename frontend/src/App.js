@@ -70,28 +70,36 @@ import { DataSyncProvider } from './contexts/DataSyncContext';
 import ThemePreview from './components/ThemePreview';
 import Logo from './components/Logo';
 import Login from './Login';
-import Dashboard from './Dashboard';
-import Tickets from './Tickets';
-import TicketDetail from './TicketDetail';
+// COMPACT COMPONENTS - New high-density UI
+import CompactOperationsDashboard from './components/CompactOperationsDashboard';
+import CompactTickets from './CompactTickets';
+import CompactTicketDetail from './CompactTicketDetail';
+import CompactTicketFormComplete from './CompactTicketFormComplete';
+import CompactSites from './CompactSites';
+import CompactSiteDetail from './CompactSiteDetail';
+import CompactSiteForm from './CompactSiteForm';
+import CompactShipments from './CompactShipments';
+import CompactShipmentForm from './CompactShipmentForm';
+import CompactInventory from './CompactInventory';
+import CompactInventoryForm from './CompactInventoryForm';
+import CompactFieldTechs from './CompactFieldTechs';
+import CompactFieldTechForm from './CompactFieldTechForm';
+import CompactTasks from './CompactTasks';
+import CompactTaskForm from './CompactTaskForm';
+import CompactUsers from './CompactUsers';
+import CompactUserForm from './CompactUserForm';
+// OLD COMPONENTS (still used for Equipment & old wrappers)
 import TicketForm from './TicketForm';
-import Sites from './Sites';
-import SiteDetail from './SiteDetail';
 import SiteForm from './SiteForm';
-import Users from './Users';
 import UserForm from './UserForm';
 import EquipmentForm from './EquipmentForm';
 import InventoryForm from './InventoryForm';
 import TaskForm from './TaskForm';
 import ShipmentForm from './ShipmentForm';
 import FieldTechForm from './FieldTechForm';
+// OTHER COMPONENTS
 import FieldTechMap from './FieldTechMap';
 import SLAManagement from './SLAManagement';
-import DailyOperationsDashboard from './components/DailyOperationsDashboard';
-
-import Shipments from './Shipments';
-import Inventory from './Inventory';
-import FieldTechs from './FieldTechs';
-import Tasks from './Tasks';
 import Equipment from './Equipment';
 import Audit from './Audit';
 import Reports from './Reports';
@@ -167,7 +175,7 @@ function UserFormWrapper() {
 
   const handleSubmit = async (values) => {
     try {
-      await api.post('/users/', values);
+      await api.post('/users/', cleanFormData(values));
       success('User created successfully');
       navigate('/users');
     } catch (err) {
@@ -207,7 +215,7 @@ function InventoryFormWrapper() {
 
   const handleSubmit = async (values) => {
     try {
-      await api.post('/inventory/', values);
+      await api.post('/inventory/', cleanFormData(values));
       success('Inventory item created successfully');
       navigate('/inventory');
     } catch (err) {
@@ -227,7 +235,7 @@ function TaskFormWrapper() {
 
   const handleSubmit = async (values) => {
     try {
-      await api.post('/tasks/', values);
+      await api.post('/tasks/', cleanFormData(values));
       success('Task created successfully');
       navigate('/tasks');
     } catch (err) {
@@ -247,7 +255,7 @@ function ShipmentFormWrapper() {
 
   const handleSubmit = async (values) => {
     try {
-      await api.post('/shipments/', values);
+      await api.post('/shipments/', cleanFormData(values));
       success('Shipment created successfully');
       navigate('/shipments');
     } catch (err) {
@@ -280,7 +288,7 @@ function FieldTechFormWrapper() {
 
   const handleSubmit = async (values) => {
     try {
-      await api.post('/fieldtechs/', values);
+      await api.post('/fieldtechs/', cleanFormData(values));
       success('Field tech created successfully');
       navigate('/fieldtechs');
     } catch (err) {
@@ -635,6 +643,379 @@ function FieldTechEditWrapper() {
   return <FieldTechForm onSubmit={handleSubmit} initialValues={fieldTech} isEdit={true} />;
 }
 
+// ========================================
+// COMPACT FORM WRAPPERS - High Density UI
+// ========================================
+
+// Utility function to clean form data - removes empty strings for optional fields
+const cleanFormData = (data) => {
+  const cleaned = {};
+  for (const [key, value] of Object.entries(data)) {
+    // Skip empty strings, null, undefined - let backend handle defaults/validation
+    if (value === '' || value === null || value === undefined) {
+      continue;
+    }
+    cleaned[key] = value;
+  }
+  return cleaned;
+};
+
+function CompactTicketFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { success, error } = useToast();
+  
+  const handleSubmit = async (values) => {
+    try {
+      const cleanedData = cleanFormData(values);
+      await api.post('/tickets/', cleanedData);
+      success('Ticket created');
+      navigate('/tickets');
+    } catch (err) {
+      error('Failed to create ticket');
+    }
+  };
+  return <CompactTicketFormComplete onSubmit={handleSubmit} initialValues={{}} isEdit={false} />;
+}
+
+function CompactTicketEditWrapper() {
+  const navigate = useNavigate();
+  const { ticket_id } = useParams();
+  const api = useApi();
+  const { error, success } = useToast();
+  const [ticket, setTicket] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    const fetchTicket = async () => {
+      try {
+        const response = await api.get(`/tickets/${ticket_id}`);
+        setTicket(response);
+      } catch {
+        error('Error loading ticket');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTicket();
+  }, [ticket_id, api, error]);
+  
+  const handleSubmit = async (values) => {
+    try {
+      const cleanedData = cleanFormData(values);
+      await api.put(`/tickets/${ticket_id}`, cleanedData);
+      success('Ticket updated');
+      navigate(`/tickets/${ticket_id}`);
+    } catch {
+      error('Failed to update');
+    }
+  };
+  if (loading) return <div>Loading...</div>;
+  if (!ticket) return <div>Not found</div>;
+  return <CompactTicketFormComplete onSubmit={handleSubmit} initialValues={ticket} isEdit={true} />;
+}
+
+function CompactSiteFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { success, error } = useToast();
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/sites/', cleanFormData(values));
+      success('Site created');
+      navigate('/sites');
+    } catch {
+      error('Failed');
+    }
+  };
+  return <CompactSiteForm onSubmit={handleSubmit} initialValues={{}} isEdit={false} />;
+}
+
+function CompactSiteEditWrapper() {
+  const navigate = useNavigate();
+  const { site_id } = useParams();
+  const api = useApi();
+  const { error, success } = useToast();
+  const [site, setSite] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const fetchSite = async () => {
+      try {
+        const response = await api.get(`/sites/${site_id}`);
+        setSite(response);
+      } catch {
+        error('Error loading');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSite();
+  }, [site_id, api, error]);
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/sites/${site_id}`, cleanFormData(values));
+      success('Site updated');
+      navigate(`/sites/${site_id}`);
+    } catch {
+      error('Failed');
+    }
+  };
+  if (loading) return <div>Loading...</div>;
+  if (!site) return <div>Not found</div>;
+  return <CompactSiteForm onSubmit={handleSubmit} initialValues={site} isEdit={true} />;
+}
+
+function CompactUserFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { success, error } = useToast();
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/users/', cleanFormData(values));
+      success('User created');
+      navigate('/users');
+    } catch {
+      error('Failed');
+    }
+  };
+  return <CompactUserForm onSubmit={handleSubmit} initialValues={{}} isEdit={false} />;
+}
+
+function CompactUserEditWrapper() {
+  const navigate = useNavigate();
+  const { user_id } = useParams();
+  const api = useApi();
+  const { error, success } = useToast();
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const response = await api.get(`/users/${user_id}`);
+        setUser(response);
+      } catch {
+        error('Error loading');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchUser();
+  }, [user_id, api, error]);
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/users/${user_id}`, cleanFormData(values));
+      success('User updated');
+      navigate('/users');
+    } catch {
+      error('Failed');
+    }
+  };
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <div>Not found</div>;
+  return <CompactUserForm onSubmit={handleSubmit} initialValues={user} isEdit={true} />;
+}
+
+function CompactInventoryFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { success, error } = useToast();
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/inventory/', cleanFormData(values));
+      success('Item created');
+      navigate('/inventory');
+    } catch {
+      error('Failed');
+    }
+  };
+  return <CompactInventoryForm onSubmit={handleSubmit} initialValues={{}} isEdit={false} />;
+}
+
+function CompactInventoryEditWrapper() {
+  const navigate = useNavigate();
+  const { item_id } = useParams();
+  const api = useApi();
+  const { error, success } = useToast();
+  const [item, setItem] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const fetchItem = async () => {
+      try {
+        const response = await api.get(`/inventory/${item_id}`);
+        setItem(response);
+      } catch {
+        error('Error loading');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchItem();
+  }, [item_id, api, error]);
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/inventory/${item_id}`, cleanFormData(values));
+      success('Item updated');
+      navigate('/inventory');
+    } catch {
+      error('Failed');
+    }
+  };
+  if (loading) return <div>Loading...</div>;
+  if (!item) return <div>Not found</div>;
+  return <CompactInventoryForm onSubmit={handleSubmit} initialValues={item} isEdit={true} />;
+}
+
+function CompactTaskFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { success, error } = useToast();
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/tasks/', cleanFormData(values));
+      success('Task created');
+      navigate('/tasks');
+    } catch {
+      error('Failed');
+    }
+  };
+  return <CompactTaskForm onSubmit={handleSubmit} initialValues={{}} isEdit={false} />;
+}
+
+function CompactTaskEditWrapper() {
+  const navigate = useNavigate();
+  const { task_id } = useParams();
+  const api = useApi();
+  const { error, success } = useToast();
+  const [task, setTask] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const fetchTask = async () => {
+      try {
+        const response = await api.get(`/tasks/${task_id}`);
+        setTask(response);
+      } catch {
+        error('Error loading');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTask();
+  }, [task_id, api, error]);
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/tasks/${task_id}`, cleanFormData(values));
+      success('Task updated');
+      navigate('/tasks');
+    } catch {
+      error('Failed');
+    }
+  };
+  if (loading) return <div>Loading...</div>;
+  if (!task) return <div>Not found</div>;
+  return <CompactTaskForm onSubmit={handleSubmit} initialValues={task} isEdit={true} />;
+}
+
+function CompactShipmentFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { success, error } = useToast();
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/shipments/', cleanFormData(values));
+      success('Shipment created');
+      navigate('/shipments');
+    } catch {
+      error('Failed');
+    }
+  };
+  return <CompactShipmentForm onSubmit={handleSubmit} initialValues={{}} isEdit={false} />;
+}
+
+function CompactShipmentEditWrapper() {
+  const navigate = useNavigate();
+  const { shipment_id } = useParams();
+  const api = useApi();
+  const { error, success } = useToast();
+  const [shipment, setShipment] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const fetchShipment = async () => {
+      try {
+        const response = await api.get(`/shipments/${shipment_id}`);
+        setShipment(response);
+      } catch {
+        error('Error loading');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchShipment();
+  }, [shipment_id, api, error]);
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/shipments/${shipment_id}`, cleanFormData(values));
+      success('Shipment updated');
+      navigate('/shipments');
+    } catch {
+      error('Failed');
+    }
+  };
+  if (loading) return <div>Loading...</div>;
+  if (!shipment) return <div>Not found</div>;
+  return <CompactShipmentForm onSubmit={handleSubmit} initialValues={shipment} isEdit={true} />;
+}
+
+function CompactFieldTechFormWrapper() {
+  const navigate = useNavigate();
+  const api = useApi();
+  const { success, error } = useToast();
+  const handleSubmit = async (values) => {
+    try {
+      await api.post('/fieldtechs/', cleanFormData(values));
+      success('Field tech created');
+      navigate('/fieldtechs');
+    } catch {
+      error('Failed');
+    }
+  };
+  return <CompactFieldTechForm onSubmit={handleSubmit} initialValues={{}} isEdit={false} />;
+}
+
+function CompactFieldTechEditWrapper() {
+  const navigate = useNavigate();
+  const { field_tech_id } = useParams();
+  const api = useApi();
+  const { error, success } = useToast();
+  const [fieldTech, setFieldTech] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const fetchFieldTech = async () => {
+      try {
+        const response = await api.get(`/fieldtechs/${field_tech_id}`);
+        setFieldTech(response);
+      } catch {
+        error('Error loading');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchFieldTech();
+  }, [field_tech_id, api, error]);
+  const handleSubmit = async (values) => {
+    try {
+      await api.put(`/fieldtechs/${field_tech_id}`, cleanFormData(values));
+      success('Field tech updated');
+      navigate('/fieldtechs');
+    } catch {
+      error('Failed');
+    }
+  };
+  if (loading) return <div>Loading...</div>;
+  if (!fieldTech) return <div>Not found</div>;
+  return <CompactFieldTechForm onSubmit={handleSubmit} initialValues={fieldTech} isEdit={true} />;
+}
+
+// ========================================
 // Color theme options
 const colorThemes = {
   blue: {
@@ -771,12 +1152,7 @@ const navigationItems = [
     icon: <Assessment sx={{ color: '#3f51b5' }} />,
     badge: null
   },
-  {
-    title: 'Equipment',
-    path: '/equipment',
-    icon: <Build sx={{ color: '#ff6f00' }} />,
-    badge: null
-  },
+  // Equipment removed - only shown in Site Details as reference info
   {
     title: 'Audit',
     path: '/audit',
@@ -1265,50 +1641,50 @@ function AppLayout() {
           }}
         >
           <Routes>
-            <Route path="/" element={<DailyOperationsDashboard />} />
+            <Route path="/" element={<CompactOperationsDashboard />} />
             
-            {/* Ticket Routes */}
-            <Route path="/tickets" element={<Tickets />} />
-            <Route path="/tickets/new" element={<TicketFormWrapper />} />
-            <Route path="/tickets/:ticket_id" element={<TicketDetail />} />
-            <Route path="/tickets/:ticket_id/edit" element={<TicketEditWrapper />} />
+            {/* Ticket Routes - ALL COMPACT */}
+            <Route path="/tickets" element={<CompactTickets />} />
+            <Route path="/tickets/new" element={<CompactTicketFormWrapper />} />
+            <Route path="/tickets/:ticket_id" element={<CompactTicketDetail />} />
+            <Route path="/tickets/:ticket_id/edit" element={<CompactTicketEditWrapper />} />
             <Route path="/tickets/:ticket_id/claim" element={<TicketClaim />} />
             
-            {/* Site Routes */}
-            <Route path="/sites" element={<Sites />} />
-            <Route path="/sites/new" element={<SiteFormWrapper />} />
-            <Route path="/sites/:site_id" element={<SiteDetail />} />
-            <Route path="/sites/:site_id/edit" element={<SiteEditWrapper />} />
+            {/* Site Routes - ALL COMPACT */}
+            <Route path="/sites" element={<CompactSites />} />
+            <Route path="/sites/new" element={<CompactSiteFormWrapper />} />
+            <Route path="/sites/:site_id" element={<CompactSiteDetail />} />
+            <Route path="/sites/:site_id/edit" element={<CompactSiteEditWrapper />} />
             
-            {/* User Routes */}
-            <Route path="/users" element={<Users />} />
-            <Route path="/users/new" element={<UserFormWrapper />} />
-            <Route path="/users/:user_id/edit" element={<UserEditWrapper />} />
+            {/* User Routes - ALL COMPACT */}
+            <Route path="/users" element={<CompactUsers />} />
+            <Route path="/users/new" element={<CompactUserFormWrapper />} />
+            <Route path="/users/:user_id/edit" element={<CompactUserEditWrapper />} />
             
             {/* Equipment Routes */}
             <Route path="/equipment" element={<Equipment />} />
             <Route path="/equipment/new" element={<EquipmentFormWrapper />} />
             <Route path="/equipment/:equipment_id/edit" element={<EquipmentEditWrapper />} />
             
-            {/* Inventory Routes */}
-            <Route path="/inventory" element={<Inventory />} />
-            <Route path="/inventory/new" element={<InventoryFormWrapper />} />
-            <Route path="/inventory/:item_id/edit" element={<InventoryEditWrapper />} />
+            {/* Inventory Routes - ALL COMPACT */}
+            <Route path="/inventory" element={<CompactInventory />} />
+            <Route path="/inventory/new" element={<CompactInventoryFormWrapper />} />
+            <Route path="/inventory/:item_id/edit" element={<CompactInventoryEditWrapper />} />
             
-            {/* Task Routes */}
-            <Route path="/tasks" element={<Tasks />} />
-            <Route path="/tasks/new" element={<TaskFormWrapper />} />
-            <Route path="/tasks/:task_id/edit" element={<TaskEditWrapper />} />
+            {/* Task Routes - ALL COMPACT */}
+            <Route path="/tasks" element={<CompactTasks />} />
+            <Route path="/tasks/new" element={<CompactTaskFormWrapper />} />
+            <Route path="/tasks/:task_id/edit" element={<CompactTaskEditWrapper />} />
             
-            {/* Shipment Routes */}
-            <Route path="/shipments" element={<Shipments />} />
-            <Route path="/shipments/new" element={<ShipmentFormWrapper />} />
-            <Route path="/shipments/:shipment_id/edit" element={<ShipmentEditWrapper />} />
+            {/* Shipment Routes - ALL COMPACT */}
+            <Route path="/shipments" element={<CompactShipments />} />
+            <Route path="/shipments/new" element={<CompactShipmentFormWrapper />} />
+            <Route path="/shipments/:shipment_id/edit" element={<CompactShipmentEditWrapper />} />
             
-            {/* Field Tech Routes */}
-            <Route path="/fieldtechs" element={<FieldTechs />} />
-            <Route path="/fieldtechs/new" element={<FieldTechFormWrapper />} />
-            <Route path="/fieldtechs/:field_tech_id/edit" element={<FieldTechEditWrapper />} />
+            {/* Field Tech Routes - ALL COMPACT */}
+            <Route path="/fieldtechs" element={<CompactFieldTechs />} />
+            <Route path="/fieldtechs/new" element={<CompactFieldTechFormWrapper />} />
+            <Route path="/fieldtechs/:field_tech_id/edit" element={<CompactFieldTechEditWrapper />} />
             
             {/* Other Routes */}
             <Route path="/audit" element={<Audit />} />

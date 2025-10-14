@@ -106,6 +106,7 @@ class TicketStatus(enum.Enum):
     go_back_scheduled = 'go_back_scheduled'
     completed = 'completed'
     closed = 'closed'
+    approved = 'approved'  # Final approval - moves to history
 
 class TicketPriority(enum.Enum):
     normal = 'normal'
@@ -137,9 +138,9 @@ class Ticket(Base):
     
     # New Ticket Type System Fields
     claimed_by = Column(String, ForeignKey('users.user_id'))  # In-house tech who claimed ticket
-    claimed_at = Column(DateTime)  # When ticket was claimed
-    check_in_time = Column(DateTime)  # When field tech checked in
-    check_out_time = Column(DateTime)  # When field tech checked out
+    claimed_at = Column(DateTime(timezone=True))  # When ticket was claimed
+    check_in_time = Column(DateTime(timezone=True))  # When field tech checked in
+    check_out_time = Column(DateTime(timezone=True))  # When field tech checked out
     onsite_duration_minutes = Column(Integer)  # Calculated onsite time
     billing_rate = Column(Float, default=0.0)  # Billing rate per hour for this ticket
     total_cost = Column(Float, default=0.0)  # Total cost including time, parts, shipping

@@ -25,7 +25,7 @@ export const config = {
   API_BASE_URL: getBaseUrl(),
   WS_BASE_URL: getWebSocketUrl(),
   WS_ENDPOINT: '/ws/updates',
-  TIMEOUT: 10000,
+  TIMEOUT: 30000, // Increased from 10s to 30s for complex operations
   MAX_RECONNECT_ATTEMPTS: 2,
   RECONNECT_DELAY: 5000,
   PING_INTERVAL: 60000,
