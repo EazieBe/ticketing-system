@@ -292,14 +292,10 @@ def delete_ticket(
     background_tasks: BackgroundTasks = None
 ):
     """Delete a ticket"""
-    # Audit before delete (capture snapshot minimal info)
-    prev = crud.get_ticket(db, ticket_id)
     try:
         result = crud.delete_ticket(db, ticket_id=ticket_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not delete ticket: {str(e)}")
-    if prev:
-        audit_log(db, current_user.user_id, "delete", prev.status if hasattr(prev, 'status') else None, "deleted", ticket_id)
     if background_tasks:
         _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"delete"}')
     if not result:

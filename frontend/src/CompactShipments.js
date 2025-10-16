@@ -89,10 +89,14 @@ function CompactShipments() {
                   {visibleColumns.status && <TableCell><Chip label={s.status} size="small" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600 }} /></TableCell>}
                   {visibleColumns.date && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{s.date_created ? new Date(s.date_created).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '-'}</Typography></TableCell>}
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Stack direction="row" spacing={0.5}>
-                      <IconButton size="small" sx={{ p: 0.3 }} onClick={() => navigate(`/shipments/${s.shipment_id}/edit`)}><Visibility sx={{ fontSize: 16 }} /></IconButton>
-                      <IconButton size="small" sx={{ p: 0.3 }} onClick={() => navigate(`/shipments/${s.shipment_id}/edit`)}><Edit sx={{ fontSize: 16 }} /></IconButton>
-                      <IconButton size="small" sx={{ p: 0.3 }} onClick={async () => {
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      <IconButton size="small" sx={{ p: 0.3 }} title="View" onClick={() => navigate(`/shipments/${s.shipment_id}/edit`)}>
+                        <Visibility sx={{ fontSize: 16 }} />
+                      </IconButton>
+                      <IconButton size="small" sx={{ p: 0.3 }} title="Edit" onClick={() => navigate(`/shipments/${s.shipment_id}/edit`)}>
+                        <Edit sx={{ fontSize: 16 }} />
+                      </IconButton>
+                      <Button size="small" color="error" variant="outlined" onClick={async () => {
                         if (!window.confirm(`Delete shipment ${s.shipment_id}?`)) return;
                         try {
                           await api.delete(`/shipments/${s.shipment_id}`);
@@ -100,7 +104,7 @@ function CompactShipments() {
                         } catch {
                           showError('Failed to delete shipment');
                         }
-                      }}><Delete sx={{ fontSize: 16 }} color="error" /></IconButton>
+                      }}>Delete</Button>
                     </Stack>
                   </TableCell>
                 </TableRow>
