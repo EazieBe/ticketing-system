@@ -20,15 +20,21 @@ def create_user(
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Always generate a temp password for new users (ignore any password from frontend)
-    temp_password = generate_temp_password()
-    hashed_password = get_password_hash(temp_password)
-    
+    # Use provided password if present; otherwise generate a temporary one
+    temp_password = None
+    if user.password:
+        hashed_password = get_password_hash(user.password)
+        must_change_password = user.must_change_password if hasattr(user, 'must_change_password') and user.must_change_password is not None else False
+    else:
+        temp_password = generate_temp_password()
+        hashed_password = get_password_hash(temp_password)
+        must_change_password = True
+
     # Create user data with proper password handling
     user_data = user.dict()
     user_data['hashed_password'] = hashed_password
-    user_data['preferences'] = "{}"  # Set to empty JSON string for TEXT column
-    user_data['must_change_password'] = True
+    user_data['preferences'] = user_data.get('preferences') or "{}"  # Ensure non-null TEXT
+    user_data['must_change_password'] = must_change_password
     
     # Create proper AdminUserCreate object
     admin_user = schemas.AdminUserCreate(**user_data)
@@ -44,17 +50,16 @@ def create_user(
     )
     crud.create_ticket_audit(db, audit)
     
-    # Return temp password in response for admin
+    # Return temp password in response only if generated
     out_dict = {
         "user_id": result.user_id,
         "name": result.name,
         "email": result.email,
         "role": result.role,
         "phone": result.phone,
-        "region": result.region,
         "preferences": result.preferences,
         "must_change_password": result.must_change_password,
-        "temp_password": temp_password
+        **({"temp_password": temp_password} if temp_password else {})
     }
     return out_dict
 

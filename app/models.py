@@ -29,7 +29,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     role = Column(Enum(UserRole), nullable=False)
     phone = Column(String)
-    region = Column(String)
+    # region removed per product requirement
     preferences = Column(Text)
     hashed_password = Column(String)  # Dedicated password field
     must_change_password = Column(Boolean, default=False)

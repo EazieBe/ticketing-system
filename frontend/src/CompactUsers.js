@@ -21,7 +21,6 @@ function CompactUsers() {
     email: true,
     role: true,
     phone: true,
-    region: true,
     status: true
   });
 
@@ -73,7 +72,6 @@ function CompactUsers() {
                 {visibleColumns.email && <TableCell>Email</TableCell>}
                 {visibleColumns.role && <TableCell>Role</TableCell>}
                 {visibleColumns.phone && <TableCell>Phone</TableCell>}
-                {visibleColumns.region && <TableCell>Region</TableCell>}
                 {visibleColumns.status && <TableCell>Status</TableCell>}
                 <TableCell>Actions</TableCell>
               </TableRow>
@@ -85,7 +83,6 @@ function CompactUsers() {
                   {visibleColumns.email && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{u.email}</Typography></TableCell>}
                   {visibleColumns.role && <TableCell><Chip label={u.role} size="small" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600 }} /></TableCell>}
                   {visibleColumns.phone && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{u.phone}</Typography></TableCell>}
-                  {visibleColumns.region && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{u.region}</Typography></TableCell>}
                   {visibleColumns.status && <TableCell><Chip label={u.active ? 'Active' : 'Inactive'} size="small" color={u.active ? 'success' : 'default'} sx={{ height: 18, fontSize: '0.65rem' }} /></TableCell>}
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Stack direction="row" spacing={0.5}>
@@ -117,7 +114,6 @@ function CompactUsers() {
             <FormControlLabel control={<Checkbox checked={visibleColumns.email} onChange={() => toggleColumn('email')} size="small" />} label={<Typography sx={{ fontSize: '0.875rem' }}>Email</Typography>} />
             <FormControlLabel control={<Checkbox checked={visibleColumns.role} onChange={() => toggleColumn('role')} size="small" />} label={<Typography sx={{ fontSize: '0.875rem' }}>Role</Typography>} />
             <FormControlLabel control={<Checkbox checked={visibleColumns.phone} onChange={() => toggleColumn('phone')} size="small" />} label={<Typography sx={{ fontSize: '0.875rem' }}>Phone</Typography>} />
-            <FormControlLabel control={<Checkbox checked={visibleColumns.region} onChange={() => toggleColumn('region')} size="small" />} label={<Typography sx={{ fontSize: '0.875rem' }}>Region</Typography>} />
             <FormControlLabel control={<Checkbox checked={visibleColumns.status} onChange={() => toggleColumn('status')} size="small" />} label={<Typography sx={{ fontSize: '0.875rem' }}>Status</Typography>} />
           </Stack>
         </Box>

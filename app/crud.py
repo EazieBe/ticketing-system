@@ -18,7 +18,7 @@ def create_user(db: Session, user):
         email=user.email,
         role=user.role,
         phone=user.phone,
-        region=user.region,
+        # region removed
         preferences=user.preferences,
         hashed_password=getattr(user, 'hashed_password', None),
         must_change_password=getattr(user, 'must_change_password', False),
@@ -55,7 +55,7 @@ def update_user(db: Session, user_id: str, user):
     db_user.email = user.email
     db_user.role = user.role
     db_user.phone = user.phone
-    db_user.region = user.region
+    # region removed
     db_user.preferences = user.preferences
     if hasattr(user, 'active') and user.active is not None:
         db_user.active = user.active

@@ -4,7 +4,7 @@ import { Save, Cancel } from '@mui/icons-material';
 
 function CompactUserForm({ onSubmit, initialValues, isEdit }) {
   const [values, setValues] = useState({
-    name: '', email: '', role: 'tech', phone: '', region: '', preferences: '{}',
+    name: '', email: '', role: 'tech', phone: '', preferences: '{}', password: '',
     must_change_password: false, active: true,
     ...initialValues
   });
@@ -36,7 +36,9 @@ function CompactUserForm({ onSubmit, initialValues, isEdit }) {
           </FormControl>
         </Grid>
         <Grid item xs={6} md={4}><TextField fullWidth size="small" label="Phone" value={values.phone} onChange={(e) => c('phone', e.target.value)} sx={{ '& input': { fontSize: '0.875rem' } }} /></Grid>
-        <Grid item xs={6} md={4}><TextField fullWidth size="small" label="Region" value={values.region} onChange={(e) => c('region', e.target.value)} sx={{ '& input': { fontSize: '0.875rem' } }} /></Grid>
+        {!isEdit && (
+          <Grid item xs={12} md={6}><TextField fullWidth size="small" label="Password (optional)" type="password" value={values.password || ''} onChange={(e) => c('password', e.target.value)} sx={{ '& input': { fontSize: '0.875rem' } }} /></Grid>
+        )}
         <Grid item xs={6} md={4}>
           <FormControlLabel control={<Switch size="small" checked={values.active} onChange={(e) => c('active', e.target.checked)} />}
             label={<Typography sx={{ fontSize: '0.875rem' }}>Active</Typography>} />

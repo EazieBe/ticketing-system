@@ -26,7 +26,7 @@ class UserBase(BaseModel):
     email: EmailStr
     role: UserRole
     phone: Optional[str] = None
-    region: Optional[str] = None
+    
     preferences: Optional[str] = None
     must_change_password: Optional[bool] = False
     active: Optional[bool] = True
