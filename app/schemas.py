@@ -36,7 +36,8 @@ class UserCreate(UserBase):
 
 class AdminUserCreate(UserBase):
     """Schema for admin-created users with proper password handling"""
-    password: Optional[str] = None  # Will be ignored - temp password always generated
+    password: Optional[str] = None
+    hashed_password: Optional[str] = None
 
 class UserOut(UserBase):
     user_id: str

@@ -13,7 +13,6 @@ function Login() {
   const [error, setError] = useState('');
   const [resetDialog, setResetDialog] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
-  const [resetPassword, setResetPassword] = useState('');
   const [resetMsg, setResetMsg] = useState('');
   const navigate = useNavigate();
 
@@ -33,27 +32,8 @@ function Login() {
   };
 
   const handleResetSubmit = async () => {
-    try {
-      const users = await api.get(`/users/?email=${resetEmail}`);
-      const user = users.find(u => u.email === resetEmail);
-      if (!user) {
-        setResetMsg('User not found');
-        return;
-      }
-      
-      await api.put(`/users/${user.user_id}`, { 
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        phone: user.phone,
-        region: user.region,
-        preferences: user.preferences,
-        password: resetPassword
-      });
-      setResetMsg('Password reset successful!');
-    } catch (err) {
-      setResetMsg('Failed to reset password');
-    }
+    // Self-service reset is not available yet. Inform the user.
+    setResetMsg('Please contact an administrator to reset your password.');
   };
 
   return (
@@ -79,14 +59,13 @@ function Login() {
       <Dialog open={resetDialog} onClose={() => setResetDialog(false)}>
         <DialogTitle>Reset Password</DialogTitle>
         <DialogContent>
-          <DialogContentText>Enter your email and new password:</DialogContentText>
+          <DialogContentText>Self-service password reset will be added later. For now, enter your email and an administrator will reset your password.</DialogContentText>
           <TextField label="Email" type="email" value={resetEmail} onChange={e => setResetEmail(e.target.value)} fullWidth sx={{ mt: 2 }} />
-          <TextField label="New Password" type="password" value={resetPassword} onChange={e => setResetPassword(e.target.value)} fullWidth sx={{ mt: 2 }} />
-          {resetMsg && <Alert severity={resetMsg.includes('successful') ? 'success' : 'error'} sx={{ mt: 2 }}>{resetMsg}</Alert>}
+          {resetMsg && <Alert severity={'info'} sx={{ mt: 2 }}>{resetMsg}</Alert>}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setResetDialog(false)}>Cancel</Button>
-          <Button onClick={handleResetSubmit} disabled={!resetEmail || !resetPassword}>Reset</Button>
+          <Button onClick={handleResetSubmit} disabled={!resetEmail}>Request Reset</Button>
         </DialogActions>
       </Dialog>
     </Box>

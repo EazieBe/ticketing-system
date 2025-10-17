@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Button, IconButton, Stack, TextField, InputAdornment, Typography, Chip,
-  Popover, FormControlLabel, Checkbox, Divider
+  Popover, FormControlLabel, Checkbox, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Alert
 } from '@mui/material';
 import { Add, Visibility, Edit, Search, Refresh, ViewColumn } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
@@ -16,6 +16,8 @@ function CompactUsers() {
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
   const [columnAnchor, setColumnAnchor] = useState(null);
+  const [resetDialog, setResetDialog] = useState(false);
+  const [tempPassword, setTempPassword] = useState('');
   const [visibleColumns, setVisibleColumns] = useState({
     name: true,
     email: true,
@@ -40,6 +42,16 @@ function CompactUsers() {
 
   const toggleColumn = (column) => {
     setVisibleColumns(prev => ({ ...prev, [column]: !prev[column] }));
+  };
+
+  const handleResetPassword = async (u) => {
+    try {
+      const res = await api.post(`/users/${u.user_id}/reset_password`);
+      setTempPassword(res?.temp_password || '');
+      setResetDialog(true);
+    } catch (e) {
+      showError('Failed to reset password');
+    }
   };
 
   const filtered = users.filter(u =>
@@ -88,6 +100,7 @@ function CompactUsers() {
                     <Stack direction="row" spacing={0.5}>
                       <IconButton size="small" sx={{ p: 0.3 }}><Visibility sx={{ fontSize: 16 }} /></IconButton>
                       <IconButton size="small" sx={{ p: 0.3 }} onClick={() => navigate(`/users/${u.user_id}/edit`)}><Edit sx={{ fontSize: 16 }} /></IconButton>
+                      <Button size="small" variant="outlined" onClick={() => handleResetPassword(u)}>Reset</Button>
                     </Stack>
                   </TableCell>
                 </TableRow>
@@ -118,6 +131,23 @@ function CompactUsers() {
           </Stack>
         </Box>
       </Popover>
+
+      <Dialog open={resetDialog} onClose={() => setResetDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Temporary Password</DialogTitle>
+        <DialogContent>
+          {tempPassword ? (
+            <>
+              <Typography sx={{ mb: 1 }}>Provide this temporary password to the user. They will be required to change it on first login.</Typography>
+              <TextField value={tempPassword} fullWidth InputProps={{ readOnly: true }} />
+            </>
+          ) : (
+            <Alert severity="error">Failed to generate a temporary password.</Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetDialog(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
