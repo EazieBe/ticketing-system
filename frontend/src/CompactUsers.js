@@ -26,7 +26,7 @@ function CompactUsers() {
 
   const fetchUsers = async () => {
     try {
-      const response = await api.get('/users/');
+      const response = await api.get('/users/?include_inactive=true');
       setUsers(response || []);
     } catch {
       showError('Failed');
@@ -83,7 +83,7 @@ function CompactUsers() {
                   {visibleColumns.email && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{u.email}</Typography></TableCell>}
                   {visibleColumns.role && <TableCell><Chip label={u.role} size="small" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600 }} /></TableCell>}
                   {visibleColumns.phone && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{u.phone}</Typography></TableCell>}
-                  {visibleColumns.status && <TableCell><Chip label={u.active ? 'Active' : 'Inactive'} size="small" color={u.active ? 'success' : 'default'} sx={{ height: 18, fontSize: '0.65rem' }} /></TableCell>}
+                  {visibleColumns.status && <TableCell><Chip label={u.active ? 'Active' : 'Inactive'} size="small" color={u.active ? 'success' : 'default'} sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600 }} /></TableCell>}
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Stack direction="row" spacing={0.5}>
                       <IconButton size="small" sx={{ p: 0.3 }}><Visibility sx={{ fontSize: 16 }} /></IconButton>

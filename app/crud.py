@@ -37,12 +37,12 @@ def get_user_by_email(db: Session, email: str):
     """Get user by email with optimized query"""
     return db.query(models.User).filter(models.User.email.ilike(email)).first()
 
-def get_users(db: Session, skip: int = 0, limit: int = 100, include_inactive: bool = False):
-    """Get users with pagination and optional filtering"""
+def get_users(db: Session, skip: int = 0, limit: int = 100, include_inactive: bool = True):
+    """Get users with pagination; default includes inactive"""
     query = db.query(models.User)
     if not include_inactive:
         query = query.filter(models.User.active == True)
-    return query.offset(skip).limit(limit).all()
+    return query.order_by(models.User.name.asc()).offset(skip).limit(limit).all()
 
 def update_user(db: Session, user_id: str, user):
     """Update user - accepts both UserCreate and AdminUserCreate schemas"""

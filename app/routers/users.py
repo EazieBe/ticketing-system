@@ -80,15 +80,16 @@ def list_users(
     skip: int = 0, 
     limit: int = 100,
     email: str = None,
+    include_inactive: bool = True,
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(require_role([models.UserRole.admin.value]))
 ):
-    """List all users with pagination and optional email filter (admin only)"""
+    """List all users with pagination and optional email filter (admin only); shows inactive by default"""
     # If email filter is provided, return matching user
     if email:
         user = crud.get_user_by_email(db, email=email)
         return [user] if user else []
-    return crud.get_users(db, skip=skip, limit=limit)
+    return crud.get_users(db, skip=skip, limit=limit, include_inactive=include_inactive)
 
 @router.put("/{user_id}", response_model=schemas.UserOut)
 def update_user(
