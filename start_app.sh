@@ -130,7 +130,13 @@ pip install -r requirements.txt >/dev/null 2>&1 || print_warning "Could not inst
 # Start backend server
 print_status "Starting backend server on port 8000..."
 cd backend
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload >/dev/null 2>&1 &
+# Use workers in production; default 2. Set ENV=dev to enable reload instead.
+if [ "$ENV" = "dev" ]; then
+  uvicorn main:app --host 0.0.0.0 --port 8000 --reload >/dev/null 2>&1 &
+else
+  WORKERS=${BACKEND_WORKERS:-2}
+  uvicorn main:app --host 0.0.0.0 --port 8000 --workers $WORKERS >/dev/null 2>&1 &
+fi
 BACKEND_PID=$!
 cd ..
 

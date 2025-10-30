@@ -1,6 +1,7 @@
 import logging
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, WebSocket, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict
@@ -15,9 +16,10 @@ from redis.asyncio import Redis
 import jwt
 from contextlib import asynccontextmanager
 
-models, schemas, crud
+import models, schemas, crud
 from database import SessionLocal, engine, get_db
 from utils.main_utils import *
+from settings import settings
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
@@ -34,7 +36,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     global redis_client
     try:
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        redis_url = settings.REDIS_URL
         redis_client = await Redis.from_url(redis_url, decode_responses=True)
         await redis_client.ping()
         logger.info("Connected to async Redis for WebSocket broadcasting")
@@ -54,10 +56,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# Middlewares
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://192.168.43.50:3000"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,6 +83,8 @@ app.include_router(logging.router)
 app.include_router(search.router)
 
 # Import authentication from auth module
+# Ensure SECRET_KEY present from settings
+os.environ.setdefault("SECRET_KEY", settings.SECRET_KEY)
 from utils.auth import get_current_user, require_role, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 # Override _enqueue_broadcast with redis_client access
