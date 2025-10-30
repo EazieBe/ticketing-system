@@ -202,7 +202,7 @@ export const AuthProvider = ({ children }) => {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       });
-      const { access_token, refresh_token, expires_in, must_change_password } = response.data;
+      const { access_token, refresh_token, expires_in, must_change_password, user: userFromLogin } = response.data;
       
       // Set tokens in sessionStorage FIRST before any API calls
       sessionStorage.setItem('access_token', access_token);
@@ -215,13 +215,15 @@ export const AuthProvider = ({ children }) => {
       // Update axios default headers
       api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
-      const decoded = JSON.parse(atob(access_token.split('.')[1]));
-      const user_id = decoded.sub;
-      
-      // Now fetch user data with the token already set
-      const userResponse = await api.get(`/users/${user_id}`);
-      const userData = userResponse.data;
-      setUser(userData);
+      // If backend returned user, use it to avoid an immediate extra request
+      if (userFromLogin && userFromLogin.user_id) {
+        setUser(userFromLogin);
+      } else {
+        const decoded = JSON.parse(atob(access_token.split('.')[1]));
+        const user_id = decoded.sub;
+        const userResponse = await api.get(`/users/${user_id}`);
+        setUser(userResponse.data);
+      }
       
       // Schedule token refresh
       const refreshTime = (expires_in - 300) * 1000;
@@ -231,15 +233,18 @@ export const AuthProvider = ({ children }) => {
       refreshTimeoutRef.current = setTimeout(refreshAccessToken, refreshTime);
       
       // Load user preferences
-      const userDarkMode = localStorage.getItem(`darkMode_${userData.user_id}`);
-      if (userDarkMode !== null) {
-        setDarkMode(JSON.parse(userDarkMode));
-      } else {
-        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        setDarkMode(systemPrefersDark);
+      const finalUser = userFromLogin || (user && user.user_id ? user : null);
+      if (finalUser) {
+        const userDarkMode = localStorage.getItem(`darkMode_${finalUser.user_id}`);
+        if (userDarkMode !== null) {
+          setDarkMode(JSON.parse(userDarkMode));
+        } else {
+          const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          setDarkMode(systemPrefersDark);
+        }
       }
       
-      return { success: true, mustChangePassword: must_change_password, userId: user_id };
+      return { success: true, mustChangePassword: must_change_password, userId: (userFromLogin && userFromLogin.user_id) || null };
     } catch (error) {
       console.error('Login error:', error);
       return { success: false, error: error.response?.data?.detail || 'Login failed' };

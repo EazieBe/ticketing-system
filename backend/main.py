@@ -156,7 +156,16 @@ def login_json(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
         "refresh_token": refresh_token,
         "token_type": "bearer",
         "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        "must_change_password": user.must_change_password
+        "must_change_password": user.must_change_password,
+        "user": {
+            "user_id": user.user_id,
+            "name": user.name,
+            "email": user.email,
+            "role": getattr(user.role, 'value', user.role),
+            "phone": user.phone,
+            "preferences": user.preferences,
+            "active": user.active
+        }
     }
 
 @app.post("/refresh")
