@@ -85,5 +85,10 @@ def audit_log(db: Session, user_id: str, field: str, old_value: str, new_value: 
 
 def _enqueue_broadcast(background_tasks, message: str):
     """Enqueue a WebSocket broadcast message"""
-    # This will be overridden in main.py with access to redis_client
-    pass
+    # Defer import to avoid circular dependency; delegate to app-level helper
+    try:
+        from main import _enqueue_broadcast as app_enqueue_broadcast  # type: ignore
+        app_enqueue_broadcast(background_tasks, message)
+    except Exception:
+        # If import fails (e.g., during scripts/tools), safely no-op
+        return
