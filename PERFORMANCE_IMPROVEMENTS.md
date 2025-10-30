@@ -185,10 +185,10 @@ The system is now production-ready with:
 ## 📁 Files Modified
 
 ### Backend
-- `app/crud.py` - Added bulk operations and audit helpers
-- `app/routers/shipments.py` - Optimized all endpoints
-- `app/main.py` - Enhanced WebSocket broadcasting
-- `app/schemas.py` - Updated data models
+- `backend/crud.py` - Added bulk operations and audit helpers
+- `backend/routers/shipments.py` - Optimized all endpoints
+- `backend/main.py` - Enhanced WebSocket broadcasting
+- `backend/schemas.py` - Updated data models
 - `add_performance_indexes.sql` - Database performance indexes
 
 ### Frontend

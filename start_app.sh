@@ -129,7 +129,7 @@ pip install -r requirements.txt >/dev/null 2>&1 || print_warning "Could not inst
 
 # Start backend server
 print_status "Starting backend server on port 8000..."
-cd app
+cd backend
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload >/dev/null 2>&1 &
 BACKEND_PID=$!
 cd ..

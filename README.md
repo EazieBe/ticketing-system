@@ -49,7 +49,7 @@ If you prefer to start services manually:
 
 #### Backend
 ```bash
-cd app
+cd backend
 source ../venv/bin/activate
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -80,12 +80,12 @@ npx serve -s build -l 3000 --single
 - Local dev server command: `npx serve -s build -l 3000 --single`
 
 ### Backend (FastAPI)
-- Entry point: `app/main.py`
-- Routers: `app/routers/*.py` (tickets, sites, users, shipments, inventory, fieldtechs, tasks, sla, audit, search)
-- Schemas: `app/schemas.py`
-- Models: `app/models.py`
-- CRUD: `app/crud.py`
-- Auth utils: `app/utils/auth.py`
+- Entry point: `backend/main.py`
+- Routers: `backend/routers/*.py` (tickets, sites, users, shipments, inventory, fieldtechs, tasks, sla, audit, search)
+- Schemas: `backend/schemas.py`
+- Models: `backend/models.py`
+- CRUD: `backend/crud.py`
+- Auth utils: `backend/utils/auth.py`
 
 ### WebSocket
 - Endpoint: `ws://<backend-host>:8000/ws/updates?token=<JWT>`
@@ -157,7 +157,7 @@ npm run build
 ### Backend Issues
 If the backend won't start:
 ```bash
-cd app
+cd backend
 source ../venv/bin/activate
 pip install -r ../requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
@@ -177,7 +177,7 @@ sudo systemctl start postgresql
 
 ### Backend Development
 ```bash
-cd app
+cd backend
 source ../venv/bin/activate
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -215,5 +215,5 @@ For issues or questions, check the logs:
 sudo journalctl -u ticketing-system -f
 
 # Application logs
-tail -f app/logs/app.log
+tail -f backend/logs/app.log
 ``` 
