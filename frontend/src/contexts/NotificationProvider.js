@@ -8,7 +8,15 @@ const NotificationContext = createContext();
 export function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [wsUrl, setWsUrl] = useState(getWebSocketFullUrl());
+  const getWsUrlIfToken = () => {
+    try {
+      const token = sessionStorage.getItem('access_token');
+      return token ? getWebSocketFullUrl() : null;
+    } catch {
+      return null;
+    }
+  };
+  const [wsUrl, setWsUrl] = useState(getWsUrlIfToken());
   const { triggerRefresh } = useDataSync();
   const lastTriggerAtRef = useRef({}); // debounce per message type
   const GLOBAL_DEBOUNCE_MS = 400;
@@ -16,7 +24,7 @@ export function NotificationProvider({ children }) {
   // Update WebSocket URL when token changes
   useEffect(() => {
     const handleStorageChange = () => {
-      const newWsUrl = getWebSocketFullUrl();
+      const newWsUrl = getWsUrlIfToken();
       if (newWsUrl !== wsUrl) {
         console.log('WebSocket URL changed due to token update, reconnecting...');
         setWsUrl(newWsUrl);
@@ -28,7 +36,7 @@ export function NotificationProvider({ children }) {
     
     // Also check periodically in case of same-tab token refresh (less frequently)
     const interval = setInterval(() => {
-      const newWsUrl = getWebSocketFullUrl();
+      const newWsUrl = getWsUrlIfToken();
       if (newWsUrl !== wsUrl) {
         console.log('WebSocket URL changed due to token refresh, reconnecting...');
         setWsUrl(newWsUrl);
