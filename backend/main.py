@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, WebSocket, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -9,36 +10,42 @@ import string
 import os
 import json
 import asyncio
-import redis
+import os
+from redis.asyncio import Redis
 import jwt
 from contextlib import asynccontextmanager
 
-import models, schemas, crud
+models, schemas, crud
 from database import SessionLocal, engine, get_db
 from utils.main_utils import *
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
 
-# Redis connection for WebSocket broadcasting
-redis_client = None
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("ticketing")
+
+# Redis connection for WebSocket broadcasting (async client)
+redis_client: Redis | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     global redis_client
     try:
-        redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
-        redis_client.ping()
-        print("Connected to Redis for WebSocket broadcasting")
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        redis_client = await Redis.from_url(redis_url, decode_responses=True)
+        await redis_client.ping()
+        logger.info("Connected to async Redis for WebSocket broadcasting")
     except Exception as e:
-        print(f"Redis connection failed: {e}. WebSocket broadcasting will be disabled.")
+        logger.warning(f"Async Redis connection failed: {e}. WebSocket broadcasting will be disabled.")
         redis_client = None
     
     yield
     
     if redis_client:
-        redis_client.close()
+        await redis_client.aclose()
 
 app = FastAPI(
     title="Ticketing System API",
@@ -87,23 +94,27 @@ def _enqueue_broadcast(background_tasks: BackgroundTasks, message: str):
             asyncio.create_task(broadcast_message(message))
         except RuntimeError:
             # No event loop running, skip broadcast
-            print(f"No background tasks available, skipping broadcast: {message}")
+            logger.warning(f"No background tasks available, skipping broadcast: {message}")
 
 async def broadcast_message(message: str):
     """Broadcast a message to all WebSocket connections"""
-    print(f"Broadcasting message: {message}")
+    logger.info(f"Broadcasting message: {message}")
     if redis_client:
         try:
-            redis_client.publish("websocket_updates", message)
-            print("Message published to Redis")
+            await redis_client.publish("websocket_updates", message)
+            logger.info("Message published to Redis")
         except Exception as e:
-            print(f"Redis publish failed: {e}")
+            logger.warning(f"Redis publish failed: {e}")
             # Fallback to direct broadcast
             await manager.broadcast(message)
     else:
         # Direct broadcast when Redis is not available
-        print("Using direct broadcast (no Redis)")
+        logger.info("Using direct broadcast (no Redis)")
         await manager.broadcast(message)
+
+# Dependency injection for Redis client
+async def get_redis() -> Redis | None:
+    return redis_client
 
 # Authentication endpoints
 @app.post("/token")
@@ -168,12 +179,15 @@ def login_json(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
         }
     }
 
+from pydantic import BaseModel
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
 @app.post("/refresh")
-def refresh_token(refresh_data: dict, db: Session = Depends(get_db)):
+def refresh_token(refresh_data: RefreshRequest, db: Session = Depends(get_db)):
     """Refresh access token"""
-    refresh_token = refresh_data.get("refresh_token")
-    if not refresh_token:
-        raise HTTPException(status_code=400, detail="Refresh token required")
+    refresh_token = refresh_data.refresh_token
     
     try:
         # Decode the refresh token to get the user_id
@@ -225,7 +239,7 @@ class ConnectionManager:
         await websocket.accept()
         self.active_connections.append(websocket)
         self.user_connections[user_id] = websocket
-        print(f"WebSocket connected for user: {user_id}")
+        logger.info(f"WebSocket connected for user: {user_id}")
 
     def disconnect(self, websocket: WebSocket, user_id: str = None):
         if websocket in self.active_connections:
@@ -285,66 +299,78 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"WebSocket connection established for user: {user_id}")
         
         # If Redis is available, subscribe to updates
+        pubsub = None
         if redis_client:
             try:
                 pubsub = redis_client.pubsub()
-                pubsub.subscribe("websocket_updates")
-                print("Subscribed to Redis websocket_updates channel")
-                
-                # Handle both Redis messages and client pings
-                while True:
-                    try:
-                        # Check for Redis messages (non-blocking)
-                        message = pubsub.get_message(timeout=0.5)
-                        if message and message['type'] == 'message':
-                            # Broadcast Redis message to this client
-                            await websocket.send_text(message['data'])
-                        
-                        # Check for client messages (with timeout)
+                await pubsub.subscribe("websocket_updates")
+                logger.info("Subscribed to Redis websocket_updates channel")
+
+                async def pubsub_listener():
+                    async for message in pubsub.listen():
+                        if message and message.get("type") == "message":
+                            await websocket.send_text(message.get("data"))
+
+                async def ws_receiver():
+                    while True:
                         try:
-                            data = await asyncio.wait_for(websocket.receive_text(), timeout=0.5)
-                            # Echo back pings
+                            data = await websocket.receive_text()
                             if data:
-                                parsed_data = json.loads(data)
-                                if parsed_data.get('type') == 'ping':
-                                    await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
-                        except asyncio.TimeoutError:
-                            # No client message, continue loop
-                            pass
-                        except json.JSONDecodeError:
-                            # Invalid JSON, ignore
-                            pass
-                            
-                        # Reduce CPU usage with longer sleep
-                        await asyncio.sleep(0.5)
-                        
-                    except Exception as e:
-                        print(f"WebSocket loop error: {e}")
-                        break
+                                try:
+                                    parsed_data = json.loads(data)
+                                    if parsed_data.get('type') == 'ping':
+                                        await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
+                                except json.JSONDecodeError:
+                                    pass
+                        except Exception:
+                            # Break on disconnect
+                            break
+
+                await asyncio.gather(pubsub_listener(), ws_receiver(), return_exceptions=True)
             except Exception as e:
-                print(f"Redis subscription failed: {e}")
-                # Fall back to simple keepalive
-                while True:
-                    try:
-                        data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
-                        await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
-                    except asyncio.TimeoutError:
+                logger.warning(f"Redis subscription failed: {e}")
+                # Fall back to simple keepalive + receiver
+                async def keepalive():
+                    while True:
+                        await asyncio.sleep(60)
                         await websocket.send_text(json.dumps({"type": "ping", "timestamp": datetime.now(timezone.utc).isoformat()}))
+
+                async def ws_receiver():
+                    while True:
+                        try:
+                            data = await websocket.receive_text()
+                            await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
+                        except Exception:
+                            break
+
+                await asyncio.gather(keepalive(), ws_receiver(), return_exceptions=True)
         else:
             # Fallback without Redis - just keepalive
-            print("No Redis available, using simple keepalive")
-            while True:
-                try:
-                    data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
-                    # Echo back for now
-                    await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
-                except asyncio.TimeoutError:
-                    # Send ping to keep connection alive
+            logger.info("No Redis available, using simple keepalive")
+            async def keepalive():
+                while True:
+                    await asyncio.sleep(60)
                     await websocket.send_text(json.dumps({"type": "ping", "timestamp": datetime.now(timezone.utc).isoformat()}))
+
+            async def ws_receiver():
+                while True:
+                    try:
+                        data = await websocket.receive_text()
+                        await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
+                    except Exception:
+                        break
+
+            await asyncio.gather(keepalive(), ws_receiver(), return_exceptions=True)
                     
     except Exception as e:
-        print(f"WebSocket disconnected for user {user_id}: {e}")
+        logger.info(f"WebSocket disconnected for user {user_id}: {e}")
     finally:
+        try:
+            if redis_client and pubsub:
+                await pubsub.unsubscribe("websocket_updates")
+                await pubsub.close()
+        except Exception:
+            pass
         manager.disconnect(websocket, user_id)
 
 # Health check
