@@ -97,7 +97,11 @@ export function useDataSync(dataType = 'all') {
 
   // Return the trigger count for the specific data type or 'all'
   return {
-    updateTrigger: context.updateTriggers[dataType] || context.updateTriggers.all,
+    // Only use the specific trigger; do NOT fall back to 'all' when it's 0,
+    // to avoid unrelated pages refreshing on every global update.
+    updateTrigger: (context.updateTriggers[dataType] !== undefined)
+      ? context.updateTriggers[dataType]
+      : context.updateTriggers.all,
     triggerRefresh: context.triggerRefresh,
     allTriggers: context.updateTriggers
   };

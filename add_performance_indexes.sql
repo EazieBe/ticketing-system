@@ -30,6 +30,9 @@ CREATE INDEX IF NOT EXISTS idx_ticket_audits_user_id ON ticket_audits(user_id);
 CREATE INDEX IF NOT EXISTS idx_ticket_audits_change_time ON ticket_audits(change_time);
 CREATE INDEX IF NOT EXISTS idx_ticket_audits_field_changed ON ticket_audits(field_changed);
 
+-- Users email case-insensitive lookup
+CREATE INDEX IF NOT EXISTS idx_users_lower_email ON users (lower(email));
+
 -- Composite indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_shipments_site_status ON shipments(site_id, status);
 CREATE INDEX IF NOT EXISTS idx_shipments_ticket_status ON shipments(ticket_id, status);

@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import and_, or_, desc, asc, case, update
+from sqlalchemy import and_, or_, desc, asc, case, update, func
 import models, schemas
 import uuid
 from datetime import date, datetime, timezone
@@ -34,8 +34,10 @@ def get_user(db: Session, user_id: str):
     return db.query(models.User).filter(models.User.user_id == user_id).first()
 
 def get_user_by_email(db: Session, email: str):
-    """Get user by email with optimized query"""
-    return db.query(models.User).filter(models.User.email.ilike(email)).first()
+    """Get user by email using case-insensitive match with functional index support"""
+    if not email:
+        return None
+    return db.query(models.User).filter(func.lower(models.User.email) == email.lower()).first()
 
 def get_users(db: Session, skip: int = 0, limit: int = 100, include_inactive: bool = True):
     """Get users with pagination; default includes inactive"""
