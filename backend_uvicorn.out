@@ -1,0 +1,86 @@
+INFO:     Started server process [412955]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     ('192.168.43.161', 53908) - "WebSocket /ws/updates?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYzI4MzQ0Yi01NTkxLTQwZWUtYWE1Zi1lNzE0ZWVhNjY1YmUiLCJleHAiOjE3NjE4NDY3ODh9.9-oe0lkwrDqkYaK5JvDZyA1UnFh3ig2vlsd7US6zJvs" [accepted]
+INFO:     connection open
+INFO:     ('192.168.43.161', 49816) - "WebSocket /ws/updates?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMTM4Y2E3MC0wY2NiLTQxNWQtODdmYS00ZmI1ZDNmNzc3ZjgiLCJleHAiOjE3NjE4NDY5NjB9.pCTVwloEr7zSsxqp4VjAR3HhCwckNq2554M7L8hoiTM" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     ('192.168.43.161', 55315) - "WebSocket /ws/updates?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYzI4MzQ0Yi01NTkxLTQwZWUtYWE1Zi1lNzE0ZWVhNjY1YmUiLCJleHAiOjE3NjE4NDY3ODh9.9-oe0lkwrDqkYaK5JvDZyA1UnFh3ig2vlsd7US6zJvs" [accepted]
+INFO:     connection open
+Connected to Redis for WebSocket broadcasting
+WebSocket connected for user: 1c28344b-5591-40ee-aa5f-e714eea665be
+WebSocket connection established for user: 1c28344b-5591-40ee-aa5f-e714eea665be
+Subscribed to Redis websocket_updates channel
+WebSocket connected for user: e138ca70-0ccb-415d-87fa-4fb5d3f777f8
+WebSocket connection established for user: e138ca70-0ccb-415d-87fa-4fb5d3f777f8
+Subscribed to Redis websocket_updates channel
+WebSocket connected for user: 1c28344b-5591-40ee-aa5f-e714eea665be
+WebSocket connection established for user: 1c28344b-5591-40ee-aa5f-e714eea665be
+Subscribed to Redis websocket_updates channel
+INFO:     192.168.43.161:60940 - "GET /users/1c28344b-5591-40ee-aa5f-e714eea665be HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60940 - "GET /shipments/?include_archived=false HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60944 - "OPTIONS /users/e138ca70-0ccb-415d-87fa-4fb5d3f777f8 HTTP/1.1" 200 OK
+INFO:     ('192.168.43.161', 60945) - "WebSocket /ws/updates?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMTM4Y2E3MC0wY2NiLTQxNWQtODdmYS00ZmI1ZDNmNzc3ZjgiLCJleHAiOjE3NjE4NDY5NjB9.pCTVwloEr7zSsxqp4VjAR3HhCwckNq2554M7L8hoiTM" [accepted]
+INFO:     connection open
+INFO:     connection closed
+WebSocket connected for user: e138ca70-0ccb-415d-87fa-4fb5d3f777f8
+WebSocket connection established for user: e138ca70-0ccb-415d-87fa-4fb5d3f777f8
+Subscribed to Redis websocket_updates channel
+INFO:     192.168.43.161:60944 - "GET /users/e138ca70-0ccb-415d-87fa-4fb5d3f777f8 HTTP/1.1" 200 OK
+INFO:     192.168.43.161:54421 - "OPTIONS /login HTTP/1.1" 200 OK
+INFO:     192.168.43.161:61634 - "GET /shipments/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60368 - "GET /inventory/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:54412 - "GET /tasks/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60949 - "GET /users/e138ca70-0ccb-415d-87fa-4fb5d3f777f8 HTTP/1.1" 200 OK
+INFO:     192.168.43.161:59039 - "GET /tickets/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:54421 - "POST /login HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60949 - "POST /login HTTP/1.1" 200 OK
+INFO:     192.168.43.161:54421 - "GET /users/e138ca70-0ccb-415d-87fa-4fb5d3f777f8 HTTP/1.1" 200 OK
+INFO:     192.168.43.161:54421 - "OPTIONS /tickets/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:49289 - "OPTIONS /shipments/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:49290 - "OPTIONS /tasks/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:49291 - "OPTIONS /inventory/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:49295 - "OPTIONS /shipments/?include_archived=false HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60949 - "GET /users/e138ca70-0ccb-415d-87fa-4fb5d3f777f8 HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60949 - "OPTIONS /tickets/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60949 - "OPTIONS /shipments/ HTTP/1.1" 200 OK
+INFO:     ('192.168.43.161', 51803) - "WebSocket /ws/updates?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMTM4Y2E3MC0wY2NiLTQxNWQtODdmYS00ZmI1ZDNmNzc3ZjgiLCJleHAiOjE3NjE4NDcwOTR9.8vHD4GNh8fUT_IiiPT_irJsjwBDtQ08ce1jslwkwKUg" [accepted]
+INFO:     connection open
+WebSocket connected for user: e138ca70-0ccb-415d-87fa-4fb5d3f777f8
+WebSocket connection established for user: e138ca70-0ccb-415d-87fa-4fb5d3f777f8
+Subscribed to Redis websocket_updates channel
+INFO:     192.168.43.161:49289 - "GET /shipments/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:49290 - "GET /tasks/ HTTP/1.1" 200 OK
+INFO:     connection closed
+WebSocket loop error: (1001, '')
+WebSocket disconnected for user: e138ca70-0ccb-415d-87fa-4fb5d3f777f8
+INFO:     192.168.43.161:49291 - "GET /inventory/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:49290 - "OPTIONS /tasks/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:49291 - "OPTIONS /inventory/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:51799 - "GET /shipments/?include_archived=false HTTP/1.1" 200 OK
+INFO:     192.168.43.161:54421 - "GET /tickets/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:49295 - "GET /shipments/?include_archived=false HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60949 - "GET /tickets/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:49289 - "GET /shipments/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:49291 - "GET /tasks/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:54421 - "GET /inventory/ HTTP/1.1" 200 OK
+INFO:     192.168.43.161:51823 - "OPTIONS /shipments/?include_archived=false HTTP/1.1" 200 OK
+INFO:     192.168.43.161:51823 - "GET /shipments/?include_archived=false HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60460 - "OPTIONS /shipments/SHIP-000022 HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60460 - "DELETE /shipments/SHIP-000022 HTTP/1.1" 200 OK
+Broadcasting message: {"type":"shipment","action":"delete","shipment_id":"SHIP-000022"}
+Message published to Redis
+WebSocket loop error: 
+WebSocket disconnected for user: 1c28344b-5591-40ee-aa5f-e714eea665be
+WebSocket loop error: 
+WebSocket disconnected for user: e138ca70-0ccb-415d-87fa-4fb5d3f777f8
+INFO:     192.168.43.161:60462 - "GET /shipments/?include_archived=false HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60460 - "GET /shipments/?include_archived=false HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60460 - "OPTIONS /shipments/SHIP-000021 HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60460 - "DELETE /shipments/SHIP-000021 HTTP/1.1" 200 OK
+Broadcasting message: {"type":"shipment","action":"delete","shipment_id":"SHIP-000021"}
+Message published to Redis
+INFO:     192.168.43.161:60470 - "GET /shipments/?include_archived=false HTTP/1.1" 200 OK
+INFO:     192.168.43.161:60460 - "GET /shipments/?include_archived=false HTTP/1.1" 200 OK
