@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -18,6 +18,7 @@ function CompactUsers() {
   const [columnAnchor, setColumnAnchor] = useState(null);
   const [resetDialog, setResetDialog] = useState(false);
   const [tempPassword, setTempPassword] = useState('');
+  const apiRef = React.useRef(api);
   const [visibleColumns, setVisibleColumns] = useState({
     name: true,
     email: true,
@@ -26,9 +27,14 @@ function CompactUsers() {
     status: true
   });
 
+  // Keep API ref current
+  React.useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
+
   const fetchUsers = async () => {
     try {
-      const response = await api.get('/users/?include_inactive=true');
+      const response = await apiRef.current.get('/users/?include_inactive=true');
       setUsers(response || []);
     } catch {
       showError('Failed');
@@ -51,6 +57,16 @@ function CompactUsers() {
       setResetDialog(true);
     } catch (e) {
       showError('Failed to reset password');
+    }
+  };
+
+  const handleDeleteUser = async (u) => {
+    if (!window.confirm(`Delete user ${u.email}?`)) return;
+    try {
+      await api.delete(`/users/${u.user_id}`);
+      setUsers(prev => prev.filter(x => x.user_id !== u.user_id));
+    } catch (e) {
+      showError('Failed to delete user');
     }
   };
 
@@ -101,6 +117,7 @@ function CompactUsers() {
                       <IconButton size="small" sx={{ p: 0.3 }}><Visibility sx={{ fontSize: 16 }} /></IconButton>
                       <IconButton size="small" sx={{ p: 0.3 }} onClick={() => navigate(`/users/${u.user_id}/edit`)}><Edit sx={{ fontSize: 16 }} /></IconButton>
                       <Button size="small" variant="outlined" onClick={() => handleResetPassword(u)}>Reset</Button>
+                      
                     </Stack>
                   </TableCell>
                 </TableRow>

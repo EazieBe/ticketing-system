@@ -67,6 +67,7 @@ class Site(Base):
     state = Column(String)
     zip = Column(String)
     region = Column(String)
+    timezone = Column(String)
     notes = Column(Text)
     # Equipment fields
     equipment_notes = Column(Text)
@@ -107,6 +108,7 @@ class TicketStatus(enum.Enum):
     completed = 'completed'
     closed = 'closed'
     approved = 'approved'  # Final approval - moves to history
+    archived = 'archived'  # Archived after approval - hidden from main lists
 
 class TicketPriority(enum.Enum):
     normal = 'normal'
@@ -239,11 +241,28 @@ class Shipment(Base):
     parts_cost = Column(Float, default=0.0)  # Cost of parts being shipped
     total_cost = Column(Float, default=0.0)  # Total cost including shipping
     status = Column(String, default='pending')  # pending, shipped, delivered, returned
+    quantity = Column(Integer, default=1)  # Quantity shipped
+    archived = Column(Boolean, default=False)  # Hide from daily/global lists when true
     remove_from_inventory = Column(Boolean, default=False)  # Whether to remove item from inventory
     site = relationship('Site', back_populates='shipments')
     ticket = relationship('Ticket', back_populates='shipments')
     item = relationship('InventoryItem', back_populates='shipments')
-    inventory_transactions = relationship('InventoryTransaction', back_populates='shipment')
+    shipment_items = relationship('ShipmentItem', back_populates='shipment', cascade='all, delete-orphan')
+
+class ShipmentItem(Base):
+    __tablename__ = 'shipment_items'
+    shipment_item_id = Column(String, primary_key=True, index=True)
+    shipment_id = Column(String, ForeignKey('shipments.shipment_id'), nullable=False)
+    item_id = Column(String, ForeignKey('inventory_items.item_id'), nullable=False)
+    quantity = Column(Integer, default=1)
+    what_is_being_shipped = Column(String, nullable=False)
+    remove_from_inventory = Column(Boolean, default=True)
+    notes = Column(Text)
+    date_created = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    shipment = relationship('Shipment', back_populates='shipment_items')
+    item = relationship('InventoryItem')
+    inventory_transactions = relationship('InventoryTransaction', back_populates='shipment_item')
 
 class InventoryItem(Base):
     __tablename__ = 'inventory_items'
@@ -268,7 +287,7 @@ class InventoryTransaction(Base):
     transaction_id = Column(String, primary_key=True, index=True)
     item_id = Column(String, ForeignKey('inventory_items.item_id'))
     user_id = Column(String, ForeignKey('users.user_id'))
-    shipment_id = Column(String, ForeignKey('shipments.shipment_id'))
+    shipment_item_id = Column(String, ForeignKey('shipment_items.shipment_item_id'))
     ticket_id = Column(String, ForeignKey('tickets.ticket_id'))
     date = Column(Date)
     quantity = Column(Integer)
@@ -276,7 +295,7 @@ class InventoryTransaction(Base):
     notes = Column(Text)
     item = relationship('InventoryItem', back_populates='inventory_transactions')
     user = relationship('User', back_populates='inventory_transactions')
-    shipment = relationship('Shipment', back_populates='inventory_transactions')
+    shipment_item = relationship('ShipmentItem', back_populates='inventory_transactions')
     ticket = relationship('Ticket', back_populates='inventory_transactions')
 
 class TaskStatus(enum.Enum):

@@ -75,6 +75,7 @@ class SiteBase(BaseModel):
     state: Optional[str] = None
     zip: Optional[str] = None
     region: Optional[str] = None
+    timezone: Optional[str] = None
     notes: Optional[str] = None
     # Equipment fields
     equipment_notes: Optional[str] = None
@@ -120,6 +121,7 @@ class TicketStatus(str, enum.Enum):
     completed = 'completed'
     closed = 'closed'
     approved = 'approved'  # Final approval - moves to history
+    archived = 'archived'  # Archived after approval - hidden from main lists
 
 class TicketPriority(str, enum.Enum):
     normal = 'normal'
@@ -280,6 +282,7 @@ class TicketOut(TicketBase):
     created_at: Optional[datetime] = None  # Timestamp when ticket was created
     site: Optional['SiteOut'] = None
     assigned_user: Optional['UserOut'] = None
+    claimed_user: Optional['UserOut'] = None
     onsite_tech: Optional['FieldTechOut'] = None
     
     model_config = ConfigDict(from_attributes=True)
@@ -318,19 +321,70 @@ class ShipmentBase(BaseModel):
     parts_cost: Optional[float] = 0.0
     total_cost: Optional[float] = 0.0
     status: Optional[str] = 'pending'
+    quantity: Optional[int] = 1
+    archived: Optional[bool] = False
     remove_from_inventory: Optional[bool] = False
 
 class ShipmentCreate(ShipmentBase):
     pass
 
+class ShipmentWithItemsCreate(BaseModel):
+    site_id: str
+    ticket_id: Optional[str] = None
+    what_is_being_shipped: str
+    shipping_preference: Optional[str] = None
+    charges_out: Optional[float] = None
+    charges_in: Optional[float] = None
+    tracking_number: Optional[str] = None
+    return_tracking: Optional[str] = None
+    date_shipped: Optional[datetime] = None
+    date_returned: Optional[date] = None
+    notes: Optional[str] = None
+    source_ticket_type: Optional[str] = None
+    shipping_priority: Optional[str] = 'normal'
+    parts_cost: Optional[float] = 0
+    total_cost: Optional[float] = 0
+    status: Optional[str] = 'pending'
+    quantity: Optional[int] = 1
+    archived: Optional[bool] = False
+    remove_from_inventory: Optional[bool] = False
+    # Multiple items support
+    items: List['ShipmentItemCreate'] = []
+
 class ShipmentOut(ShipmentBase):
     shipment_id: str
     date_created: Optional[datetime] = None
+    # Include related item when eager-loaded (for backward compatibility)
+    item: Optional['InventoryItemOut'] = None
+    # Include related site when eager-loaded
+    site: Optional['SiteOut'] = None
+    # Include shipment items for multiple items support
+    shipment_items: Optional[List['ShipmentItemOut']] = []
+
+    model_config = ConfigDict(from_attributes=True)
 
 class ShipmentStatusUpdate(BaseModel):
     status: str
     tracking_number: Optional[str] = None
     return_tracking: Optional[str] = None
+    remove_from_inventory: Optional[bool] = None
+
+class ShipmentItemBase(BaseModel):
+    item_id: str
+    quantity: int = 1
+    what_is_being_shipped: str
+    remove_from_inventory: bool = True
+    notes: Optional[str] = None
+
+class ShipmentItemCreate(ShipmentItemBase):
+    pass
+
+class ShipmentItemOut(ShipmentItemBase):
+    shipment_item_id: str
+    date_created: Optional[datetime] = None
+    item: Optional['InventoryItemOut'] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 class InventoryItemBase(BaseModel):
     name: str
@@ -346,6 +400,8 @@ class InventoryItemCreate(InventoryItemBase):
 
 class InventoryItemOut(InventoryItemBase):
     item_id: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 class InventoryTransactionType(str, enum.Enum):
     in_ = 'in'

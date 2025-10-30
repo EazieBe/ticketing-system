@@ -58,7 +58,8 @@ def update_inventory_item(
     item_id: str, 
     data: schemas.InventoryItemCreate, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Update an inventory item"""
     result = crud.update_inventory_item(db, item_id=item_id, item=data)
@@ -71,6 +72,10 @@ def update_inventory_item(
         new_value=str(result.item_id if hasattr(result, 'item_id') else result.id)
     )
     crud.create_ticket_audit(db, audit)
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"inventory","action":"update"}')
+    
     return result
 
 @router.get("/{item_id}/transactions")
@@ -111,11 +116,16 @@ def scan_inventory_item(
 def delete_inventory_item(
     item_id: str, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value, models.UserRole.dispatcher.value])),
+    background_tasks: BackgroundTasks = None
 ):
     """Delete an inventory item"""
     result = crud.delete_inventory_item(db, item_id=item_id)
     if not result:
         raise HTTPException(status_code=404, detail="Inventory item not found")
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"inventory","action":"delete"}')
+    
     return {"success": True, "message": "Inventory item deleted successfully"}
 

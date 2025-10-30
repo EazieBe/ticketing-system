@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import api from '../axiosConfig';
@@ -108,14 +108,14 @@ function useApi() {
     return makeRequest('DELETE', endpoint, null, options);
   }, [makeRequest]);
 
-  return {
+  return useMemo(() => ({
     get,
     post,
     put,
     patch,
     delete: delete_,
     loading,
-  };
+  }), [get, post, put, patch, delete_, loading]);
 }
 
 export default useApi; 

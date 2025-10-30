@@ -167,8 +167,50 @@ function Audit() {
     if (fieldChanged === 'user_delete' || fieldChanged === 'user_create' || fieldChanged === 'user_update') {
       return getUserName(value);
     }
+    if (fieldChanged && fieldChanged.toLowerCase().includes('user')) {
+      return getUserName(value);
+    }
+    // Booleans
+    if (value === true || value === false || value === 'true' || value === 'false') {
+      const b = (value === true || value === 'true');
+      return b ? 'Yes' : 'No';
+    }
+    // ISO timestamps → readable
+    if (typeof value === 'string' && /\d{4}-\d{2}-\d{2}T/.test(value)) {
+      try { return formatDetailedAuditTimestamp(value); } catch {}
+    }
     
     return value;
+  };
+
+  const formatFieldName = (field) => {
+    if (!field) return '-';
+    // Common friendly names
+    const map = {
+      status: 'Status',
+      priority: 'Priority',
+      assigned_user_id: 'Assigned User',
+      claimed_by: 'Claimed By',
+      check_in_time: 'Check-In Time',
+      check_out_time: 'Check-Out Time',
+      onsite_duration_minutes: 'Onsite Duration (min)',
+      user_create: 'User Created',
+      user_update: 'User Updated',
+      user_delete: 'User Deleted',
+    };
+    if (map[field]) return map[field];
+    return field.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
+  const formatSummary = (audit) => {
+    const changeType = getChangeType(audit.old_value, audit.new_value);
+    const field = formatFieldName(audit.field_changed);
+    const actor = getUserName(audit.user_id);
+    if (changeType === 'created') return `${actor} created ${field}`;
+    if (changeType === 'deleted') return `${actor} deleted ${field}`;
+    const oldV = formatValue(audit.old_value, audit.field_changed);
+    const newV = formatValue(audit.new_value, audit.field_changed);
+    return `${actor} changed ${field} from "${oldV}" to "${newV}"`;
   };
 
   const handleExport = () => {
@@ -371,6 +413,7 @@ function Audit() {
                 <TableCell>Change</TableCell>
                 <TableCell>Old Value</TableCell>
                 <TableCell>New Value</TableCell>
+                <TableCell>Summary</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -411,7 +454,7 @@ function Audit() {
                     </TableCell>
                     <TableCell>
                       <Chip 
-                        label={audit.field_changed} 
+                        label={formatFieldName(audit.field_changed)} 
                         size="small" 
                         color={getEntityColor('ticket')}
                       />
@@ -431,6 +474,11 @@ function Audit() {
                     <TableCell>
                       <Typography variant="body2" noWrap sx={{ maxWidth: 150 }}>
                         {formatValue(audit.new_value, audit.field_changed)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 260 }}>
+                        {formatSummary(audit)}
                       </Typography>
                     </TableCell>
                     <TableCell>

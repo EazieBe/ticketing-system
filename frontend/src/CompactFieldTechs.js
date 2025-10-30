@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -16,6 +16,7 @@ function CompactFieldTechs() {
   const [techs, setTechs] = useState([]);
   const [search, setSearch] = useState('');
   const [columnAnchor, setColumnAnchor] = useState(null);
+  const apiRef = React.useRef(api);
   const [visibleColumns, setVisibleColumns] = useState({
     name: true,
     phone: true,
@@ -24,9 +25,14 @@ function CompactFieldTechs() {
     city: true
   });
 
+  // Keep API ref current
+  React.useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
+
   const fetchTechs = async () => {
     try {
-      const response = await api.get('/fieldtechs/');
+      const response = await apiRef.current.get('/fieldtechs/');
       setTechs(response || []);
     } catch {
       showError('Failed');

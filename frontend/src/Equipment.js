@@ -67,7 +67,7 @@ function Equipment() {
 
   // Auto-refresh when DataSync triggers update (no loading spinner)
   useEffect(() => {
-    if (updateTrigger > 0) { // Only refresh on real-time updates, not initial load
+    if (updateTrigger && updateTrigger > 0) { // Only refresh on real-time updates, not initial load
       fetchEquipment(false); // Don't show loading on real-time updates
     }
   }, [updateTrigger]); // Only depend on updateTrigger

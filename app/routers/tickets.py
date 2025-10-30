@@ -10,6 +10,41 @@ from utils.main_utils import _enqueue_broadcast
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
+# Ensure datetime fields are timezone-aware (UTC) before serialization
+def _normalize_ticket_dt(t: models.Ticket):
+    if not t:
+        return t
+    from datetime import timezone as _tz
+    for field in ("created_at", "claimed_at", "check_in_time", "check_out_time", "end_time", "approved_at"):
+        val = getattr(t, field, None)
+        if val is not None and getattr(val, 'tzinfo', None) is None:
+            try:
+                setattr(t, field, val.replace(tzinfo=_tz.utc))
+            except Exception:
+                pass
+    return t
+
+@router.get("/count")
+def tickets_count(
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    assigned_user_id: Optional[str] = None,
+    site_id: Optional[str] = None,
+    ticket_type: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    return {"count": crud.count_tickets(
+        db,
+        status=status,
+        priority=priority,
+        assigned_user_id=assigned_user_id,
+        site_id=site_id,
+        ticket_type=ticket_type,
+        search=search,
+    )}
+
 @router.post("/", response_model=schemas.TicketOut)
 def create_ticket(
     ticket: schemas.TicketCreate, 
@@ -37,7 +72,34 @@ def create_ticket(
     
     if background_tasks:
         _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"create"}')
-    return result
+    return _normalize_ticket_dt(result)
+
+@router.get("/", response_model=List[schemas.TicketOut])
+def list_tickets(
+    skip: int = 0,
+    limit: int = 100,
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    assigned_user_id: Optional[str] = None,
+    site_id: Optional[str] = None,
+    ticket_type: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """List tickets with pagination and filters"""
+    tickets = crud.get_tickets(
+        db,
+        skip=skip,
+        limit=limit,
+        status=status,
+        priority=priority,
+        assigned_user_id=assigned_user_id,
+        site_id=site_id,
+        ticket_type=ticket_type,
+        search=search,
+    )
+    return [_normalize_ticket_dt(t) for t in tickets]
 
 @router.get("/{ticket_id}", response_model=schemas.TicketOut)
 def get_ticket(
@@ -49,31 +111,7 @@ def get_ticket(
     db_ticket = crud.get_ticket(db, ticket_id=ticket_id)
     if not db_ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return db_ticket
-
-@router.get("/", response_model=List[schemas.TicketOut])
-def list_tickets(
-    skip: int = 0,
-    limit: int = 100,
-    status: Optional[str] = None,
-    priority: Optional[str] = None,
-    assigned_user_id: Optional[str] = None,
-    site_id: Optional[str] = None,
-    ticket_type: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    """List tickets with pagination and filters"""
-    return crud.get_tickets(
-        db,
-        skip=skip,
-        limit=limit,
-        status=status,
-        priority=priority,
-        assigned_user_id=assigned_user_id,
-        site_id=site_id,
-        ticket_type=ticket_type,
-    )
+    return _normalize_ticket_dt(db_ticket)
 
 @router.put("/{ticket_id}", response_model=schemas.TicketOut)
 def update_ticket(
@@ -119,7 +157,7 @@ def update_ticket(
     
     if background_tasks:
         _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"update"}')
-    return result
+    return _normalize_ticket_dt(result)
 
 @router.patch("/{ticket_id}/status", response_model=schemas.TicketOut)
 def update_ticket_status(
@@ -163,7 +201,7 @@ def update_ticket_status(
 def approve_ticket(
     ticket_id: str, 
     approve: bool, 
-    background_tasks: BackgroundTasks, 
+    background_tasks: BackgroundTasks = None, 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(require_role([models.UserRole.admin.value, models.UserRole.dispatcher.value]))
 ):
@@ -171,17 +209,21 @@ def approve_ticket(
     ticket = crud.get_ticket(db, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    if _as_ticket_status(ticket.status) != schemas.TicketStatus.closed:
-        raise HTTPException(status_code=400, detail="Ticket is not closed and ready for approval")
+    current = _as_ticket_status(ticket.status)
+    if current not in (schemas.TicketStatus.completed, schemas.TicketStatus.closed):
+        raise HTTPException(status_code=400, detail="Ticket must be completed or closed before approval")
 
+    from datetime import datetime, timezone
     prev_status = _as_ticket_status(ticket.status)
-    ticket.status = (schemas.TicketStatus.approved if approve else schemas.TicketStatus.in_progress).value
+    ticket.status = (schemas.TicketStatus.archived if approve else schemas.TicketStatus.in_progress).value
+    ticket.approved_by = current_user.user_id if approve else None
+    ticket.approved_at = datetime.now(timezone.utc) if approve else None
     db.commit()
     db.refresh(ticket)
     # Audit log
     audit_log(db, current_user.user_id, "approval", prev_status, ticket.status, ticket_id)
     _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"approval"}')
-    return ticket
+    return _normalize_ticket_dt(ticket)
 
 @router.put("/{ticket_id}/claim")
 def claim_ticket(
@@ -201,6 +243,9 @@ def claim_ticket(
     ticket.claimed_by = claim_data.get('claimed_by', current_user.user_id)
     ticket.claimed_at = datetime.now(timezone.utc)
     ticket.assigned_user_id = current_user.user_id  # Auto-assign to claimer
+    # Start timer on claim if not already started
+    if not getattr(ticket, 'start_time', None):
+        ticket.start_time = datetime.now(timezone.utc)
     ticket.status = models.TicketStatus.in_progress.value
     
     db.commit()
@@ -212,7 +257,72 @@ def claim_ticket(
     if background_tasks:
         _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"claimed"}')
     
-    return ticket
+    return _normalize_ticket_dt(ticket)
+
+@router.put("/{ticket_id}/complete")
+def complete_ticket(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Complete a ticket: stop timer and compute time_spent."""
+    ticket = crud.get_ticket(db, ticket_id=ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    # Permissions: admin/dispatcher or assigned/claimer can complete
+    user_role = _as_role(current_user.role)
+    is_admin_or_dispatcher = user_role in (models.UserRole.admin, models.UserRole.dispatcher)
+    is_assigned = ticket.assigned_user_id == current_user.user_id
+    is_claimer = (getattr(ticket, 'claimed_by', None) == current_user.user_id)
+    if not (is_admin_or_dispatcher or is_assigned or is_claimer):
+        raise HTTPException(status_code=403, detail="Not authorized to complete this ticket")
+
+    # Stop timer and compute duration (minutes)
+    from datetime import timezone as _tz
+    now = datetime.now(_tz.utc)
+    ticket.end_time = now
+    start = getattr(ticket, 'start_time', None) or getattr(ticket, 'claimed_at', None) or getattr(ticket, 'check_in_time', None) or getattr(ticket, 'created_at', None)
+    if start is not None:
+        # Ensure both aware
+        if getattr(start, 'tzinfo', None) is None:
+            start = start.replace(tzinfo=_tz.utc)
+        duration = now - start
+        import math
+        seconds = max(0, int(duration.total_seconds()))
+        minutes = max(1, math.ceil(seconds / 60)) if seconds > 0 else 0
+        ticket.time_spent = minutes
+
+    prev_status = ticket.status
+    ticket.status = models.TicketStatus.completed.value
+
+    db.commit()
+    db.refresh(ticket)
+
+    # Create a time entry for billing based on computed duration
+    if ticket.time_spent and ticket.time_spent > 0:
+        try:
+            entry_dict = {
+                'ticket_id': ticket.ticket_id,
+                'user_id': current_user.user_id,
+                'start_time': start,
+                'end_time': now,
+                'duration_minutes': ticket.time_spent,
+                'description': 'Auto: work duration from claim to complete',
+                'is_billable': True,
+            }
+            crud.create_time_entry(db, entry_dict)
+        except Exception:
+            pass
+
+    # Audit log
+    audit_log(db, current_user.user_id, "status", prev_status, ticket.status, ticket_id)
+
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"complete"}')
+
+    return _normalize_ticket_dt(ticket)
 
 @router.put("/{ticket_id}/check-in")
 def check_in_ticket(
@@ -288,7 +398,7 @@ def check_out_ticket(
 def delete_ticket(
     ticket_id: str, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(require_role([models.UserRole.admin.value])), 
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value, models.UserRole.dispatcher.value])), 
     background_tasks: BackgroundTasks = None
 ):
     """Delete a ticket"""

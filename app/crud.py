@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import and_, or_, desc, asc
+from sqlalchemy import and_, or_, desc, asc, case, update
 import models, schemas
 import uuid
 from datetime import date, datetime, timezone
@@ -65,19 +65,76 @@ def update_user(db: Session, user_id: str, user):
     return db_user
 
 def delete_user(db: Session, user_id: str):
-    """Delete user (soft delete by setting active=False)"""
+    """Soft delete user by setting active=False (historical integrity preserved)"""
     db_user = db.query(models.User).filter(models.User.user_id == user_id).first()
     if not db_user:
         return None
-    
-    # Soft delete instead of hard delete
     db_user.active = False
     db.commit()
+    db.refresh(db_user)
     return db_user
 
 # Site CRUD - Optimized
+
+# ------------------------------
+# Normalization helpers (state -> abbr, region, timezone label)
+# ------------------------------
+STATE_NAME_TO_ABBR = {
+    'ALABAMA': 'AL', 'ALASKA': 'AK', 'ARIZONA': 'AZ', 'ARKANSAS': 'AR', 'CALIFORNIA': 'CA',
+    'COLORADO': 'CO', 'CONNECTICUT': 'CT', 'DELAWARE': 'DE', 'DISTRICT OF COLUMBIA': 'DC', 'WASHINGTON DC': 'DC', 'DC': 'DC',
+    'FLORIDA': 'FL', 'GEORGIA': 'GA', 'HAWAII': 'HI', 'IDAHO': 'ID', 'ILLINOIS': 'IL', 'INDIANA': 'IN',
+    'IOWA': 'IA', 'KANSAS': 'KS', 'KENTUCKY': 'KY', 'LOUISIANA': 'LA', 'MAINE': 'ME', 'MARYLAND': 'MD',
+    'MASSACHUSETTS': 'MA', 'MICHIGAN': 'MI', 'MINNESOTA': 'MN', 'MISSISSIPPI': 'MS', 'MISSOURI': 'MO',
+    'MONTANA': 'MT', 'NEBRASKA': 'NE', 'NEVADA': 'NV', 'NEW HAMPSHIRE': 'NH', 'NEW JERSEY': 'NJ',
+    'NEW MEXICO': 'NM', 'NEW YORK': 'NY', 'NORTH CAROLINA': 'NC', 'NORTH DAKOTA': 'ND',
+    'OHIO': 'OH', 'OKLAHOMA': 'OK', 'OREGON': 'OR', 'PENNSYLVANIA': 'PA', 'RHODE ISLAND': 'RI',
+    'SOUTH CAROLINA': 'SC', 'SOUTH DAKOTA': 'SD', 'TENNESSEE': 'TN', 'TEXAS': 'TX', 'UTAH': 'UT',
+    'VERMONT': 'VT', 'VIRGINIA': 'VA', 'WASHINGTON': 'WA', 'WEST VIRGINIA': 'WV', 'WISCONSIN': 'WI', 'WYOMING': 'WY',
+}
+
+REGION_BY_ABBR = {
+    'Northeast': {'ME','NH','VT','MA','RI','CT','NY','NJ','PA'},
+    'Midwest': {'OH','MI','IN','IL','WI','MN','IA','MO','ND','SD','NE','KS'},
+    'South': {'DE','MD','DC','VA','WV','NC','SC','GA','FL','KY','TN','MS','AL','AR','LA','OK','TX'},
+    'West': {'MT','ID','WY','CO','NM','AZ','UT','NV','CA','OR','WA','AK','HI'},
+}
+
+TZ_LABEL_BY_ABBR = {
+    # Eastern
+    **{abbr: 'Eastern' for abbr in ['CT','DE','DC','FL','GA','ME','MD','MA','MI','NH','NJ','NY','NC','OH','PA','RI','SC','VT','VA','WV','KY']},
+    # Central
+    **{abbr: 'Central' for abbr in ['AL','AR','IL','IA','LA','MN','MS','MO','OK','WI','TX','KS','NE','SD','ND','TN']},
+    # Mountain
+    **{abbr: 'Mountain' for abbr in ['AZ','CO','ID','MT','NM','UT','WY']},
+    # Pacific (also map AK and HI to Pacific per simplified labeling)
+    **{abbr: 'Pacific' for abbr in ['CA','NV','OR','WA','AK','HI']},
+}
+
+def _to_abbr(state: Optional[str]) -> Optional[str]:
+    if not state:
+        return None
+    s = str(state).strip()
+    if len(s) == 2:
+        return s.upper()
+    return STATE_NAME_TO_ABBR.get(s.upper(), s[:2].upper())
+
+def _region_for(abbr: Optional[str]) -> Optional[str]:
+    if not abbr:
+        return None
+    for name, group in REGION_BY_ABBR.items():
+        if abbr in group:
+            return name
+    return None
+
+def _tz_label_for(abbr: Optional[str]) -> Optional[str]:
+    if not abbr:
+        return None
+    return TZ_LABEL_BY_ABBR.get(abbr)
 def create_site(db: Session, site: schemas.SiteCreate):
     """Create site with optimized query"""
+    abbr = _to_abbr(site.state)
+    region = site.region or _region_for(abbr)
+    tz_label = site.timezone or _tz_label_for(abbr)
     db_site = models.Site(
         site_id=site.site_id,
         ip_address=site.ip_address,
@@ -87,9 +144,10 @@ def create_site(db: Session, site: schemas.SiteCreate):
         mp=site.mp,
         service_address=site.service_address,
         city=site.city,
-        state=site.state,
+        state=abbr or site.state,
         zip=site.zip,
-        region=site.region,
+        region=region,
+        timezone=tz_label,
         notes=site.notes,
         equipment_notes=site.equipment_notes,
         phone_system=site.phone_system,
@@ -111,12 +169,47 @@ def get_site(db: Session, site_id: str):
         selectinload(models.Site.site_equipment)
     ).filter(models.Site.site_id == site_id).first()
 
-def get_sites(db: Session, skip: int = 0, limit: int = 100, region: Optional[str] = None):
-    """Get sites with pagination and optional region filtering"""
+def get_sites(db: Session, skip: int = 0, limit: int = 100, region: Optional[str] = None, search: Optional[str] = None):
+    """Get sites with pagination, optional region and search filtering"""
     query = db.query(models.Site)
     if region:
         query = query.filter(models.Site.region == region)
-    return query.offset(skip).limit(limit).all()
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            or_(
+                models.Site.site_id.ilike(like),
+                models.Site.location.ilike(like),
+                models.Site.city.ilike(like),
+                models.Site.state.ilike(like),
+                models.Site.brand.ilike(like),
+                models.Site.ip_address.ilike(like),
+            )
+        )
+        # Prioritize prefix matches on site_id for better Autocomplete behavior
+        prefix = f"{search}%"
+        order_first = case((models.Site.site_id.ilike(prefix), 0), else_=1)
+        return query.order_by(order_first.asc(), models.Site.site_id.asc()).offset(skip).limit(limit).all()
+    return query.order_by(models.Site.site_id.asc()).offset(skip).limit(limit).all()
+
+def count_sites(db: Session, region: Optional[str] = None, search: Optional[str] = None) -> int:
+    """Count sites with optional filters"""
+    query = db.query(models.Site)
+    if region:
+        query = query.filter(models.Site.region == region)
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            or_(
+                models.Site.site_id.ilike(like),
+                models.Site.location.ilike(like),
+                models.Site.city.ilike(like),
+                models.Site.state.ilike(like),
+                models.Site.brand.ilike(like),
+                models.Site.ip_address.ilike(like),
+            )
+        )
+    return query.count()
 
 def update_site(db: Session, site_id: str, site: schemas.SiteCreate):
     """Update site with optimized query"""
@@ -128,6 +221,10 @@ def update_site(db: Session, site_id: str, site: schemas.SiteCreate):
     for field, value in site.dict().items():
         if hasattr(db_site, field) and value is not None:
             setattr(db_site, field, value)
+    # Normalize dependent fields after applying incoming values
+    db_site.state = _to_abbr(db_site.state) or db_site.state
+    db_site.region = _region_for(db_site.state) or db_site.region
+    db_site.timezone = _tz_label_for(db_site.state) or db_site.timezone
     
     db.commit()
     db.refresh(db_site)
@@ -324,11 +421,13 @@ def get_tickets(db: Session, skip: int = 0, limit: int = 100,
                 priority: Optional[str] = None,
                 assigned_user_id: Optional[str] = None,
                 site_id: Optional[str] = None,
-                ticket_type: Optional[str] = None):
+                ticket_type: Optional[str] = None,
+                search: Optional[str] = None):
     """Get tickets with comprehensive filtering and eager loading"""
     query = db.query(models.Ticket).options(
         joinedload(models.Ticket.site),
         joinedload(models.Ticket.assigned_user),
+        joinedload(models.Ticket.claimed_user),
         joinedload(models.Ticket.onsite_tech)
     )
     
@@ -343,8 +442,46 @@ def get_tickets(db: Session, skip: int = 0, limit: int = 100,
         query = query.filter(models.Ticket.site_id == site_id)
     if ticket_type:
         query = query.filter(models.Ticket.type == ticket_type)
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(
+            models.Ticket.ticket_id.ilike(like),
+            models.Ticket.site_id.ilike(like),
+            models.Ticket.inc_number.ilike(like),
+            models.Ticket.so_number.ilike(like),
+            models.Ticket.notes.ilike(like)
+        ))
     
     return query.order_by(desc(models.Ticket.created_at)).offset(skip).limit(limit).all()
+
+def count_tickets(db: Session,
+                  status: Optional[str] = None,
+                  priority: Optional[str] = None,
+                  assigned_user_id: Optional[str] = None,
+                  site_id: Optional[str] = None,
+                  ticket_type: Optional[str] = None,
+                  search: Optional[str] = None) -> int:
+    query = db.query(models.Ticket)
+    if status:
+        query = query.filter(models.Ticket.status == status)
+    if priority:
+        query = query.filter(models.Ticket.priority == priority)
+    if assigned_user_id:
+        query = query.filter(models.Ticket.assigned_user_id == assigned_user_id)
+    if site_id:
+        query = query.filter(models.Ticket.site_id == site_id)
+    if ticket_type:
+        query = query.filter(models.Ticket.type == ticket_type)
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(
+            models.Ticket.ticket_id.ilike(like),
+            models.Ticket.site_id.ilike(like),
+            models.Ticket.inc_number.ilike(like),
+            models.Ticket.so_number.ilike(like),
+            models.Ticket.notes.ilike(like)
+        ))
+    return query.count()
 
 def update_ticket(db: Session, ticket_id: str, ticket: schemas.TicketUpdate):
     """Update ticket with optimized query"""
@@ -412,6 +549,8 @@ def create_shipment(db: Session, shipment: schemas.ShipmentCreate):
         parts_cost=shipment.parts_cost,
         total_cost=shipment.total_cost,
         status=shipment.status,
+        quantity=shipment.quantity or 1,
+        archived=shipment.archived or False,
         remove_from_inventory=shipment.remove_from_inventory,
         date_created=datetime.now(timezone.utc)
     )
@@ -425,12 +564,14 @@ def get_shipment(db: Session, shipment_id: str):
     return db.query(models.Shipment).options(
         joinedload(models.Shipment.site),
         joinedload(models.Shipment.ticket),
-        joinedload(models.Shipment.item)
+        joinedload(models.Shipment.item),
+        selectinload(models.Shipment.shipment_items).joinedload(models.ShipmentItem.item)
     ).filter(models.Shipment.shipment_id == shipment_id).first()
 
 def get_shipments(db: Session, skip: int = 0, limit: int = 100, 
                   site_id: Optional[str] = None,
-                  ticket_id: Optional[str] = None):
+                  ticket_id: Optional[str] = None,
+                  search: Optional[str] = None):
     """Get shipments with filtering and eager loading"""
     query = db.query(models.Shipment).options(
         joinedload(models.Shipment.site),
@@ -441,8 +582,40 @@ def get_shipments(db: Session, skip: int = 0, limit: int = 100,
         query = query.filter(models.Shipment.site_id == site_id)
     if ticket_id:
         query = query.filter(models.Shipment.ticket_id == ticket_id)
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(
+            models.Shipment.shipment_id.ilike(like),
+            models.Shipment.tracking_number.ilike(like),
+            models.Shipment.return_tracking.ilike(like),
+            models.Shipment.what_is_being_shipped.ilike(like),
+            models.Shipment.site_id.ilike(like)
+        ))
     
     return query.order_by(desc(models.Shipment.date_created)).offset(skip).limit(limit).all()
+
+def count_shipments(db: Session,
+                    site_id: Optional[str] = None,
+                    ticket_id: Optional[str] = None,
+                    search: Optional[str] = None,
+                    include_archived: bool = True) -> int:
+    query = db.query(models.Shipment)
+    if site_id:
+        query = query.filter(models.Shipment.site_id == site_id)
+    if ticket_id:
+        query = query.filter(models.Shipment.ticket_id == ticket_id)
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(
+            models.Shipment.shipment_id.ilike(like),
+            models.Shipment.tracking_number.ilike(like),
+            models.Shipment.return_tracking.ilike(like),
+            models.Shipment.what_is_being_shipped.ilike(like),
+            models.Shipment.site_id.ilike(like)
+        ))
+    if not include_archived:
+        query = query.filter(models.Shipment.archived.is_(False))
+    return query.count()
 
 def get_shipments_by_site(db: Session, site_id: str):
     """Get all shipments for a specific site with eager loading"""
@@ -465,15 +638,85 @@ def update_shipment(db: Session, shipment_id: str, shipment: schemas.ShipmentCre
     db.refresh(db_shipment)
     return db_shipment
 
+def archive_shipment(db: Session, shipment_id: str, archived: bool = True):
+    """Archive or unarchive a shipment"""
+    shipment = db.query(models.Shipment).filter(models.Shipment.shipment_id == shipment_id).first()
+    if not shipment:
+        return None
+    
+    shipment.archived = archived
+    db.commit()
+    db.refresh(shipment)
+    return shipment
+
 def delete_shipment(db: Session, shipment_id: str):
-    """Delete shipment with optimized query"""
+    """Delete shipment with cascade delete of shipment items and related transactions"""
     db_shipment = db.query(models.Shipment).filter(models.Shipment.shipment_id == shipment_id).first()
     if not db_shipment:
         return None
     
+    # Get all shipment items for this shipment
+    shipment_items = db.query(models.ShipmentItem).filter(models.ShipmentItem.shipment_id == shipment_id).all()
+    
+    # Delete inventory transactions that reference these shipment items
+    for item in shipment_items:
+        db.query(models.InventoryTransaction).filter(
+            models.InventoryTransaction.shipment_item_id == item.shipment_item_id
+        ).delete()
+    
+    # Delete shipment items (this will cascade due to foreign key constraints)
+    db.query(models.ShipmentItem).filter(models.ShipmentItem.shipment_id == shipment_id).delete()
+    
+    # Finally delete the shipment
     db.delete(db_shipment)
     db.commit()
     return db_shipment
+
+# Shipment Item CRUD
+def create_shipment_item(db: Session, shipment_item: schemas.ShipmentItemCreate, shipment_id: str):
+    """Create shipment item"""
+    db_shipment_item = models.ShipmentItem(
+        shipment_item_id=generate_sequential_id(db, models.ShipmentItem, 'shipment_item_id', 'SI', 6),
+        shipment_id=shipment_id,
+        item_id=shipment_item.item_id,
+        quantity=shipment_item.quantity,
+        what_is_being_shipped=shipment_item.what_is_being_shipped,
+        remove_from_inventory=shipment_item.remove_from_inventory,
+        notes=shipment_item.notes
+    )
+    db.add(db_shipment_item)
+    db.commit()
+    db.refresh(db_shipment_item)
+    return db_shipment_item
+
+def get_shipment_items(db: Session, shipment_id: str):
+    """Get all items for a shipment"""
+    return db.query(models.ShipmentItem).options(
+        joinedload(models.ShipmentItem.item)
+    ).filter(models.ShipmentItem.shipment_id == shipment_id).all()
+
+def update_shipment_item(db: Session, shipment_item_id: str, shipment_item: schemas.ShipmentItemCreate):
+    """Update shipment item"""
+    db_shipment_item = db.query(models.ShipmentItem).filter(models.ShipmentItem.shipment_item_id == shipment_item_id).first()
+    if not db_shipment_item:
+        return None
+    
+    for field, value in shipment_item.model_dump(exclude_unset=True).items():
+        setattr(db_shipment_item, field, value)
+    
+    db.commit()
+    db.refresh(db_shipment_item)
+    return db_shipment_item
+
+def delete_shipment_item(db: Session, shipment_item_id: str):
+    """Delete shipment item"""
+    db_shipment_item = db.query(models.ShipmentItem).filter(models.ShipmentItem.shipment_item_id == shipment_item_id).first()
+    if not db_shipment_item:
+        return None
+    
+    db.delete(db_shipment_item)
+    db.commit()
+    return db_shipment_item
 
 # Field Tech CRUD - Optimized
 def create_field_tech(db: Session, tech: schemas.FieldTechCreate):
@@ -692,7 +935,7 @@ def create_inventory_item(db: Session, item: schemas.InventoryItemCreate):
 def get_inventory_item(db: Session, item_id: str):
     """Get inventory item with related transactions eager loaded"""
     return db.query(models.InventoryItem).options(
-        selectinload(models.InventoryItem.transactions)
+        selectinload(models.InventoryItem.inventory_transactions)
     ).filter(models.InventoryItem.item_id == item_id).first()
 
 def get_inventory_items(db: Session, skip: int = 0, limit: int = 100, 
@@ -1324,3 +1567,141 @@ def get_ticket_audits(db: Session, ticket_id: str):
         .filter(models.TicketAudit.ticket_id == ticket_id)\
         .order_by(desc(models.TicketAudit.change_time))\
         .all()
+
+# =============================================================================
+# OPTIMIZED INVENTORY OPERATIONS
+# =============================================================================
+
+def bulk_update_inventory_for_shipment(
+    db: Session, 
+    shipment_id: str, 
+    user_id: str, 
+    ticket_id: Optional[str] = None
+) -> dict:
+    """
+    Optimized bulk inventory update for shipment status changes.
+    Uses single queries instead of O(N) individual lookups.
+    Returns summary of changes made.
+    """
+    try:
+        # Get all shipment items that need inventory removal in one query
+        shipment_items = db.query(models.ShipmentItem)\
+            .filter(
+                models.ShipmentItem.shipment_id == shipment_id,
+                models.ShipmentItem.remove_from_inventory == True,
+                models.ShipmentItem.item_id.isnot(None)
+            )\
+            .all()
+        
+        if not shipment_items:
+            return {"updated_items": 0, "transactions_created": 0, "errors": []}
+        
+        # Get all affected inventory items in one query
+        item_ids = [item.item_id for item in shipment_items]
+        inventory_items = db.query(models.InventoryItem)\
+            .filter(models.InventoryItem.item_id.in_(item_ids))\
+            .all()
+        
+        # Create lookup dict for fast access
+        inventory_lookup = {item.item_id: item for item in inventory_items}
+        
+        # Prepare bulk operations
+        inventory_transactions = []
+        inventory_updates = []
+        errors = []
+        
+        for shipment_item in shipment_items:
+            inventory_item = inventory_lookup.get(shipment_item.item_id)
+            if not inventory_item:
+                errors.append(f"Inventory item {shipment_item.item_id} not found")
+                continue
+            
+            # Calculate new quantity
+            qty = shipment_item.quantity or 1
+            old_qty = inventory_item.quantity_on_hand or 0
+            new_qty = max(0, old_qty - qty)
+            
+            # Create inventory transaction
+            transaction = models.InventoryTransaction(
+                transaction_id=str(uuid.uuid4()),
+                item_id=shipment_item.item_id,
+                user_id=user_id,
+                shipment_item_id=shipment_item.shipment_item_id,
+                ticket_id=ticket_id,
+                date=date.today(),
+                quantity=qty,
+                type=models.InventoryTransactionType.out,
+                notes=f"Shipped for ticket {ticket_id}" if ticket_id else "Shipped"
+            )
+            inventory_transactions.append(transaction)
+            
+            # Prepare inventory update
+            inventory_updates.append({
+                'item_id': inventory_item.item_id,
+                'quantity_on_hand': new_qty,
+                'old_quantity': old_qty
+            })
+        
+        # Bulk insert transactions
+        if inventory_transactions:
+            db.bulk_save_objects(inventory_transactions)
+        
+        # Bulk update inventory quantities
+        for update_data in inventory_updates:
+            db.execute(
+                update(models.InventoryItem)
+                .where(models.InventoryItem.item_id == update_data['item_id'])
+                .values(quantity_on_hand=update_data['quantity_on_hand'])
+            )
+        
+        db.commit()
+        
+        return {
+            "updated_items": len(inventory_updates),
+            "transactions_created": len(inventory_transactions),
+            "errors": errors,
+            "changes": [
+                {
+                    "item_id": update_data['item_id'],
+                    "old_quantity": update_data['old_quantity'],
+                    "new_quantity": update_data['quantity_on_hand']
+                }
+                for update_data in inventory_updates
+            ]
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise Exception(f"Bulk inventory update failed: {str(e)}")
+
+def get_shipment_with_items(db: Session, shipment_id: str):
+    """Get shipment with all related data in one query"""
+    return db.query(models.Shipment)\
+        .options(
+            joinedload(models.Shipment.site),
+            joinedload(models.Shipment.ticket),
+            selectinload(models.Shipment.shipment_items)
+        )\
+        .filter(models.Shipment.shipment_id == shipment_id)\
+        .first()
+
+def create_audit_log(
+    db: Session,
+    user_id: str,
+    field_changed: str,
+    old_value: Optional[str] = None,
+    new_value: Optional[str] = None,
+    ticket_id: Optional[str] = None
+):
+    """Create audit log entry with proper old/new value tracking"""
+    audit = models.TicketAudit(
+        audit_id=str(uuid.uuid4()),
+        ticket_id=ticket_id,
+        user_id=user_id,
+        change_time=datetime.now(timezone.utc),
+        field_changed=field_changed,
+        old_value=old_value,
+        new_value=new_value
+    )
+    db.add(audit)
+    return audit

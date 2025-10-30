@@ -140,10 +140,10 @@ function DailyOperationsDashboard() {
         needs_shipping: [] // Special view for tickets needing parts
       };
 
-      // Filter out approved tickets - they go to history only
+      // Filter out archived tickets - they go to history only
       ticketsResponse.forEach(ticket => {
-        // Skip approved tickets - they're in history now
-        if (ticket.status === 'approved') {
+        // Skip archived tickets - they're in history now
+        if (ticket.status === 'archived') {
           return;
         }
         

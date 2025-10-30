@@ -61,6 +61,15 @@ export function DataSyncProvider({ children }) {
           case 'attachment':
             updated.tickets = prev.tickets + 1;
             break;
+          case 'task':
+            // Tasks don't have a specific state, use 'all' trigger
+            break;
+          case 'equipment':
+            // Equipment doesn't have a specific state, use 'all' trigger
+            break;
+          case 'sla':
+            // SLA doesn't have a specific state, use 'all' trigger
+            break;
           default:
             break;
         }

@@ -28,7 +28,7 @@ def create_task(
     )
     crud.create_ticket_audit(db, audit)
     if background_tasks:
-        _enqueue_broadcast(background_tasks, '{"type":"tasks","action":"create"}')
+        _enqueue_broadcast(background_tasks, '{"type":"task","action":"create"}')
     return result
 
 @router.get("/{task_id}")
@@ -58,7 +58,8 @@ def update_task(
     task_id: str, 
     data: schemas.TaskCreate, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Update a task"""
     result = crud.update_task(db, task_id=task_id, task=data)
@@ -71,17 +72,26 @@ def update_task(
         new_value=str(result.task_id if hasattr(result, 'task_id') else result.id)
     )
     crud.create_ticket_audit(db, audit)
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"task","action":"update"}')
+    
     return result
 
 @router.delete("/{task_id}")
 def delete_task(
     task_id: str, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value, models.UserRole.dispatcher.value])),
+    background_tasks: BackgroundTasks = None
 ):
     """Delete a task"""
     result = crud.delete_task(db, task_id=task_id)
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"task","action":"delete"}')
+    
     return {"success": True, "message": "Task deleted successfully"}
 

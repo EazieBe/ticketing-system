@@ -1,14 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Grid, Typography, Chip, Button, Stack, Tabs, Tab, TextField,
   Table, TableBody, TableCell, TableHead, TableRow, Alert, Divider, Dialog,
-  DialogTitle, DialogContent, DialogActions, DialogContentText
+  DialogTitle, DialogContent, DialogActions, DialogContentText, Select, MenuItem,
+  InputLabel, FormControl, Checkbox, FormControlLabel
 } from '@mui/material';
 import { ArrowBack, Edit, AccessTime, CheckCircle, Warning, Delete, PanTool, Timer } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import { useAuth } from './AuthContext';
 import useApi from './hooks/useApi';
+import CompactShipmentForm from './CompactShipmentForm';
+import { canDelete } from './utils/permissions';
 
 // Live Timer Component
 function LiveTimer({ startTime }) {
@@ -60,22 +63,36 @@ function CompactTicketDetail() {
   const [tab, setTab] = useState(0);
   const [newComment, setNewComment] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [shipments, setShipments] = useState([]);
+  const [addShipmentOpen, setAddShipmentOpen] = useState(false);
+  const [inventory, setInventory] = useState([]);
+  const loadingRef = useRef(false);
+
+  const load = async () => {
+    if (loadingRef.current) return; // Prevent concurrent calls
+    loadingRef.current = true;
+    
+    try {
+      const [t, c, te, sh, inv] = await Promise.all([
+        api.get(`/tickets/${ticketId}`),
+        api.get(`/tickets/${ticketId}/comments`),
+        api.get(`/tickets/${ticketId}/time-entries/`),
+        api.get(`/shipments?ticket_id=${ticketId}&limit=200&skip=0`),
+        api.get('/inventory?limit=200&skip=0')
+      ]);
+      setTicket(t);
+      setComments(c || []);
+      setTimeEntries(te || []);
+      setShipments(sh || []);
+      setInventory(inv || []);
+    } catch (err) {
+      showError('Failed to load');
+    } finally {
+      loadingRef.current = false;
+    }
+  };
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [t, c, te] = await Promise.all([
-          api.get(`/tickets/${ticketId}`),
-          api.get(`/tickets/${ticketId}/comments`),
-          api.get(`/tickets/${ticketId}/time-entries/`)
-        ]);
-        setTicket(t);
-        setComments(c || []);
-        setTimeEntries(te || []);
-      } catch (err) {
-        showError('Failed to load');
-      }
-    };
     load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketId]);
@@ -84,7 +101,6 @@ function CompactTicketDetail() {
     try {
       if (action === 'check-in') await api.put(`/tickets/${ticketId}/check-in`, {});
       if (action === 'check-out') await api.put(`/tickets/${ticketId}/check-out`, {});
-      if (action === 'needs-parts') await api.patch(`/tickets/${ticketId}/status`, { status: 'needs_parts' });
       if (action === 'complete') await api.patch(`/tickets/${ticketId}/status`, { status: 'completed' });
       success(`${action} success!`);
       window.location.reload();
@@ -128,6 +144,24 @@ function CompactTicketDetail() {
     }
   };
 
+  const handleShipmentSubmit = async (values) => {
+    try {
+      const siteId = ticket?.site?.site_id || ticket?.site_id;
+      await api.post('/shipments/', {
+        ...values,
+        site_id: siteId,
+        ticket_id: ticketId,
+        source_ticket_type: ticket?.type
+      });
+      const sh = await api.get(`/shipments?ticket_id=${ticketId}&limit=200&skip=0`);
+      setShipments(sh || []);
+      setAddShipmentOpen(false);
+      success('Shipment added');
+    } catch (e) {
+      showError('Failed to add shipment');
+    }
+  };
+
   const isAdmin = user?.role === 'admin';
 
   if (!ticket) return <Box sx={{ p: 2 }}><Typography>Loading...</Typography></Box>;
@@ -157,13 +191,10 @@ function CompactTicketDetail() {
               <Button size="small" variant="contained" color="info" onClick={() => handleQuickAction('check-out')}>Tech Done</Button>
             )}
             {!['completed', 'closed', 'approved'].includes(ticket.status) && (
-              <>
-                <Button size="small" variant="outlined" onClick={() => handleQuickAction('needs-parts')}>Needs Parts</Button>
-                <Button size="small" variant="contained" color="primary" onClick={() => handleQuickAction('complete')}>Complete</Button>
-              </>
+              <Button size="small" variant="contained" color="primary" onClick={() => handleQuickAction('complete')}>Complete</Button>
             )}
             <Button size="small" variant="contained" startIcon={<Edit />} onClick={() => navigate(`/tickets/${ticketId}/edit`)}>Edit</Button>
-            {isAdmin && (
+            {canDelete(user) && (
               <Button size="small" variant="contained" color="error" startIcon={<Delete />} onClick={() => setDeleteDialogOpen(true)}>Delete</Button>
             )}
           </Stack>
@@ -188,17 +219,18 @@ function CompactTicketDetail() {
           <Grid item xs={6} md={3}><Typography><strong>SO:</strong> {ticket.so_number || 'N/A'}</Typography></Grid>
           <Grid item xs={6} md={3}><Typography><strong>Assigned:</strong> {ticket.assigned_user?.name || 'Unassigned'}</Typography></Grid>
           {ticket.claimed_by && (
-            <Grid item xs={6} md={3}><Typography><strong>Claimed By:</strong> {ticket.claimed_by_user?.name || ticket.claimed_by}</Typography></Grid>
+            <Grid item xs={6} md={3}><Typography><strong>Claimed By:</strong> {ticket.claimed_user?.name || ticket.claimed_by}</Typography></Grid>
           )}
           <Grid item xs={6} md={3}><Typography><strong>Field Tech:</strong> {ticket.onsite_tech?.name || 'N/A'}</Typography></Grid>
-          <Grid item xs={6} md={3}><Typography><strong>Created:</strong> {ticket.date_created ? new Date(ticket.date_created).toLocaleDateString() : 'N/A'}</Typography></Grid>
+          <Grid item xs={6} md={3}><Typography><strong>Created:</strong> {ticket.created_at ? new Date(ticket.created_at).toLocaleString() : 'N/A'}</Typography></Grid>
           <Grid item xs={6} md={3}><Typography><strong>Scheduled:</strong> {ticket.date_scheduled ? new Date(ticket.date_scheduled).toLocaleDateString() : 'N/A'}</Typography></Grid>
-          {ticket.check_in_time && <Grid item xs={6} md={3}><Typography><strong>Check-In:</strong> {new Date(ticket.check_in_time).toLocaleString()}</Typography></Grid>}
-          {ticket.check_out_time && <Grid item xs={6} md={3}><Typography><strong>Check-Out:</strong> {new Date(ticket.check_out_time).toLocaleString()}</Typography></Grid>}
-          {ticket.onsite_duration_minutes && (
+          {ticket.claimed_at && <Grid item xs={6} md={3}><Typography><strong>Claimed:</strong> {new Date(ticket.claimed_at).toLocaleString()}</Typography></Grid>}
+          {(ticket.end_time || ticket.check_out_time) && <Grid item xs={6} md={3}><Typography><strong>Completed:</strong> {new Date(ticket.end_time || ticket.check_out_time).toLocaleString()}</Typography></Grid>}
+          {ticket.approved_at && <Grid item xs={6} md={3}><Typography><strong>Approved:</strong> {new Date(ticket.approved_at).toLocaleString()}</Typography></Grid>}
+          {ticket.time_spent && (
             <Grid item xs={6} md={3}>
               <Typography>
-                <strong>Onsite Duration:</strong> {Math.floor(ticket.onsite_duration_minutes / 60)}h {ticket.onsite_duration_minutes % 60}m
+                <strong>Time Spent:</strong> {Math.floor(ticket.time_spent / 60)}h {ticket.time_spent % 60}m
               </Typography>
             </Grid>
           )}
@@ -212,6 +244,7 @@ function CompactTicketDetail() {
           <Tabs value={tab} onChange={(e, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tab label={`Comments (${comments.length})`} sx={{ fontSize: '0.875rem', minHeight: 40 }} />
             <Tab label={`Time Entries (${timeEntries.length})`} sx={{ fontSize: '0.875rem', minHeight: 40 }} />
+            <Tab label={`Shipments (${shipments.length})`} sx={{ fontSize: '0.875rem', minHeight: 40 }} />
           </Tabs>
 
           {tab === 0 && (
@@ -236,20 +269,71 @@ function CompactTicketDetail() {
           {tab === 1 && (
             <Table size="small" sx={{ mt: 2, '& td, & th': { py: 0.5, fontSize: '0.75rem' } }}>
               <TableHead>
-                <TableRow><TableCell>Date</TableCell><TableCell>Hours</TableCell><TableCell>Description</TableCell><TableCell>User</TableCell></TableRow>
+                <TableRow>
+                  <TableCell>Start</TableCell>
+                  <TableCell>End</TableCell>
+                  <TableCell>Minutes</TableCell>
+                  <TableCell>Description</TableCell>
+                  <TableCell>User</TableCell>
+                </TableRow>
               </TableHead>
               <TableBody>
                 {timeEntries.map((te) => (
                   <TableRow key={te.entry_id}>
-                    <TableCell>{te.entry_date ? new Date(te.entry_date).toLocaleDateString() : 'N/A'}</TableCell>
-                    <TableCell>{te.hours_worked || 0}</TableCell>
-                    <TableCell>{te.work_description}</TableCell>
+                    <TableCell>{te.start_time ? new Date(te.start_time).toLocaleString() : 'N/A'}</TableCell>
+                    <TableCell>{te.end_time ? new Date(te.end_time).toLocaleString() : 'N/A'}</TableCell>
+                    <TableCell>{typeof te.duration_minutes === 'number' ? te.duration_minutes : (te.start_time && te.end_time ? Math.round((new Date(te.end_time)-new Date(te.start_time))/60000) : 0)}</TableCell>
+                    <TableCell>{te.description || ''}</TableCell>
                     <TableCell>{te.user?.name || 'N/A'}</TableCell>
                   </TableRow>
                 ))}
-                {timeEntries.length === 0 && <TableRow><TableCell colSpan={4} align="center">No entries</TableCell></TableRow>}
+                {timeEntries.length === 0 && <TableRow><TableCell colSpan={5} align="center">No entries</TableCell></TableRow>}
               </TableBody>
             </Table>
+          )}
+
+          {tab === 2 && (
+            <Box sx={{ mt: 2 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+                <Typography variant="subtitle2">Shipments linked to ticket</Typography>
+                <Button size="small" variant="contained" onClick={() => setAddShipmentOpen(true)}>Add Shipment</Button>
+              </Stack>
+              <Table size="small" sx={{ '& td, & th': { py: 0.5, fontSize: '0.75rem' } }}>
+                  <TableHead>
+                  <TableRow>
+                    <TableCell>ID</TableCell>
+                    <TableCell>Site</TableCell>
+                    <TableCell>Item</TableCell>
+                      <TableCell>Qty</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell>Tracking</TableCell>
+                    <TableCell>Shipped</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {shipments.map((s) => (
+                    <TableRow key={s.shipment_id}>
+                      <TableCell>{s.shipment_id}</TableCell>
+                      <TableCell>{`${s.site?.site_id || s.site_id || ''}${s.site?.location ? ' - ' + s.site.location : ''}`}</TableCell>
+                      <TableCell>{s.item?.name || s.item_id}</TableCell>
+                        <TableCell>{s.quantity ?? 1}</TableCell>
+                        <TableCell>{s.status}</TableCell>
+                        <TableCell>
+                          {s.tracking_number ? (
+                            <a href={`https://www.fedex.com/fedextrack/?tracknumbers=${encodeURIComponent(s.tracking_number)}`} target="_blank" rel="noreferrer">
+                              {s.tracking_number}
+                            </a>
+                          ) : '-'}
+                        </TableCell>
+                      <TableCell>{s.date_shipped ? new Date(s.date_shipped).toLocaleString() : '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                  {shipments.length === 0 && (
+                    <TableRow><TableCell colSpan={6} align="center">No shipments yet</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </Box>
           )}
         </Box>
       </Paper>
@@ -265,6 +349,26 @@ function CompactTicketDetail() {
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)} color="primary">Cancel</Button>
           <Button onClick={handleDelete} color="error" variant="contained">Delete</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Shipment Dialog */}
+      <Dialog open={addShipmentOpen} onClose={() => setAddShipmentOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Add Shipment</DialogTitle>
+        <DialogContent dividers>
+          <CompactShipmentForm 
+            onSubmit={handleShipmentSubmit} 
+            initialValues={{ 
+              site_id: ticket?.site?.site_id || ticket?.site_id,
+              ticket_id: ticketId,
+              source_ticket_type: ticket?.type 
+            }} 
+            isEdit={false}
+            showHeader={false}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddShipmentOpen(false)}>Cancel</Button>
         </DialogActions>
       </Dialog>
     </Box>

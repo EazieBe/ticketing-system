@@ -1,21 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Button, IconButton, Stack, TextField, InputAdornment, Typography, Chip,
   Popover, FormControlLabel, Checkbox, Divider
 } from '@mui/material';
-import { Add, Visibility, Edit, Search, Refresh, ViewColumn } from '@mui/icons-material';
+import { Add, Visibility, Edit, Search, Refresh, ViewColumn, Delete } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import { useAuth } from './AuthContext';
+import { canDelete } from './utils/permissions';
 
 function CompactInventory() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const api = useApi();
   const { error: showError } = useToast();
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
   const [columnAnchor, setColumnAnchor] = useState(null);
+  const apiRef = React.useRef(api);
   const [visibleColumns, setVisibleColumns] = useState({
     name: true,
     sku: true,
@@ -25,9 +29,14 @@ function CompactInventory() {
     location: true
   });
 
+  // Keep API ref current
+  React.useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
+
   const fetchItems = async () => {
     try {
-      const response = await api.get('/inventory/');
+      const response = await apiRef.current.get('/inventory/');
       setItems(response || []);
     } catch {
       showError('Failed');
@@ -41,6 +50,17 @@ function CompactInventory() {
 
   const toggleColumn = (column) => {
     setVisibleColumns(prev => ({ ...prev, [column]: !prev[column] }));
+  };
+
+  const handleDelete = async (itemId, itemName) => {
+    if (!window.confirm(`Delete inventory item "${itemName}"? This action cannot be undone.`)) return;
+    
+    try {
+      await apiRef.current.delete(`/inventory/${itemId}`);
+      setItems(prev => prev.filter(item => item.item_id !== itemId));
+    } catch (error) {
+      showError('Failed to delete inventory item');
+    }
   };
 
   const filtered = items.filter(i =>
@@ -92,6 +112,9 @@ function CompactInventory() {
                     <Stack direction="row" spacing={0.5}>
                       <IconButton size="small" sx={{ p: 0.3 }}><Visibility sx={{ fontSize: 16 }} /></IconButton>
                       <IconButton size="small" sx={{ p: 0.3 }} onClick={() => navigate(`/inventory/${i.item_id}/edit`)}><Edit sx={{ fontSize: 16 }} /></IconButton>
+                      {canDelete(user) && (
+                        <IconButton size="small" sx={{ p: 0.3 }} onClick={() => handleDelete(i.item_id, i.name)} color="error"><Delete sx={{ fontSize: 16 }} /></IconButton>
+                      )}
                     </Stack>
                   </TableCell>
                 </TableRow>

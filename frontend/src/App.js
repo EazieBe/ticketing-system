@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   CssBaseline,
@@ -72,6 +72,7 @@ import Logo from './components/Logo';
 import Login from './Login';
 // COMPACT COMPONENTS - New high-density UI
 import CompactOperationsDashboard from './components/CompactOperationsDashboard';
+import ModernDashboard from './components/ModernDashboard';
 import CompactTickets from './CompactTickets';
 import CompactTicketDetail from './CompactTicketDetail';
 import CompactTicketFormComplete from './CompactTicketFormComplete';
@@ -298,21 +299,22 @@ function TicketEditWrapper() {
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchTicket = async () => {
-      try {
-        const response = await api.get(`/tickets/${ticket_id}`);
-        setTicket(response);
-      } catch (err) {
-        console.error('Error fetching ticket:', err);
-        error('Error loading ticket');
-        navigate('/tickets');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchTicket();
+  const fetchTicket = useCallback(async () => {
+    try {
+      const response = await api.get(`/tickets/${ticket_id}`);
+      setTicket(response);
+    } catch (err) {
+      console.error('Error fetching ticket:', err);
+      error('Error loading ticket');
+      navigate('/tickets');
+    } finally {
+      setLoading(false);
+    }
   }, [ticket_id, api, navigate, error]);
+
+  useEffect(() => {
+    fetchTicket();
+  }, [fetchTicket]);
 
   const handleSubmit = async (values) => {
     try {
@@ -339,21 +341,22 @@ function SiteEditWrapper() {
   const [site, setSite] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchSite = async () => {
-      try {
-        const response = await api.get(`/sites/${site_id}`);
-        setSite(response);
-      } catch (err) {
-        console.error('Error fetching site:', err);
-        error('Error loading site');
-        navigate('/sites');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchSite();
+  const fetchSite = useCallback(async () => {
+    try {
+      const response = await api.get(`/sites/${site_id}`);
+      setSite(response);
+    } catch (err) {
+      console.error('Error fetching site:', err);
+      error('Error loading site');
+      navigate('/sites');
+    } finally {
+      setLoading(false);
+    }
   }, [site_id, api, navigate, error]);
+
+  useEffect(() => {
+    fetchSite();
+  }, [fetchSite]);
 
   const handleSubmit = async (values) => {
     try {
@@ -380,21 +383,22 @@ function UserEditWrapper() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const response = await api.get(`/users/${user_id}`);
-        setUser(response);
-      } catch (err) {
-        console.error('Error fetching user:', err);
-        error('Error loading user');
-        navigate('/users');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchUser();
+  const fetchUser = useCallback(async () => {
+    try {
+      const response = await api.get(`/users/${user_id}`);
+      setUser(response);
+    } catch (err) {
+      console.error('Error fetching user:', err);
+      error('Error loading user');
+      navigate('/users');
+    } finally {
+      setLoading(false);
+    }
   }, [user_id, api, navigate, error]);
+
+  useEffect(() => {
+    fetchUser();
+  }, [fetchUser]);
 
   const handleSubmit = async (values) => {
     try {
@@ -462,8 +466,7 @@ function InventoryEditWrapper() {
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchItem = async () => {
+  const fetchItem = useCallback(async () => {
       try {
         const response = await api.get(`/inventory/${item_id}`);
         setItem(response);
@@ -474,9 +477,11 @@ function InventoryEditWrapper() {
       } finally {
         setLoading(false);
       }
-    };
-    fetchItem();
   }, [item_id, api, navigate, error]);
+
+  useEffect(() => {
+    fetchItem();
+  }, [fetchItem]);
 
   const handleSubmit = async (values) => {
     try {
@@ -544,21 +549,22 @@ function ShipmentEditWrapper() {
   const [shipment, setShipment] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchShipment = async () => {
-      try {
-        const response = await api.get(`/shipments/${shipment_id}`);
-        setShipment(response);
-      } catch (err) {
-        console.error('Error fetching shipment:', err);
-        error('Error loading shipment');
-        navigate('/shipments');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchShipment();
+  const fetchShipment = useCallback(async () => {
+    try {
+      const response = await api.get(`/shipments/${shipment_id}`);
+      setShipment(response);
+    } catch (err) {
+      console.error('Error fetching shipment:', err);
+      error('Error loading shipment');
+      navigate('/shipments');
+    } finally {
+      setLoading(false);
+    }
   }, [shipment_id, api, navigate, error]);
+
+  useEffect(() => {
+    fetchShipment();
+  }, [fetchShipment]);
 
   const handleSubmit = async (values) => {
     try {
@@ -635,6 +641,18 @@ function FieldTechEditWrapper() {
 const cleanFormData = (data) => {
   const cleaned = {};
   for (const [key, value] of Object.entries(data)) {
+    // Special handling for fields that should send null instead of being omitted
+    if (key === 'item_id' || 
+        key === 'ticket_id' ||
+        key === 'charges_out' || 
+        key === 'charges_in' || 
+        key === 'parts_cost' || 
+        key === 'total_cost' || 
+        key === 'date_shipped' || 
+        key === 'date_returned') {
+      cleaned[key] = value === '' ? null : value;
+      continue;
+    }
     // Skip empty strings, null, undefined - let backend handle defaults/validation
     if (value === '' || value === null || value === undefined) {
       continue;
@@ -822,19 +840,20 @@ function CompactInventoryEditWrapper() {
   const { error, success } = useToast();
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const fetchItem = async () => {
-      try {
-        const response = await api.get(`/inventory/${item_id}`);
-        setItem(response);
-      } catch {
-        error('Error loading');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchItem();
+  const fetchItem = useCallback(async () => {
+    try {
+      const response = await api.get(`/inventory/${item_id}`);
+      setItem(response);
+    } catch {
+      error('Error loading');
+    } finally {
+      setLoading(false);
+    }
   }, [item_id, api, error]);
+
+  useEffect(() => {
+    fetchItem();
+  }, [fetchItem]);
   const handleSubmit = async (values) => {
     try {
       await api.put(`/inventory/${item_id}`, cleanFormData(values));
@@ -922,22 +941,56 @@ function CompactShipmentEditWrapper() {
   const { error, success } = useToast();
   const [shipment, setShipment] = useState(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const fetchShipment = async () => {
-      try {
-        const response = await api.get(`/shipments/${shipment_id}`);
-        setShipment(response);
-      } catch {
-        error('Error loading');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchShipment();
+  const fetchShipment = useCallback(async () => {
+    try {
+      const response = await api.get(`/shipments/${shipment_id}`);
+      setShipment(response);
+    } catch {
+      error('Error loading');
+    } finally {
+      setLoading(false);
+    }
   }, [shipment_id, api, error]);
+
+  useEffect(() => {
+    fetchShipment();
+  }, [fetchShipment]);
   const handleSubmit = async (values) => {
     try {
-      await api.put(`/shipments/${shipment_id}`, cleanFormData(values));
+      console.log('Raw form values before cleaning:', values);
+      const cleanData = cleanFormData(values);
+      
+      console.log('Form submission data:', cleanData);
+      console.log('Current shipment status:', shipment?.status);
+      console.log('New status:', cleanData.status);
+      console.log('Remove from inventory in form:', cleanData.remove_from_inventory);
+      console.log('Item ID in form:', cleanData.item_id);
+      console.log('Status change detected:', cleanData.status === 'shipped' && shipment?.status !== 'shipped');
+      
+      // If status is being changed to 'shipped', use the status update endpoint
+      // to ensure inventory is properly decremented
+      if (cleanData.status === 'shipped' && shipment?.status !== 'shipped') {
+        console.log('Status changing to shipped, using status update endpoint');
+        console.log('Current shipment status:', shipment?.status);
+        console.log('New status:', cleanData.status);
+        console.log('Remove from inventory:', cleanData.remove_from_inventory);
+        await api.patch(`/shipments/${shipment_id}/status`, {
+          status: 'shipped',
+          tracking_number: cleanData.tracking_number,
+          return_tracking: cleanData.return_tracking,
+          remove_from_inventory: cleanData.remove_from_inventory
+        });
+        // Update other fields that aren't handled by status update
+        const { status, tracking_number, return_tracking, ...otherFields } = cleanData;
+        if (Object.keys(otherFields).length > 0) {
+          await api.put(`/shipments/${shipment_id}`, otherFields);
+        }
+      } else {
+        console.log('Using regular PUT endpoint for update');
+        // For all other updates, use the regular PUT endpoint
+        await api.put(`/shipments/${shipment_id}`, cleanData);
+      }
+      
       success('Shipment updated');
       navigate('/shipments');
     } catch {
@@ -1035,12 +1088,17 @@ const createAppTheme = (darkMode, colorTheme = 'blue') => createTheme({
     primary: colorThemes[colorTheme].primary,
     secondary: colorThemes[colorTheme].secondary,
     background: {
-      default: darkMode ? '#121212' : '#fafafa',
-      paper: darkMode ? '#1e1e1e' : '#ffffff',
+      default: darkMode ? '#0a0a0a' : '#fafafa',
+      paper: darkMode ? '#1a1a1a' : '#ffffff',
     },
     text: {
       primary: darkMode ? '#ffffff' : '#1a1a1a',
       secondary: darkMode ? '#b0b0b0' : '#666666',
+    },
+    divider: darkMode ? '#333333' : '#e0e0e0',
+    action: {
+      hover: darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
+      selected: darkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
     },
   },
   typography: {
@@ -1062,6 +1120,44 @@ const createAppTheme = (darkMode, colorTheme = 'blue') => createTheme({
           boxShadow: darkMode 
             ? '0 2px 8px rgba(0,0,0,0.3)' 
             : '0 2px 8px rgba(0,0,0,0.1)',
+          backgroundColor: darkMode ? '#1a1a1a' : '#ffffff',
+          border: darkMode ? '1px solid #333333' : '1px solid #e0e0e0',
+        },
+      },
+    },
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          backgroundColor: darkMode ? '#1a1a1a' : '#ffffff',
+          border: darkMode ? '1px solid #333333' : '1px solid #e0e0e0',
+        },
+      },
+    },
+    MuiTableContainer: {
+      styleOverrides: {
+        root: {
+          backgroundColor: darkMode ? '#1a1a1a' : '#ffffff',
+        },
+      },
+    },
+    MuiTableHead: {
+      styleOverrides: {
+        root: {
+          backgroundColor: darkMode ? '#2d2d2d' : '#f5f5f5',
+        },
+      },
+    },
+    MuiTableCell: {
+      styleOverrides: {
+        root: {
+          borderBottom: darkMode ? '1px solid #333333' : '1px solid #e0e0e0',
+        },
+      },
+    },
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
         },
       },
     },
@@ -1473,7 +1569,11 @@ function AppLayout() {
 
   return (
     <ThemeProvider theme={theme}>
-      <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <Box sx={{ 
+        display: 'flex', 
+        minHeight: '100vh',
+        backgroundColor: darkMode ? '#0a0a0a' : '#fafafa'
+      }}>
         <CssBaseline />
         
         {/* App Bar */}
@@ -1621,11 +1721,13 @@ function AppLayout() {
             flexGrow: 1,
             p: 3,
             width: { sm: `calc(100% - ${drawerWidth}px)` },
-            mt: 8
+            mt: 8,
+            backgroundColor: darkMode ? '#0a0a0a' : '#fafafa',
+            minHeight: 'calc(100vh - 64px)'
           }}
         >
           <Routes>
-            <Route path="/" element={<CompactOperationsDashboard />} />
+            <Route path="/" element={<ModernDashboard />} />
             
             {/* Ticket Routes - ALL COMPACT */}
             <Route path="/tickets" element={<CompactTickets />} />

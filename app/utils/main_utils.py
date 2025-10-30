@@ -52,11 +52,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def _as_ticket_status(status_str: str) -> schemas.TicketStatus:
-    """Convert string to TicketStatus enum"""
+def _as_ticket_status(status_str) -> schemas.TicketStatus:
+    """Convert model/schema enum or string to schemas.TicketStatus enum"""
+    # Accept SQLAlchemy Enum (models.TicketStatus), Pydantic Enum, or raw string
+    value = getattr(status_str, 'value', status_str)
     try:
-        return schemas.TicketStatus(status_str)
-    except ValueError:
+        return schemas.TicketStatus(str(value))
+    except Exception:
         return schemas.TicketStatus.open
 
 def _as_role(role_str: str) -> models.UserRole:

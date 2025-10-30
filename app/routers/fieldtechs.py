@@ -28,7 +28,7 @@ def create_field_tech(
     )
     crud.create_ticket_audit(db, audit)
     if background_tasks:
-        _enqueue_broadcast(background_tasks, '{"type":"field_techs","action":"create"}')
+        _enqueue_broadcast(background_tasks, '{"type":"field_tech","action":"create"}')
     return result
 
 @router.get("/{field_tech_id}")
@@ -58,7 +58,8 @@ def update_field_tech(
     field_tech_id: str, 
     data: schemas.FieldTechCreate, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Update a field tech"""
     result = crud.update_field_tech(db, field_tech_id=field_tech_id, tech=data)
@@ -71,17 +72,26 @@ def update_field_tech(
         new_value=str(result.field_tech_id if hasattr(result, 'field_tech_id') else result.id)
     )
     crud.create_ticket_audit(db, audit)
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"field_tech","action":"update"}')
+    
     return result
 
 @router.delete("/{field_tech_id}")
 def delete_field_tech(
     field_tech_id: str, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value, models.UserRole.dispatcher.value])),
+    background_tasks: BackgroundTasks = None
 ):
     """Delete a field tech"""
     result = crud.delete_field_tech(db, field_tech_id=field_tech_id)
     if not result:
         raise HTTPException(status_code=404, detail="Field tech not found")
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"field_tech","action":"delete"}')
+    
     return {"success": True, "message": "Field tech deleted successfully"}
 

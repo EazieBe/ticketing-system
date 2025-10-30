@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Paper, Grid, TextField, Button, FormControl, InputLabel, Select, MenuItem,
   Typography, Stack, Autocomplete, Tabs, Tab, Switch, FormControlLabel, Alert
@@ -29,18 +29,104 @@ function CompactTicketFormComplete({ onSubmit, initialValues, isEdit }) {
   });
   
   const [sites, setSites] = useState([]);
+  const [siteInput, setSiteInput] = useState('');
+  const [siteLoading, setSiteLoading] = useState(false);
+  const lastQueryRef = React.useRef('');
+  const apiRef = React.useRef(api);
+  const [siteOpen, setSiteOpen] = useState(false);
   const [users, setUsers] = useState([]);
   const [fieldTechs, setFieldTechs] = useState([]);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [s, u, ft] = await Promise.all([api.get('/sites/'), api.get('/users/'), api.get('/fieldtechs/')]);
-        setSites(s || []); setUsers(u || []); setFieldTechs(ft || []);
-      } catch {}
-    };
-    load();
+  // Keep API ref current
+  React.useEffect(() => {
+    apiRef.current = api;
   }, [api]);
+
+  const load = async () => {
+    try {
+      const [u, ft] = await Promise.all([apiRef.current.get('/users/'), apiRef.current.get('/fieldtechs/')]);
+      setUsers(u || []); setFieldTechs(ft || []);
+    } catch {}
+  };
+
+  useEffect(() => {
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When editing with pre-filled site_id, fetch that site so Autocomplete can show label
+  const fetchInitialSite = async () => {
+    if (values.site_id && !sites.find(s => s.site_id === values.site_id)) {
+      try {
+        const s = await apiRef.current.get(`/sites/${values.site_id}`);
+        if (s) setSites([s]);
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    fetchInitialSite();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values.site_id]);
+
+  // Debounced site search as user types
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      const q = siteInput?.trim();
+      if (!q || q.length < 1) return;
+      
+      // Don't search if the input looks like a selected site (contains " - ")
+      if (q.includes(' - ')) return;
+      
+      setSiteLoading(true);
+      lastQueryRef.current = q;
+      // Ensure popup is visible while searching
+      setSiteOpen(true);
+      try {
+        // If user typed a 4-digit numeric ID, fetch exact and prefer it, but don't early-return
+        if (/^\d{4}$/.test(q)) {
+          try {
+            const exact = await apiRef.current.get(`/sites/${encodeURIComponent(q)}`);
+            if (lastQueryRef.current === q && exact) {
+              var exactResult = exact;
+            }
+          } catch {
+            // fall through to prefix/broad search if exact not found
+          }
+        }
+        const isNumeric = /^\d+$/.test(q);
+        const limit = q.length >= 3 ? (isNumeric ? 500 : 200) : 50;
+        // Prefer precise prefix lookup for site_id to surface exact matches
+        const res = await apiRef.current.get(`/sites/lookup?prefix=${encodeURIComponent(q)}&limit=${limit}`);
+        let options = Array.isArray(res) ? res : [];
+        // If not enough, fall back to broader search
+        if (options.length < Math.min(limit, 10)) {
+          const broad = await apiRef.current.get(`/sites/?search=${encodeURIComponent(q)}&limit=${limit}`);
+          if (Array.isArray(broad)) {
+            const seen = new Set(options.map(o => o.site_id));
+            options = options.concat(broad.filter(b => !seen.has(b.site_id)));
+          }
+        }
+        // Merge exact to top and dedupe
+        if (typeof exactResult === 'object' && exactResult?.site_id) {
+          const seen = new Set();
+          const merged = [exactResult, ...options].filter(o => {
+            const id = o?.site_id;
+            if (!id || seen.has(id)) return false;
+            seen.add(id);
+            return true;
+          });
+          options = merged;
+        }
+        if (lastQueryRef.current === q) {
+          setSites(options);
+        }
+      } catch {}
+      setSiteLoading(false);
+    }, 150);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteInput]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -72,11 +158,71 @@ function CompactTicketFormComplete({ onSubmit, initialValues, isEdit }) {
         {/* TAB 0: BASIC INFO */}
         {activeTab === 0 && (
           <Grid container spacing={1.5}>
-            <Grid item xs={6} md={3}>
-              <Autocomplete size="small" options={sites} getOptionLabel={(o) => `${o.site_id} - ${o.location}`}
-                value={sites.find(s => s.site_id === values.site_id) || null}
-                onChange={(e, v) => c('site_id', v?.site_id || '')}
-                renderInput={(p) => <TextField {...p} label="Site *" required sx={{ '& input': { fontSize: '0.875rem' } }} />}
+            <Grid item xs={6} md={4}>
+              <Autocomplete
+                size="small"
+                freeSolo
+                inputValue={siteInput}
+                open={siteOpen}
+                onOpen={() => {
+                  // Show popup if there’s something to filter or we already have options
+                  setSiteOpen(Boolean(siteInput?.trim()) || sites.length > 0);
+                }}
+                onClose={() => setSiteOpen(false)}
+                selectOnFocus
+                clearOnBlur={false}
+                options={sites}
+                getOptionLabel={(o) => (o && typeof o === 'object') ? `${o.site_id} - ${o.location || ''}` : String(o || '')}
+                isOptionEqualToValue={(o, v) => (o?.site_id || o) === (v?.site_id || v)}
+                value={sites.find(s => s.site_id === values.site_id) || values.site_id || null}
+                onChange={(e, v) => {
+                  if (v && typeof v === 'object') {
+                    c('site_id', v.site_id || '');
+                    setSiteInput(`${v.site_id} - ${v.location || ''}`);
+                    setSiteOpen(false);
+                  } else if (typeof v === 'string' && /^\d{4}$/.test(v) && !sites.find(s => s.site_id === v)) {
+                    // Only fetch if it's a 4-digit string AND not already in our sites array
+                    c('site_id', v);
+                    // Fetch the site to populate label/options seamlessly
+                    apiRef.current.get(`/sites/${encodeURIComponent(v)}`).then((s) => {
+                      if (s) {
+                        setSites((prev) => (prev.find(p => p.site_id === s.site_id) ? prev : [s, ...prev]));
+                        setSiteInput(`${s.site_id} - ${s.location || ''}`);
+                        setSiteOpen(false);
+                      }
+                    }).catch(() => {});
+                  } else if (v == null) {
+                    c('site_id', '');
+                  }
+                }}
+                onInputChange={(e, input) => {
+                  setSiteInput(input);
+                  setSiteOpen(Boolean(input?.trim()));
+                }}
+                includeInputInList
+                autoHighlight
+                filterOptions={(options, state) => {
+                  const q = (state.inputValue || '').toLowerCase().trim();
+                  if (!q) return options;
+                  const isDigits = /^\d+$/.test(q);
+                  const starts = [];
+                  const rest = [];
+                  for (const o of options) {
+                    const id = String(o?.site_id || '').toLowerCase();
+                    const loc = String(o?.location || '').toLowerCase();
+                    const hay = isDigits ? id : `${id} ${loc}`;
+                    if (!hay.includes(q)) continue;
+                    (id.startsWith(q) ? starts : rest).push(o);
+                  }
+                  return [...starts, ...rest].slice(0, 200);
+                }}
+                loading={siteLoading}
+                loadingText="Searching sites..."
+                noOptionsText={(siteInput && siteInput.length >= 1) ? 'No matches' : 'Type to search sites'}
+                renderInput={(p) => (
+                  <TextField {...p} label="Site *" required placeholder="Type site ID or location"
+                    sx={{ '& input': { fontSize: '0.875rem' } }} />
+                )}
               />
             </Grid>
             <Grid item xs={6} md={3}>

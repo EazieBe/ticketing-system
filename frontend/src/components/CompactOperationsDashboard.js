@@ -52,7 +52,8 @@ function CompactOperationsDashboard() {
       const response = viewMode === 'today' 
         ? await get(`/tickets/daily/${selectedDate}`)
         : await get(`/tickets/`);
-      setTickets((response || []).filter(t => t.status !== 'approved'));
+      // Keep all tickets for stats calculation, but filter for display in categorizedTickets
+      setTickets(response || []);
     } catch (err) {
       showError('Failed to load');
       setTickets([]);
@@ -67,14 +68,16 @@ function CompactOperationsDashboard() {
 
   const categorizedTickets = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
+    // Filter out archived tickets for display
+    const activeTickets = tickets.filter(t => t.status !== 'archived');
     return {
-      all: tickets,
-      inhouse: tickets.filter(t => t.type === 'inhouse'),
-      onsite: tickets.filter(t => t.type === 'onsite'),
-      needs_parts: tickets.filter(t => t.status === 'needs_parts'),
-      overdue: tickets.filter(t => {
+      all: activeTickets,
+      inhouse: activeTickets.filter(t => t.type === 'inhouse'),
+      onsite: activeTickets.filter(t => t.type === 'onsite'),
+      needs_parts: activeTickets.filter(t => t.status === 'needs_parts'),
+      overdue: activeTickets.filter(t => {
         const date = t.date_scheduled || t.date_created;
-        return date < today && !['completed', 'closed', 'approved'].includes(t.status);
+        return date < today && !['completed', 'closed', 'archived'].includes(t.status);
       })
     };
   }, [tickets]);
@@ -82,7 +85,7 @@ function CompactOperationsDashboard() {
   const activeTickets = useMemo(() => {
     let filtered = categorizedTickets[tabs[activeTab].key] || [];
     if (statusFilter === 'active') {
-      filtered = filtered.filter(t => !['completed', 'closed', 'approved'].includes(t.status));
+      filtered = filtered.filter(t => !['completed', 'closed', 'archived'].includes(t.status));
     }
     return filtered.sort((a, b) => {
       const pOrder = { emergency: 3, critical: 2, normal: 1 };
@@ -90,12 +93,17 @@ function CompactOperationsDashboard() {
     });
   }, [categorizedTickets, activeTab, statusFilter, tabs]);
 
-  const stats = useMemo(() => ({
-    total: tickets.length,
-    inProgress: tickets.filter(t => ['in_progress', 'checked_in'].includes(t.status)).length,
-    needsParts: categorizedTickets.needs_parts.length,
-    overdue: categorizedTickets.overdue.length
-  }), [tickets, categorizedTickets]);
+  const stats = useMemo(() => {
+    const active = tickets.filter(t => t.status !== 'archived').length;
+    const archived = tickets.filter(t => t.status === 'archived').length;
+    return {
+      total: active,
+      archived: archived,
+      inProgress: tickets.filter(t => ['in_progress', 'checked_in'].includes(t.status)).length,
+      needsParts: categorizedTickets.needs_parts.length,
+      overdue: categorizedTickets.overdue.length
+    };
+  }, [tickets, categorizedTickets]);
 
   const handleSelectAll = (e) => {
     setSelectedTickets(e.target.checked ? new Set(activeTickets.map(t => t.ticket_id)) : new Set());
@@ -170,8 +178,8 @@ function CompactOperationsDashboard() {
           
           <Stack direction="row" spacing={1} alignItems="center">
             {/* Mini Stats */}
-            <Chip label={`${stats.total} Total`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }} />
-            <Chip label={`${stats.inProgress} Active`} size="small" sx={{ bgcolor: 'rgba(76,175,80,0.3)', color: 'white' }} />
+            <Chip label={`${stats.total} Active`} size="small" sx={{ bgcolor: 'rgba(76,175,80,0.3)', color: 'white' }} />
+            <Chip label={`${stats.archived} Archived`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }} />
             {stats.needsParts > 0 && <Chip label={`${stats.needsParts} Parts`} size="small" sx={{ bgcolor: '#f57c00', color: 'white' }} />}
             {stats.overdue > 0 && <Chip label={`${stats.overdue} Overdue`} size="small" sx={{ bgcolor: '#f44336', color: 'white' }} />}
             

@@ -60,7 +60,8 @@ def update_equipment(
     equipment_id: str, 
     data: schemas.EquipmentCreate, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Update an equipment item"""
     result = crud.update_equipment(db, equipment_id=equipment_id, data=data)
@@ -73,17 +74,26 @@ def update_equipment(
         new_value=str(result.equipment_id if hasattr(result, 'equipment_id') else result.id)
     )
     crud.create_ticket_audit(db, audit)
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"equipment","action":"update"}')
+    
     return result
 
 @router.delete("/{equipment_id}")
 def delete_equipment(
     equipment_id: str, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value, models.UserRole.dispatcher.value])),
+    background_tasks: BackgroundTasks = None
 ):
     """Delete an equipment item"""
     result = crud.delete_equipment(db, equipment_id=equipment_id)
     if not result:
         raise HTTPException(status_code=404, detail="Equipment not found")
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"equipment","action":"delete"}')
+    
     return {"success": True, "message": "Equipment deleted successfully"}
 

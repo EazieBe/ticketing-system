@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, We
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List, Dict
 from datetime import datetime, timedelta, timezone
 import secrets
 import string
@@ -78,16 +78,32 @@ from utils.auth import get_current_user, require_role, SECRET_KEY, ALGORITHM, AC
 # Override _enqueue_broadcast with redis_client access
 def _enqueue_broadcast(background_tasks: BackgroundTasks, message: str):
     """Enqueue a WebSocket broadcast message"""
-    if redis_client:
+    if background_tasks:
         background_tasks.add_task(broadcast_message, message)
+    else:
+        # If no background tasks available, broadcast directly (for testing)
+        import asyncio
+        try:
+            asyncio.create_task(broadcast_message(message))
+        except RuntimeError:
+            # No event loop running, skip broadcast
+            print(f"No background tasks available, skipping broadcast: {message}")
 
 async def broadcast_message(message: str):
     """Broadcast a message to all WebSocket connections"""
+    print(f"Broadcasting message: {message}")
     if redis_client:
         try:
             redis_client.publish("websocket_updates", message)
+            print("Message published to Redis")
         except Exception as e:
-            print(f"Failed to broadcast message: {e}")
+            print(f"Redis publish failed: {e}")
+            # Fallback to direct broadcast
+            await manager.broadcast(message)
+    else:
+        # Direct broadcast when Redis is not available
+        print("Using direct broadcast (no Redis)")
+        await manager.broadcast(message)
 
 # Authentication endpoints
 @app.post("/token")
@@ -190,6 +206,49 @@ def refresh_token(refresh_data: dict, db: Session = Depends(get_db)):
         "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
     }
 
+# WebSocket connection manager
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+        self.user_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, user_id: str):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        self.user_connections[user_id] = websocket
+        print(f"WebSocket connected for user: {user_id}")
+
+    def disconnect(self, websocket: WebSocket, user_id: str = None):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        if user_id and user_id in self.user_connections:
+            del self.user_connections[user_id]
+        print(f"WebSocket disconnected for user: {user_id}")
+
+    async def send_personal_message(self, message: str, user_id: str):
+        if user_id in self.user_connections:
+            try:
+                await self.user_connections[user_id].send_text(message)
+            except:
+                # Connection is dead, remove it
+                self.disconnect(self.user_connections[user_id], user_id)
+
+    async def broadcast(self, message: str):
+        disconnected = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except:
+                # Connection is dead, mark for removal
+                disconnected.append(connection)
+        
+        # Remove dead connections
+        for connection in disconnected:
+            if connection in self.active_connections:
+                self.active_connections.remove(connection)
+
+manager = ConnectionManager()
+
 # WebSocket endpoint
 @app.websocket("/ws/updates")
 async def websocket_endpoint(websocket: WebSocket):
@@ -199,6 +258,8 @@ async def websocket_endpoint(websocket: WebSocket):
     if not token:
         await websocket.close(code=4401)
         return
+    
+    user_id = None
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
@@ -209,27 +270,73 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=4401)
         return
 
-    await websocket.accept()
+    await manager.connect(websocket, user_id)
     
     try:
-        # Simple keepalive implementation (Redis not required for basic functionality)
-        while True:
-            # Keep connection alive by receiving messages
-            # In a full implementation, you'd process these messages
+        print(f"WebSocket connection established for user: {user_id}")
+        
+        # If Redis is available, subscribe to updates
+        if redis_client:
             try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-                # Echo back for now (can be extended with actual message handling)
-                await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
-            except asyncio.TimeoutError:
-                # Send ping to keep connection alive
-                await websocket.send_text(json.dumps({"type": "ping", "timestamp": datetime.now(timezone.utc).isoformat()}))
+                pubsub = redis_client.pubsub()
+                pubsub.subscribe("websocket_updates")
+                print("Subscribed to Redis websocket_updates channel")
+                
+                # Handle both Redis messages and client pings
+                while True:
+                    try:
+                        # Check for Redis messages (non-blocking)
+                        message = pubsub.get_message(timeout=0.5)
+                        if message and message['type'] == 'message':
+                            # Broadcast Redis message to this client
+                            await websocket.send_text(message['data'])
+                        
+                        # Check for client messages (with timeout)
+                        try:
+                            data = await asyncio.wait_for(websocket.receive_text(), timeout=0.5)
+                            # Echo back pings
+                            if data:
+                                parsed_data = json.loads(data)
+                                if parsed_data.get('type') == 'ping':
+                                    await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
+                        except asyncio.TimeoutError:
+                            # No client message, continue loop
+                            pass
+                        except json.JSONDecodeError:
+                            # Invalid JSON, ignore
+                            pass
+                            
+                        # Reduce CPU usage with longer sleep
+                        await asyncio.sleep(0.5)
+                        
+                    except Exception as e:
+                        print(f"WebSocket loop error: {e}")
+                        break
+            except Exception as e:
+                print(f"Redis subscription failed: {e}")
+                # Fall back to simple keepalive
+                while True:
+                    try:
+                        data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                        await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
+                    except asyncio.TimeoutError:
+                        await websocket.send_text(json.dumps({"type": "ping", "timestamp": datetime.now(timezone.utc).isoformat()}))
+        else:
+            # Fallback without Redis - just keepalive
+            print("No Redis available, using simple keepalive")
+            while True:
+                try:
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                    # Echo back for now
+                    await websocket.send_text(json.dumps({"type": "pong", "data": "connected"}))
+                except asyncio.TimeoutError:
+                    # Send ping to keep connection alive
+                    await websocket.send_text(json.dumps({"type": "ping", "timestamp": datetime.now(timezone.utc).isoformat()}))
+                    
     except Exception as e:
-        print(f"WebSocket disconnected: {e}")
+        print(f"WebSocket disconnected for user {user_id}: {e}")
     finally:
-        try:
-            await websocket.close()
-        except:
-            pass
+        manager.disconnect(websocket, user_id)
 
 # Health check
 @app.get("/health")

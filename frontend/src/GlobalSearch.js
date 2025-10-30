@@ -24,25 +24,49 @@ function GlobalSearch() {
   const navigate = useNavigate();
   const api = useApi();
   const [copyFeedback, setCopyFeedback] = useState('');
+  const copyTimeoutRef = React.useRef(null);
+  const apiRef = React.useRef(api);
 
-  const handleChange = async (e) => {
+  // Keep API ref current
+  React.useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
+
+  // Cleanup timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleChange = (e) => {
     const val = e.target.value;
     setQuery(val);
-    if (val.length >= 2) {
-      try {
-        const res = await api.get(`/search?q=${encodeURIComponent(val)}`);
-        setResults(res?.results || []);
-        setOpen(true);
-        setHighlight(0);
-      } catch {
+  };
+
+  // Debounced search effect
+  React.useEffect(() => {
+    const timeoutId = setTimeout(async () => {
+      if (query.length >= 2) {
+        try {
+          const res = await apiRef.current.get(`/search?q=${encodeURIComponent(query)}`);
+          setResults(res?.results || []);
+          setOpen(true);
+          setHighlight(0);
+        } catch {
+          setResults([]);
+          setOpen(false);
+        }
+      } else {
         setResults([]);
         setOpen(false);
       }
-    } else {
-      setResults([]);
-      setOpen(false);
-    }
-  };
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [query]);
 
   const handleKeyDown = (e) => {
     if (!open) return;
@@ -66,7 +90,8 @@ function GlobalSearch() {
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text);
     setCopyFeedback('Copied!');
-    setTimeout(() => setCopyFeedback(''), 1000);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = setTimeout(() => setCopyFeedback(''), 1000);
   };
 
   // Group results by type

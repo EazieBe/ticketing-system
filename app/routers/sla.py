@@ -58,7 +58,8 @@ def update_sla_rule(
     rule_id: str, 
     data: schemas.SLARuleUpdate, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """Update an SLA rule"""
     result = crud.update_sla_rule(db, rule_id=rule_id, rule=data)
@@ -71,17 +72,26 @@ def update_sla_rule(
         new_value=str(result.rule_id if hasattr(result, 'rule_id') else result.id)
     )
     crud.create_ticket_audit(db, audit)
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"sla","action":"update"}')
+    
     return result
 
 @router.delete("/{rule_id}")
 def delete_sla_rule(
     rule_id: str, 
     db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value, models.UserRole.dispatcher.value])),
+    background_tasks: BackgroundTasks = None
 ):
     """Delete an SLA rule"""
     result = crud.delete_sla_rule(db, rule_id=rule_id)
     if not result:
         raise HTTPException(status_code=404, detail="SLA rule not found")
+    
+    if background_tasks:
+        _enqueue_broadcast(background_tasks, '{"type":"sla","action":"delete"}')
+    
     return {"success": True, "message": "SLA rule deleted successfully"}
 

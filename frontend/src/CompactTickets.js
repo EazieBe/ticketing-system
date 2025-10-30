@@ -12,16 +12,22 @@ import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
 import { useDataSync } from './contexts/DataSyncContext';
+import { canDelete } from './utils/permissions';
 
 function CompactTickets() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const api = useApi();
   const { success, error: showError } = useToast();
+  const apiRef = React.useRef(api);
   const { updateTrigger } = useDataSync('tickets');
   
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
+  const [total, setTotal] = useState(0);
+  const [archivedCount, setArchivedCount] = useState(0);
   const [selected, setSelected] = useState(new Set());
   const [filters, setFilters] = useState({ type: 'all', status: 'active', priority: 'all', search: '' });
   const [columnAnchor, setColumnAnchor] = useState(null);
@@ -35,11 +41,47 @@ function CompactTickets() {
     date: true
   });
 
+  // Keep API ref current
+  React.useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
+
   const fetchTickets = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/tickets/');
-      setTickets((response || []).filter(t => t.status !== 'approved'));
+      const params = new URLSearchParams();
+      params.set('limit', String(rowsPerPage));
+      params.set('skip', String(page * rowsPerPage));
+      if (filters.type !== 'all') params.set('ticket_type', filters.type);
+      if (filters.status !== 'all') params.set('status', filters.status === 'active' ? '' : filters.status);
+      if (filters.priority !== 'all') params.set('priority', filters.priority);
+      if (filters.search) params.set('search', filters.search);
+      // Fetch archived count first
+      const archivedParams = new URLSearchParams();
+      if (filters.type !== 'all') archivedParams.set('ticket_type', filters.type);
+      if (filters.priority !== 'all') archivedParams.set('priority', filters.priority);
+      if (filters.search) archivedParams.set('search', filters.search);
+      archivedParams.set('status', 'archived');
+      
+      const archivedRes = await apiRef.current.get(`/tickets/count?${archivedParams.toString()}`);
+      const archivedCount = archivedRes?.count ?? 0;
+      setArchivedCount(archivedCount);
+      
+      // Fetch total count (all tickets)
+      const countParams = new URLSearchParams();
+      if (filters.type !== 'all') countParams.set('ticket_type', filters.type);
+      if (filters.status !== 'all' && filters.status !== 'active') countParams.set('status', filters.status);
+      if (filters.priority !== 'all') countParams.set('priority', filters.priority);
+      if (filters.search) countParams.set('search', filters.search);
+      const countRes = await apiRef.current.get(`/tickets/count?${countParams.toString()}`);
+      const totalCount = countRes?.count ?? 0;
+      
+      // For active tickets, subtract archived count from total
+      const activeCount = filters.status === 'active' ? totalCount - archivedCount : totalCount;
+      setTotal(activeCount);
+      
+      const response = await apiRef.current.get(`/tickets/?${params.toString()}`);
+      setTickets((response || []).filter(t => t.status !== 'archived'));
     } catch (err) {
       showError('Failed to load tickets');
     } finally {
@@ -50,24 +92,17 @@ function CompactTickets() {
   useEffect(() => {
     fetchTickets();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateTrigger]);
+  }, [updateTrigger, page, rowsPerPage]);
 
   const filtered = useMemo(() => {
     let result = tickets;
     
     if (filters.type !== 'all') result = result.filter(t => t.type === filters.type);
-    if (filters.status === 'active') result = result.filter(t => !['completed', 'closed', 'approved'].includes(t.status));
+    if (filters.status === 'active') result = result.filter(t => t.status !== 'archived');
+    else if (filters.status === 'completed') result = result.filter(t => t.status === 'archived');
     else if (filters.status !== 'all') result = result.filter(t => t.status === filters.status);
     if (filters.priority !== 'all') result = result.filter(t => t.priority === filters.priority);
-    if (filters.search) {
-      const s = filters.search.toLowerCase();
-      result = result.filter(t => 
-        t.ticket_id?.toLowerCase().includes(s) ||
-        t.site_id?.toLowerCase().includes(s) ||
-        t.site?.location?.toLowerCase().includes(s) ||
-        t.notes?.toLowerCase().includes(s)
-      );
-    }
+    // server-side search now
     
     return result.sort((a, b) => {
       const pOrder = { emergency: 3, critical: 2, normal: 1 };
@@ -78,9 +113,8 @@ function CompactTickets() {
   const quickAction = async (ticketId, action, e) => {
     e.stopPropagation();
     try {
-      if (action === 'in') await api.put(`/tickets/${ticketId}/check-in`, {});
-      else if (action === 'out') await api.put(`/tickets/${ticketId}/check-out`, {});
-      else if (action === 'parts') await api.patch(`/tickets/${ticketId}/status`, { status: 'needs_parts' });
+      if (action === 'claim') await api.put(`/tickets/${ticketId}/claim`, {});
+      else if (action === 'complete') await api.put(`/tickets/${ticketId}/complete`, {});
       success('Updated');
       fetchTickets();
     } catch {
@@ -119,7 +153,9 @@ function CompactTickets() {
     <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Compact Header */}
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-        <Typography variant="h6" fontWeight="bold">Tickets ({filtered.length})</Typography>
+        <Typography variant="h6" fontWeight="bold">
+          Tickets ({total || filtered.length}) • Archived ({archivedCount})
+        </Typography>
         <Stack direction="row" spacing={1}>
           <Button size="small" variant="contained" startIcon={<Add />} onClick={() => navigate('/tickets/new')}>
             New Ticket
@@ -165,7 +201,7 @@ function CompactTickets() {
               <Button size="small" variant="contained" startIcon={<DoneAll />} onClick={bulkApprove}>Approve</Button>
             </>
           ) : (
-            <Typography variant="caption" color="text.secondary">{filtered.length} tickets</Typography>
+            <Typography variant="caption" color="text.secondary">{total || filtered.length} tickets</Typography>
           )}
           
           <TextField
@@ -266,9 +302,19 @@ function CompactTickets() {
                     
                     {visibleColumns.site && (
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontSize: '0.75rem' }}>
-                          {t.site?.location || t.site_id}
-                        </Typography>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Typography variant="body2" sx={{ fontSize: '0.75rem', minWidth: 160 }}>
+                            {t.site_id}{t.site?.location ? ` - ${t.site.location}` : ''}
+                          </Typography>
+                          <Stack spacing={0} sx={{ lineHeight: 1 }}>
+                            <Typography variant="caption" sx={{ fontSize: '0.68rem' }}>C:{t.created_at ? new Date(t.created_at).toLocaleString() : '-'}</Typography>
+                            <Typography variant="caption" sx={{ fontSize: '0.68rem' }}>Cl:{t.claimed_at ? new Date(t.claimed_at).toLocaleString() : '-'}</Typography>
+                          </Stack>
+                          <Stack spacing={0} sx={{ lineHeight: 1 }}>
+                            <Typography variant="caption" sx={{ fontSize: '0.68rem' }}>Cm:{t.end_time || t.check_out_time ? new Date(t.end_time || t.check_out_time).toLocaleString() : '-'}</Typography>
+                            <Typography variant="caption" sx={{ fontSize: '0.68rem' }}>Ap:{t.approved_at ? new Date(t.approved_at).toLocaleString() : '-'}</Typography>
+                          </Stack>
+                        </Stack>
                       </TableCell>
                     )}
                     
@@ -290,32 +336,34 @@ function CompactTickets() {
                       </TableCell>
                     )}
                     
-                    {visibleColumns.date && (
-                      <TableCell>
-                        <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
-                          {new Date(t.date_scheduled || t.date_created).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </Typography>
-                      </TableCell>
-                    )}
+                {visibleColumns.date && (
+                  <TableCell>
+                    <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+                      {t.date_scheduled ? new Date(t.date_scheduled).toLocaleDateString() : ''}
+                    </Typography>
+                  </TableCell>
+                )}
                     
                     {visibleColumns.assigned && (
                       <TableCell>
                         <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
-                          {t.assigned_user?.name?.split(' ')[0] || '-'}
+                          {(t.claimed_user?.name || t.assigned_user?.name || '-')}
                         </Typography>
                       </TableCell>
                     )}
                     
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Stack direction="row" spacing={0.5}>
-                        {t.type === 'onsite' && !t.check_in_time && (
-                          <Tooltip title="Check In"><IconButton size="small" color="success" onClick={(e) => quickAction(t.ticket_id, 'in', e)} sx={{ p: 0.3 }}>
-                            <PlayArrow sx={{ fontSize: 16 }} />
-                          </IconButton></Tooltip>
+                        {!['completed','closed','approved'].includes(t.status) && (
+                          <Tooltip title={t.claimed_at ? 'Complete' : 'Claim'}>
+                            <IconButton size="small" color="success" onClick={(e) => quickAction(t.ticket_id, t.claimed_at ? 'complete' : 'claim', e)} sx={{ p: 0.3 }}>
+                              {t.claimed_at ? <CheckCircle sx={{ fontSize: 16 }} /> : <PlayArrow sx={{ fontSize: 16 }} />}
+                            </IconButton>
+                          </Tooltip>
                         )}
-                        {t.type === 'onsite' && t.check_in_time && !t.check_out_time && (
-                          <Tooltip title="Check Out"><IconButton size="small" color="success" onClick={(e) => quickAction(t.ticket_id, 'out', e)} sx={{ p: 0.3 }}>
-                            <CheckCircle sx={{ fontSize: 16 }} />
+                        {t.status === 'completed' && (user?.role === 'admin' || user?.role === 'dispatcher') && (
+                          <Tooltip title="Approve"><IconButton size="small" color="primary" onClick={async (e) => { e.stopPropagation(); try { await api.post(`/tickets/${t.ticket_id}/approve?approve=true`); success('Approved'); fetchTickets(); } catch { showError('Failed'); } }} sx={{ p: 0.3 }}>
+                            <DoneAll sx={{ fontSize: 16 }} />
                           </IconButton></Tooltip>
                         )}
                         <Tooltip title="View"><IconButton size="small" sx={{ p: 0.3 }}>
@@ -330,6 +378,23 @@ function CompactTickets() {
           </Table>
         </TableContainer>
       </Paper>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
+        <Typography variant="caption">
+          Showing {total === 0 ? 0 : page * rowsPerPage + 1}-{Math.min((page + 1) * rowsPerPage, total)} of {total}
+        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <FormControl size="small">
+            <Select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(0); }}>
+              <MenuItem value={50}>50</MenuItem>
+              <MenuItem value={100}>100</MenuItem>
+              <MenuItem value={200}>200</MenuItem>
+            </Select>
+          </FormControl>
+          <Button size="small" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Prev</Button>
+          <Button size="small" disabled={(page + 1) * rowsPerPage >= total} onClick={() => setPage((p) => p + 1)}>Next</Button>
+        </Stack>
+      </Box>
 
       {/* Column Visibility Popover */}
       <Popover
