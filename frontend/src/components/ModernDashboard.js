@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Paper, Grid, Card, CardContent, CardActions, Button,
@@ -272,6 +272,15 @@ const PerformanceChart = ({ title, data, loading }) => {
   );
 };
 
+const Clock = memo(() => {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return <>{now.toLocaleTimeString()}</>;
+});
+
 function ModernDashboard() {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -289,7 +298,6 @@ function ModernDashboard() {
   const [shipments, setShipments] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [inventory, setInventory] = useState([]);
-  const [currentTime, setCurrentTime] = useState(new Date());
   const [widgetSettings, setWidgetSettings] = useState({
     showTickets: true,
     showShipments: true,
@@ -303,11 +311,7 @@ function ModernDashboard() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedTickets, setSelectedTickets] = useState(new Set());
 
-  // Live clock
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  // Clock moved to isolated component to avoid re-rendering the whole dashboard each second
 
   const fetchData = useCallback(async () => {
     try {
@@ -541,7 +545,7 @@ function ModernDashboard() {
                 animation: isConnected ? 'pulse 2s infinite' : 'none',
                 '@keyframes pulse': { '0%, 100%': { opacity: 1 }, '50%': { opacity: 0.3 } }
               }} />
-              {isConnected ? 'Live Updates' : 'Offline Mode'} • {currentTime.toLocaleTimeString()}
+              {isConnected ? 'Live Updates' : 'Offline Mode'} • <Clock />
             </Typography>
           </Box>
           

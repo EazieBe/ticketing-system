@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import useWebSocket from '../hooks/useWebSocket';
 import { getWebSocketFullUrl } from '../config';
 import { useDataSync } from './DataSyncContext';
@@ -10,6 +10,8 @@ export function NotificationProvider({ children }) {
   const [isConnected, setIsConnected] = useState(false);
   const [wsUrl, setWsUrl] = useState(getWebSocketFullUrl());
   const { triggerRefresh } = useDataSync();
+  const lastTriggerAtRef = useRef({}); // debounce per message type
+  const GLOBAL_DEBOUNCE_MS = 400;
 
   // Update WebSocket URL when token changes
   useEffect(() => {
@@ -43,8 +45,15 @@ export function NotificationProvider({ children }) {
   const handleWebSocketMessage = useCallback((message) => {
     if (!message || !message.type) return;
 
-    // Trigger data refresh for all subscribed components
-    triggerRefresh('all', message);
+    // Debounce refresh triggers per message type to avoid bursts
+    const now = Date.now();
+    const t = message.type || 'all';
+    const last = lastTriggerAtRef.current[t] || 0;
+    if (now - last >= GLOBAL_DEBOUNCE_MS) {
+      lastTriggerAtRef.current[t] = now;
+      // Trigger refresh keyed to the message type
+      triggerRefresh(t, message);
+    }
 
     // Create notification based on message type
     let notificationMessage = '';
