@@ -85,7 +85,7 @@ app.include_router(search.router)
 # Import authentication from auth module
 # Ensure SECRET_KEY present from settings
 os.environ.setdefault("SECRET_KEY", settings.SECRET_KEY)
-from utils.auth import get_current_user, require_role, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from utils.auth import get_current_user, require_role, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, rate_limit
 
 # Override _enqueue_broadcast with redis_client access
 def _enqueue_broadcast(background_tasks: BackgroundTasks, message: str):
@@ -123,7 +123,11 @@ async def get_redis() -> Redis | None:
 
 # Authentication endpoints
 @app.post("/token")
-def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login_form(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+    _rl: None = Depends(rate_limit("login", limit=10, window_seconds=60))
+):
     """Login endpoint (OAuth2 form)"""
     user = crud.get_user_by_email(db, email=form_data.username)
     if not user or not user.active or not verify_password(form_data.password, user.hashed_password):
@@ -146,7 +150,11 @@ def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
     }
 
 @app.post("/login")
-def login_json(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login_json(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+    _rl: None = Depends(rate_limit("login", limit=10, window_seconds=60))
+):
     """Login endpoint (form-encoded for frontend)"""
     user = crud.get_user_by_email(db, email=form_data.username)
     if not user or not user.active or not verify_password(form_data.password, user.hashed_password):
@@ -251,7 +259,7 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
         if user_id and user_id in self.user_connections:
             del self.user_connections[user_id]
-        print(f"WebSocket disconnected for user: {user_id}")
+        logger.info(f"WebSocket disconnected for user: {user_id}")
 
     async def send_personal_message(self, message: str, user_id: str):
         if user_id in self.user_connections:

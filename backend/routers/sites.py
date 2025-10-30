@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Response
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timezone
@@ -14,11 +14,15 @@ def lookup_sites(
     prefix: str,
     limit: int = 50,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    response: Response = None
 ):
     """Fast lookup for Autocomplete: prefix match on site_id only"""
     q = db.query(models.Site).filter(models.Site.site_id.ilike(f"{prefix}%"))
-    return q.order_by(models.Site.site_id.asc()).limit(limit).all()
+    items = q.order_by(models.Site.site_id.asc()).limit(limit).all()
+    if response is not None:
+        response.headers["Cache-Control"] = "public, max-age=30"
+    return items
 
 @router.post("/", response_model=schemas.SiteOut)
 def create_site(
@@ -47,9 +51,13 @@ def sites_count(
     region: str | None = None,
     search: str | None = None,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    response: Response = None
 ):
-    return {"count": crud.count_sites(db, region=region, search=search)}
+    count = crud.count_sites(db, region=region, search=search)
+    if response is not None:
+        response.headers["Cache-Control"] = "public, max-age=15"
+    return {"count": count}
 
 @router.get("/{site_id}", response_model=schemas.SiteOut)
 def get_site(
@@ -66,7 +74,7 @@ def get_site(
 @router.get("/", response_model=List[schemas.SiteOut])
 def list_sites(
     skip: int = 0, 
-    limit: int = 100, 
+    limit: int = 50, 
     region: str | None = None,
     search: str | None = None,
     db: Session = Depends(get_db), 

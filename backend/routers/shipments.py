@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Response
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -143,14 +143,18 @@ def shipments_count(
     search: str | None = None,
     include_archived: bool = False,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    response: Response = None
 ):
-    return {"count": crud.count_shipments(db, site_id=site_id, ticket_id=ticket_id, search=search, include_archived=include_archived)}
+    count = crud.count_shipments(db, site_id=site_id, ticket_id=ticket_id, search=search, include_archived=include_archived)
+    if response is not None:
+        response.headers["Cache-Control"] = "public, max-age=15"
+    return {"count": count}
 
 @router.get("/")
 def list_shipments(
     skip: int = 0, 
-    limit: int = 100, 
+    limit: int = 50, 
     site_id: str | None = None,
     ticket_id: str | None = None,
     search: str | None = None,

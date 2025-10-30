@@ -33,9 +33,10 @@ def tickets_count(
     ticket_type: Optional[str] = None,
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    response: Response = None
 ):
-    return {"count": crud.count_tickets(
+    count = crud.count_tickets(
         db,
         status=status,
         priority=priority,
@@ -43,7 +44,10 @@ def tickets_count(
         site_id=site_id,
         ticket_type=ticket_type,
         search=search,
-    )}
+    )
+    if response is not None:
+        response.headers["Cache-Control"] = "public, max-age=15"
+    return {"count": count}
 
 @router.post("/", response_model=schemas.TicketOut)
 def create_ticket(
@@ -77,7 +81,7 @@ def create_ticket(
 @router.get("/", response_model=List[schemas.TicketOut])
 def list_tickets(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 50,
     status: Optional[str] = None,
     priority: Optional[str] = None,
     assigned_user_id: Optional[str] = None,
