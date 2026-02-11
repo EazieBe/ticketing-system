@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import useApi from '../hooks/useApi';
+import useReadableChip from '../hooks/useReadableChip';
 import dayjs from 'dayjs';
 
 const workflowSteps = [
@@ -99,6 +100,7 @@ const automationRules = [
 function WorkflowAutomation({ ticket, onWorkflowUpdate }) {
   const { user } = useAuth();
   const api = useApi();
+  const { getChipSx } = useReadableChip();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeStep, setActiveStep] = useState(0);
@@ -274,7 +276,7 @@ function WorkflowAutomation({ ticket, onWorkflowUpdate }) {
                       {step.label}
                     </Typography>
                     {index === activeStep && (
-                      <Chip label="Current" size="small" color="primary" />
+                      <Chip label="Current" size="small" sx={getChipSx('primary')} />
                     )}
                   </Box>
                 </StepLabel>

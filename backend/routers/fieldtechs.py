@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timezone
 
 import models, schemas, crud
@@ -45,13 +45,16 @@ def get_field_tech(
 
 @router.get("/")
 def list_field_techs(
-    skip: int = 0, 
-    limit: int = 100, 
-    db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
+    skip: int = 0,
+    limit: int = 100,
+    region: Optional[str] = None,
+    company_id: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
-    """List all field techs with pagination"""
-    return crud.get_field_techs(db, skip=skip, limit=limit)
+    """List field techs with optional region, company_id, and search (tech name, company name, city, state, phone)."""
+    return crud.get_field_techs(db, skip=skip, limit=limit, region=region, company_id=company_id, search=search)
 
 @router.put("/{field_tech_id}")
 def update_field_tech(
@@ -80,13 +83,16 @@ def update_field_tech(
 
 @router.delete("/{field_tech_id}")
 def delete_field_tech(
-    field_tech_id: str, 
-    db: Session = Depends(get_db), 
+    field_tech_id: str,
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(require_role([models.UserRole.admin.value, models.UserRole.dispatcher.value])),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
 ):
-    """Delete a field tech"""
-    result = crud.delete_field_tech(db, field_tech_id=field_tech_id)
+    """Delete a field tech (fails if tech has assigned tickets)."""
+    try:
+        result = crud.delete_field_tech(db, field_tech_id=field_tech_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Field tech not found")
     

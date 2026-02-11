@@ -11,12 +11,18 @@ import {
 } from '@mui/icons-material';
 
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
+import useReadableChip from './hooks/useReadableChip';
 import { useDataSync } from './contexts/DataSyncContext';
 import { formatAuditTimestamp, formatDetailedAuditTimestamp, getCurrentUTCTimestamp } from './utils/timezone';
 import dayjs from 'dayjs';
 
 function Audit() {
   const api = useApi();
+  const { codeBlockBg } = useThemeTokens();
+  const { getChipSx } = useReadableChip();
+
+  const getChipSxForVariant = (variant) => getChipSx(variant === 'secondary' ? 'default' : variant);
   const { updateTrigger } = useDataSync('all');
   const [audits, setAudits] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -386,17 +392,18 @@ function Audit() {
       <Box sx={{ mb: 2 }}>
         <Chip 
           label={`${audits.length} total entries`} 
-          color="primary" 
-          sx={{ mr: 1 }}
+          size="small"
+          sx={{ mr: 1, ...getChipSx('primary') }}
         />
         <Chip 
           label={`${filteredAudits.length} filtered results`} 
-          color="info" 
-          sx={{ mr: 1 }}
+          size="small"
+          sx={{ mr: 1, ...getChipSx('info') }}
         />
         <Chip 
           label={`${uniqueFields.length} unique fields`} 
-          color="secondary"
+          size="small"
+          sx={getChipSx('neutral')}
         />
       </Box>
 
@@ -456,14 +463,14 @@ function Audit() {
                       <Chip 
                         label={formatFieldName(audit.field_changed)} 
                         size="small" 
-                        color={getEntityColor('ticket')}
+                        sx={getChipSxForVariant(getEntityColor('ticket'))}
                       />
                     </TableCell>
                     <TableCell>
                       <Chip 
                         label={getChangeType(audit.old_value, audit.new_value)} 
                         size="small" 
-                        color={getChangeColor(audit.old_value, audit.new_value)}
+                        sx={getChipSx(getChangeColor(audit.old_value, audit.new_value))}
                       />
                     </TableCell>
                     <TableCell>
@@ -562,15 +569,15 @@ function Audit() {
                           <Typography variant="body2" color="text.secondary">Field Changed</Typography>
                           <Chip 
                             label={selectedAudit.field_changed} 
-                            color="primary" 
-                            sx={{ mt: 1 }}
+                            size="small"
+                            sx={{ mt: 1, ...getChipSx('primary') }}
                           />
                         </Grid>
                         <Grid item xs={6}>
                           <Typography variant="body2" color="text.secondary">Old Value</Typography>
                           <Typography variant="body1" sx={{ 
                             fontFamily: 'monospace', 
-                            backgroundColor: 'grey.100', 
+                            backgroundColor: codeBlockBg, 
                             p: 1, 
                             borderRadius: 1,
                             wordBreak: 'break-word'
@@ -582,7 +589,7 @@ function Audit() {
                           <Typography variant="body2" color="text.secondary">New Value</Typography>
                           <Typography variant="body1" sx={{ 
                             fontFamily: 'monospace', 
-                            backgroundColor: 'grey.100', 
+                            backgroundColor: codeBlockBg, 
                             p: 1, 
                             borderRadius: 1,
                             wordBreak: 'break-word'
@@ -594,8 +601,8 @@ function Audit() {
                           <Typography variant="body2" color="text.secondary">Change Type</Typography>
                           <Chip 
                             label={getChangeType(selectedAudit.old_value, selectedAudit.new_value)} 
-                            color={getChangeColor(selectedAudit.old_value, selectedAudit.new_value)}
-                            sx={{ mt: 1 }}
+                            size="small"
+                            sx={{ mt: 1, ...getChipSx(getChangeColor(selectedAudit.old_value, selectedAudit.new_value) || 'default') }}
                           />
                         </Grid>
                       </Grid>

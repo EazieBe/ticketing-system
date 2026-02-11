@@ -2,9 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Paper, Grid, TextField, Button, FormControl, InputLabel, Select, MenuItem, Typography, Stack, Autocomplete, Switch, FormControlLabel, Box, IconButton, Divider } from '@mui/material';
 import { Save, Cancel, Add, Delete } from '@mui/icons-material';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
 
 function CompactShipmentForm({ onSubmit, initialValues, isEdit, showHeader = true }) {
   const api = useApi();
+  const { border } = useThemeTokens();
   const [values, setValues] = useState({
     site_id: '', ticket_id: '', item_id: '', what_is_being_shipped: '', shipping_preference: '',
     charges_out: '', charges_in: '', tracking_number: '', return_tracking: '', date_shipped: '',
@@ -348,7 +350,7 @@ function CompactShipmentForm({ onSubmit, initialValues, isEdit, showHeader = tru
         <Grid item xs={12}>
           <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Items to Ship</Typography>
           {items.map((item, index) => (
-            <Box key={item.id} sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+            <Box key={item.id} sx={{ mb: 2, p: 2, border, borderRadius: 1 }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="subtitle2">Item {index + 1}</Typography>
                 {items.length > 1 && (

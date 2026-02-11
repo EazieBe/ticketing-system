@@ -57,7 +57,7 @@ def success_response(
     
     return JSONResponse(
         status_code=200,
-        content=response.dict()
+        content=response.model_dump()
     )
 
 def created_response(
@@ -85,7 +85,7 @@ def created_response(
     
     return JSONResponse(
         status_code=201,
-        content=response.dict()
+        content=response.model_dump()
     )
 
 def paginated_response(
@@ -131,7 +131,7 @@ def paginated_response(
     
     return JSONResponse(
         status_code=200,
-        content=response.dict()
+        content=response.model_dump()
     )
 
 def error_response(
@@ -169,7 +169,7 @@ def error_response(
     
     return JSONResponse(
         status_code=status_code,
-        content=response.dict()
+        content=response.model_dump()
     )
 
 def not_found_response(

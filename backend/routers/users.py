@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timezone
 
 import models, schemas, crud
 from database import get_db
-from main import get_current_user, require_role, audit_log, generate_temp_password, get_password_hash
+from utils.auth import get_current_user, require_role
+from utils.main_utils import audit_log, generate_temp_password, get_password_hash
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -31,7 +32,7 @@ def create_user(
         must_change_password = True
 
     # Create user data with proper password handling
-    user_data = user.dict()
+    user_data = user.model_dump()
     user_data['hashed_password'] = hashed_password
     user_data['preferences'] = user_data.get('preferences') or "{}"  # Ensure non-null TEXT
     user_data['must_change_password'] = must_change_password
@@ -136,7 +137,7 @@ def delete_user(
 @router.post("/{user_id}/change_password")
 def change_password(
     user_id: str, 
-    password_data: dict = Body(...), 
+    password_data: schemas.ChangePasswordRequest, 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
@@ -147,11 +148,7 @@ def change_password(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    new_password = password_data.get("new_password")
-    if not new_password:
-        raise HTTPException(status_code=400, detail="new_password is required")
-    
-    db_user.hashed_password = get_password_hash(new_password)
+    db_user.hashed_password = get_password_hash(password_data.new_password)
     db_user.must_change_password = False
     db.commit()
     db.refresh(db_user)

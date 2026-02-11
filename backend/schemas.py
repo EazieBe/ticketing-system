@@ -45,8 +45,32 @@ class UserOut(UserBase):
     
     model_config = ConfigDict(from_attributes=True)
 
+class FieldTechCompanyBase(BaseModel):
+    company_name: str
+    company_number: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[str] = None
+    region: Optional[str] = None
+    notes: Optional[str] = None
+    service_radius_miles: Optional[int] = None  # Default service area radius from address (e.g. 50, 100)
+
+class FieldTechCompanyCreate(FieldTechCompanyBase):
+    pass
+
+class FieldTechCompanyOut(FieldTechCompanyBase):
+    company_id: str
+    created_at: Optional[datetime] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    techs: Optional[List['FieldTechOutNested']] = None
+    model_config = ConfigDict(from_attributes=True)
+
 class FieldTechBase(BaseModel):
+    company_id: Optional[str] = None
     name: str
+    tech_number: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[EmailStr] = None
     region: Optional[str] = None
@@ -54,13 +78,19 @@ class FieldTechBase(BaseModel):
     state: Optional[str] = None
     zip: Optional[str] = None
     notes: Optional[str] = None
+    service_radius_miles: Optional[int] = None  # How far this tech will travel from company address
 
 class FieldTechCreate(FieldTechBase):
     pass
 
+class FieldTechOutNested(FieldTechBase):
+    """Tech payload when nested under a company (no company back-reference to avoid recursion)."""
+    field_tech_id: str
+    model_config = ConfigDict(from_attributes=True)
+
 class FieldTechOut(FieldTechBase):
     field_tech_id: str
-    
+    company: Optional['FieldTechCompanyOut'] = None
     model_config = ConfigDict(from_attributes=True)
 
 class SiteBase(BaseModel):
@@ -197,6 +227,7 @@ class TicketBase(BaseModel):
     # Quality and Follow-up
     quality_score: Optional[int] = None
     customer_satisfaction: Optional[int] = None
+    tech_rating: Optional[int] = None  # Onsite tech rating (1-5), aggregated per tech
     follow_up_required: Optional[bool] = False
     follow_up_date: Optional[date] = None
     follow_up_notes: Optional[str] = None
@@ -273,6 +304,7 @@ class TicketUpdate(BaseModel):
     # Quality and Follow-up
     quality_score: Optional[int] = None
     customer_satisfaction: Optional[int] = None
+    tech_rating: Optional[int] = None
     follow_up_required: Optional[bool] = None
     follow_up_date: Optional[date] = None
     follow_up_notes: Optional[str] = None
@@ -368,6 +400,8 @@ class ShipmentStatusUpdate(BaseModel):
     tracking_number: Optional[str] = None
     return_tracking: Optional[str] = None
     remove_from_inventory: Optional[bool] = None
+    charges_out: Optional[float] = None
+    charges_in: Optional[float] = None
 
 class ShipmentItemBase(BaseModel):
     item_id: str
@@ -506,6 +540,9 @@ class Token(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+class ChangePasswordRequest(BaseModel):
+    new_password: str = Field(..., min_length=8, description="New password (min 8 characters)")
 
 class StatusUpdate(BaseModel):
     status: TicketStatus

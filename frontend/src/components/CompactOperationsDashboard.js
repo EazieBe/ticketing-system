@@ -12,6 +12,10 @@ import {
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../AuthContext';
 import useApi from '../hooks/useApi';
+import useThemeTokens from '../hooks/useThemeTokens';
+import StatusChip from './StatusChip';
+import PriorityChip from './PriorityChip';
+import TypeChip from './TypeChip';
 import { useDataSync } from '../contexts/DataSyncContext';
 import { useNotifications } from '../contexts/NotificationProvider';
 
@@ -19,6 +23,16 @@ function CompactOperationsDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { get, put, patch, post } = useApi();
+  const tokens = useThemeTokens();
+  const {
+    surfaceDefault,
+    surfacePaper,
+    tableHeaderBg,
+    rowHoverBg,
+    statusWarningBg,
+    statusErrorBg
+  } = tokens;
+  // Priority chips use PriorityChip (same colors everywhere)
   const { success, error: showError } = useToast();
   const { updateTrigger } = useDataSync('tickets');
   const { isConnected } = useNotifications();
@@ -111,7 +125,7 @@ function CompactOperationsDashboard() {
 
   const handleBulkApprove = async () => {
     try {
-      await Promise.all(Array.from(selectedTickets).map(id => post(`/tickets/${id}/approve`, { approve: true })));
+      await Promise.all(Array.from(selectedTickets).map(id => post(`/tickets/${id}/approve?approve=true`)));
       success(`Approved ${selectedTickets.size}`);
       setSelectedTickets(new Set());
       fetchTickets();
@@ -133,19 +147,6 @@ function CompactOperationsDashboard() {
     }
   };
 
-  const getStatusChip = (status) => {
-    const configs = {
-      open: { color: '#2196f3', bg: '#e3f2fd' },
-      scheduled: { color: '#9c27b0', bg: '#f3e5f5' },
-      checked_in: { color: '#ff9800', bg: '#fff3e0' },
-      in_progress: { color: '#ff5722', bg: '#fbe9e7' },
-      needs_parts: { color: '#f44336', bg: '#ffebee' },
-      completed: { color: '#4caf50', bg: '#e8f5e9' }
-    };
-    const cfg = configs[status] || { color: '#757575', bg: '#f5f5f5' };
-    return { color: cfg.color, bgcolor: cfg.bg };
-  };
-
   const isOnsiteTooLong = (ticket) => {
     if (!ticket.check_in_time || ticket.check_out_time) return false;
     return (currentTime - new Date(ticket.check_in_time)) / 3600000 >= 2;
@@ -157,7 +158,7 @@ function CompactOperationsDashboard() {
   };
 
   return (
-    <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: '#f5f5f5' }}>
+    <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: surfaceDefault }}>
       {/* Ultra-Compact Header */}
       <Paper sx={{ p: 1.5, mb: 1, bgcolor: '#1976d2', color: 'white' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -183,14 +184,14 @@ function CompactOperationsDashboard() {
             {stats.needsParts > 0 && <Chip label={`${stats.needsParts} Parts`} size="small" sx={{ bgcolor: '#f57c00', color: 'white' }} />}
             {stats.overdue > 0 && <Chip label={`${stats.overdue} Overdue`} size="small" sx={{ bgcolor: '#f44336', color: 'white' }} />}
             
-            <ToggleButtonGroup value={viewMode} exclusive onChange={(e, v) => v && setViewMode(v)} size="small" sx={{ bgcolor: 'white', height: 32 }}>
+            <ToggleButtonGroup value={viewMode} exclusive onChange={(e, v) => v && setViewMode(v)} size="small" sx={{ bgcolor: surfacePaper, height: 32 }}>
               <ToggleButton value="today" sx={{ px: 2, py: 0.5 }}>Today</ToggleButton>
               <ToggleButton value="all" sx={{ px: 2, py: 0.5 }}>All</ToggleButton>
             </ToggleButtonGroup>
             
             {viewMode === 'today' && (
               <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} 
-                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid white', fontSize: '0.875rem' }} />
+                style={{ padding: '4px 8px', borderRadius: '4px', border: `1px solid ${tokens.divider}`, backgroundColor: surfacePaper, color: 'inherit', fontSize: '0.875rem' }} />
             )}
             
             <IconButton size="small" onClick={fetchTickets} sx={{ color: 'white' }}>
@@ -244,7 +245,7 @@ function CompactOperationsDashboard() {
         <TableContainer sx={{ maxHeight: '100%' }}>
           <Table size="small" stickyHeader sx={{ '& td, & th': { py: 0.5, px: 1, fontSize: '0.75rem' } }}>
             <TableHead>
-              <TableRow sx={{ '& th': { bgcolor: '#f5f5f5', fontWeight: 'bold', py: 1 } }}>
+              <TableRow sx={{ '& th': { bgcolor: tableHeaderBg, fontWeight: 'bold', py: 1 } }}>
                 <TableCell padding="checkbox" sx={{ width: 40 }}>
                   <Checkbox size="small" onChange={handleSelectAll} 
                     checked={activeTickets.length > 0 && selectedTickets.size === activeTickets.length} />
@@ -279,9 +280,9 @@ function CompactOperationsDashboard() {
                       hover
                       sx={{
                         cursor: 'pointer',
-                        bgcolor: tooLong ? '#ffebee' : isOverdue ? '#fff3e0' : 'white',
+                        bgcolor: tooLong ? statusErrorBg : isOverdue ? statusWarningBg : surfacePaper,
                         borderLeft: tooLong ? '3px solid #f44336' : isOverdue ? '3px solid #ff9800' : 'none',
-                        '&:hover': { bgcolor: tooLong ? '#ffcdd2' : isOverdue ? '#ffe0b2' : '#f5f5f5' }
+                        '&:hover': { bgcolor: tooLong ? statusErrorBg : isOverdue ? statusWarningBg : rowHoverBg }
                       }}
                       onClick={() => navigate(`/tickets/${t.ticket_id}`)}
                     >
@@ -308,9 +309,7 @@ function CompactOperationsDashboard() {
                       </TableCell>
                       
                       <TableCell>
-                        <Chip label={t.type} size="small" sx={{ height: 20, fontSize: '0.65rem', 
-                          bgcolor: t.type === 'onsite' ? '#e3f2fd' : '#e8f5e9', 
-                          color: t.type === 'onsite' ? '#1976d2' : '#2e7d32', fontWeight: 600 }} />
+                        <TypeChip type={t.type} size="small" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 600 }} />
                       </TableCell>
                       
                       <TableCell>
@@ -319,18 +318,11 @@ function CompactOperationsDashboard() {
                       </TableCell>
                       
                       <TableCell>
-                        <Chip label={t.status?.replace(/_/g, ' ')} size="small" 
-                          sx={{ height: 20, fontSize: '0.65rem', ...getStatusChip(t.status), fontWeight: 600 }} />
+                        <StatusChip status={t.status} entityType="ticket" size="small" sx={{ height: 20, fontSize: '0.65rem' }} />
                       </TableCell>
                       
                       <TableCell>
-                        <Chip label={t.priority} size="small" 
-                          sx={{ height: 20, fontSize: '0.65rem', 
-                            bgcolor: t.priority === 'emergency' ? '#ffebee' : t.priority === 'critical' ? '#fff3e0' : '#e8f5e9',
-                            color: t.priority === 'emergency' ? '#f44336' : t.priority === 'critical' ? '#ff9800' : '#4caf50',
-                            fontWeight: 600 
-                          }} 
-                        />
+                        <PriorityChip priority={t.priority} size="small" sx={{ height: 20, fontSize: '0.65rem' }} />
                       </TableCell>
                       
                       <TableCell>
@@ -375,7 +367,7 @@ function CompactOperationsDashboard() {
       </Paper>
 
       {/* Bottom Bar - Compact Stats */}
-      <Paper sx={{ px: 2, py: 0.5, bgcolor: '#fafafa', borderTop: 2, borderColor: '#1976d2' }}>
+      <Paper sx={{ px: 2, py: 0.5, bgcolor: surfaceDefault, borderTop: 2, borderColor: 'primary.main' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Typography variant="caption" color="text.secondary">
             {currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}

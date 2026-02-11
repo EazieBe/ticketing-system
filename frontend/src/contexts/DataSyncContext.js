@@ -18,6 +18,7 @@ export function DataSyncProvider({ children }) {
     shipments: 0,
     users: 0,
     fieldTechs: 0,
+    fieldTechCompanies: 0,
     inventory: 0,
     comments: 0,
     timeEntries: 0,
@@ -45,6 +46,10 @@ export function DataSyncProvider({ children }) {
             updated.users = prev.users + 1;
             break;
           case 'field_tech':
+            updated.fieldTechs = prev.fieldTechs + 1;
+            break;
+          case 'field_tech_company':
+            updated.fieldTechCompanies = prev.fieldTechCompanies + 1;
             updated.fieldTechs = prev.fieldTechs + 1;
             break;
           case 'inventory':

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+// NOTE: Virtualization disabled for Sites due to table layout constraints; using native table rendering for reliability.
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -9,6 +10,7 @@ import {
 import { Add, Visibility, Edit, Delete, Search, Refresh, ViewColumn, UploadFile, Download } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
 import { useAuth } from './AuthContext';
 import { canDelete } from './utils/permissions';
 
@@ -16,16 +18,19 @@ function CompactSites() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const api = useApi();
+  const { tableHeaderBg, codeBlockBg } = useThemeTokens();
   const { success, error: showError } = useToast();
   const [sites, setSites] = useState([]);
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const debounceRef = useRef(null);
   const [columnAnchor, setColumnAnchor] = useState(null);
   const [importing, setImporting] = useState(false);
   const apiRef = React.useRef(api);
   const [importResultOpen, setImportResultOpen] = useState(false);
   const [importResult, setImportResult] = useState({ imported: 0, failed: [] });
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(100);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
   const [total, setTotal] = useState(0);
   const [visibleColumns, setVisibleColumns] = useState({
     site_id: true,
@@ -135,6 +140,18 @@ function CompactSites() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, rowsPerPage, search]);
 
+  // Debounce search input -> search param used for fetching
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(0); // reset when effective search changes
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchInput]);
+
   // Reset to page 0 on search change
   useEffect(() => {
     setPage(0);
@@ -152,11 +169,11 @@ function CompactSites() {
   );
 
   return (
-    <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ p: 1.5, height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Stack direction="row" justifyContent="space-between" mb={1}>
-        <Typography variant="h6" fontWeight="bold">Sites ({total || filtered.length})</Typography>
+        <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.95rem' }}>Sites ({total ?? sites.length})</Typography>
         <Stack direction="row" spacing={1}>
-          <TextField size="small" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)}
+          <TextField size="small" placeholder="Search..." value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
             InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
             sx={{ width: 200, '& input': { py: 0.5, fontSize: '0.875rem' } }} />
           <IconButton size="small" onClick={(e) => setColumnAnchor(e.currentTarget)} title="Show/Hide Columns">
@@ -249,7 +266,7 @@ function CompactSites() {
         <TableContainer sx={{ height: '100%' }}>
           <Table size="small" stickyHeader sx={{ '& td, & th': { py: 0.5, px: 1, fontSize: '0.75rem', whiteSpace: 'nowrap' } }}>
             <TableHead>
-              <TableRow sx={{ '& th': { bgcolor: '#f5f5f5', fontWeight: 'bold', borderBottom: 2, borderColor: '#2e7d32' } }}>
+              <TableRow sx={{ '& th': { bgcolor: tableHeaderBg, fontWeight: 'bold', borderBottom: 2, borderColor: 'primary.main' } }}>
                 {visibleColumns.site_id && <TableCell>Site ID</TableCell>}
                 {visibleColumns.ip_address && <TableCell>IP Address</TableCell>}
                 {visibleColumns.location && <TableCell>Location</TableCell>}
@@ -369,20 +386,30 @@ function CompactSites() {
       </Popover>
 
       {/* Pagination controls */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
-        <Typography variant="caption">
-          Showing {total === 0 ? 0 : page * rowsPerPage + 1}-{Math.min((page + 1) * rowsPerPage, total)} of {total}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1, flexWrap: 'wrap', gap: 1 }}>
+        <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>
+          {total === 0 ? '0' : `${page * rowsPerPage + 1}-${Math.min((page + 1) * rowsPerPage, total)}`} of {total}
+          {total > 0 && (
+            <Box component="span" sx={{ ml: 1, color: 'text.secondary' }}>
+              · Page {page + 1} of {Math.max(1, Math.ceil(total / rowsPerPage))}
+            </Box>
+          )}
         </Typography>
         <Stack direction="row" spacing={1} alignItems="center">
-          <FormControl size="small">
-            <Select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(0); }}>
+          <Typography variant="caption" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>Rows</Typography>
+          <FormControl size="small" sx={{ minWidth: 72 }}>
+            <Select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(0); }} sx={{ fontSize: '0.8125rem', height: 28 }}>
+              <MenuItem value={25}>25</MenuItem>
               <MenuItem value={50}>50</MenuItem>
               <MenuItem value={100}>100</MenuItem>
               <MenuItem value={200}>200</MenuItem>
+              <MenuItem value={250}>250</MenuItem>
             </Select>
           </FormControl>
-          <Button size="small" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Prev</Button>
-          <Button size="small" disabled={(page + 1) * rowsPerPage >= total} onClick={() => setPage((p) => p + 1)}>Next</Button>
+          <Button size="small" disabled={page === 0} onClick={() => setPage(0)} sx={{ minWidth: 32, fontSize: '0.75rem' }}>First</Button>
+          <Button size="small" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))} sx={{ minWidth: 32, fontSize: '0.75rem' }}>Prev</Button>
+          <Button size="small" disabled={(page + 1) * rowsPerPage >= total} onClick={() => setPage((p) => p + 1)} sx={{ minWidth: 32, fontSize: '0.75rem' }}>Next</Button>
+          <Button size="small" disabled={total === 0 || (page + 1) * rowsPerPage >= total} onClick={() => setPage(Math.max(0, Math.ceil(total / rowsPerPage) - 1))} sx={{ minWidth: 32, fontSize: '0.75rem' }}>Last</Button>
         </Stack>
       </Box>
 
@@ -396,7 +423,7 @@ function CompactSites() {
             </Alert>
           )}
           {importResult.failed.length > 0 && (
-            <Box sx={{ maxHeight: 260, overflow: 'auto', fontFamily: 'monospace', fontSize: '0.8rem', bgcolor: 'grey.50', p: 1, borderRadius: 1 }}>
+            <Box sx={{ maxHeight: 260, overflow: 'auto', fontFamily: 'monospace', fontSize: '0.8rem', bgcolor: codeBlockBg, p: 1, borderRadius: 1 }}>
               {importResult.failed.slice(0, 50).map((f, idx) => (
                 <div key={idx}>Line {f.line} [{f.site_id}]: {f.error}</div>
               ))}

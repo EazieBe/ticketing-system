@@ -8,10 +8,13 @@ import {
 import { Add, Visibility, Edit, Search, Refresh, ViewColumn } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
+import StatusChip from './components/StatusChip';
 
 function CompactTasks() {
   const navigate = useNavigate();
   const api = useApi();
+  const { tableHeaderBg } = useThemeTokens();
   const { error: showError } = useToast();
   const [tasks, setTasks] = useState([]);
   const [search, setSearch] = useState('');
@@ -50,7 +53,7 @@ function CompactTasks() {
   return (
     <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Stack direction="row" justifyContent="space-between" mb={1}>
-        <Typography variant="h6" fontWeight="bold">Tasks ({filtered.length})</Typography>
+        <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.95rem' }}>Tasks ({filtered.length})</Typography>
         <Stack direction="row" spacing={1}>
           <TextField size="small" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)}
             InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
@@ -67,7 +70,7 @@ function CompactTasks() {
         <TableContainer sx={{ height: '100%' }}>
           <Table size="small" stickyHeader sx={{ '& td, & th': { py: 0.5, px: 1, fontSize: '0.75rem', whiteSpace: 'nowrap' } }}>
             <TableHead>
-              <TableRow sx={{ '& th': { bgcolor: '#f5f5f5', fontWeight: 'bold', borderBottom: 2, borderColor: '#3f51b5' } }}>
+              <TableRow sx={{ '& th': { bgcolor: tableHeaderBg, fontWeight: 'bold', borderBottom: 2, borderColor: 'primary.main' } }}>
                 {visibleColumns.task_id && <TableCell>ID</TableCell>}
                 {visibleColumns.description && <TableCell>Description</TableCell>}
                 {visibleColumns.status && <TableCell>Status</TableCell>}
@@ -81,7 +84,7 @@ function CompactTasks() {
                 <TableRow key={t.task_id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate(`/tasks/${t.task_id}/edit`)}>
                   {visibleColumns.task_id && <TableCell><Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.75rem' }}>{t.task_id}</Typography></TableCell>}
                   {visibleColumns.description && <TableCell><Typography variant="body2" sx={{ fontSize: '0.75rem' }}>{t.description}</Typography></TableCell>}
-                  {visibleColumns.status && <TableCell><Chip label={t.status?.replace(/_/g, ' ')} size="small" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600 }} /></TableCell>}
+                  {visibleColumns.status && <TableCell><StatusChip status={t.status} entityType="ticket" size="small" sx={{ height: 18, fontSize: '0.65rem' }} /></TableCell>}
                   {visibleColumns.assigned && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{t.assigned_user_id || '-'}</Typography></TableCell>}
                   {visibleColumns.due_date && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{t.due_date ? new Date(t.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '-'}</Typography></TableCell>}
                   <TableCell onClick={(e) => e.stopPropagation()}>

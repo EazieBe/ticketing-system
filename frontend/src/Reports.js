@@ -18,6 +18,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import TypeChip from './components/TypeChip';
 import { TimestampDisplay } from './components/TimestampDisplay';
 import { getBestTimestamp, getCurrentUTCTimestamp } from './utils/timezone';
 import dayjs from 'dayjs';
@@ -290,7 +291,7 @@ function Reports() {
       {/* Summary Cards */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ borderLeft: '4px solid #1976d2' }}>
+          <Card sx={{ borderLeft: '4px solid', borderColor: 'primary.main' }}>
             <CardContent>
               <Box display="flex" alignItems="center">
                 <Assignment sx={{ mr: 1, color: 'primary.main' }} />
@@ -456,11 +457,7 @@ function Reports() {
               {filteredTickets.slice(0, 10).map((ticket) => (
                 <TableRow key={ticket.ticket_id}>
                   <TableCell>
-                    <Chip 
-                      label={ticket.type} 
-                      size="small" 
-                      color="primary"
-                    />
+                    <TypeChip type={ticket.type} size="small" />
                   </TableCell>
                   <TableCell>{ticket.ticket_id}</TableCell>
                   <TableCell>

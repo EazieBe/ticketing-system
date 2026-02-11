@@ -56,30 +56,6 @@ def test_shipment_creation_with_auth(
     
     return {"shipment_id": result.shipment_id, "message": "Test auth shipment created"}
 
-@router.post("/test")
-def test_shipment_creation(
-    data: schemas.ShipmentWithItemsCreate, 
-    db: Session = Depends(get_db)
-):
-    """Test endpoint without authentication to isolate performance issue"""
-    import time
-    start_time = time.time()
-    
-    # Create the base shipment
-    shipment_data = schemas.ShipmentCreate(
-        site_id=data.site_id,
-        what_is_being_shipped=data.what_is_being_shipped,
-        status='pending'
-    )
-    
-    create_start = time.time()
-    result = crud.create_shipment(db=db, shipment=shipment_data)
-    create_time = time.time() - create_start
-    
-    total_time = time.time() - start_time
-    
-    return {"shipment_id": result.shipment_id, "time": total_time}
-
 @router.post("/")
 def create_shipment(
     data: schemas.ShipmentWithItemsCreate, 
@@ -124,31 +100,18 @@ def create_shipment(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create shipment: {str(e)}")
 
-@router.get("/{shipment_id}")
-def get_shipment(
-    shipment_id: str, 
-    db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
-):
-    """Get a specific shipment by ID"""
-    db_item = crud.get_shipment(db, shipment_id=shipment_id)
-    if not db_item:
-        raise HTTPException(status_code=404, detail="Shipment not found")
-    return db_item
-
 @router.get("/count")
 def shipments_count(
+    response: Response,
     site_id: str | None = None,
     ticket_id: str | None = None,
     search: str | None = None,
     include_archived: bool = False,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-    response: Response = None
+    current_user: models.User = Depends(get_current_user)
 ):
     count = crud.count_shipments(db, site_id=site_id, ticket_id=ticket_id, search=search, include_archived=include_archived)
-    if response is not None:
-        response.headers["Cache-Control"] = "public, max-age=15"
+    response.headers["Cache-Control"] = "public, max-age=15"
     return {"count": count}
 
 @router.get("/")
@@ -167,6 +130,18 @@ def list_shipments(
     if not include_archived:
         items = [s for s in items if not getattr(s, 'archived', False)]
     return items
+
+@router.get("/{shipment_id}")
+def get_shipment(
+    shipment_id: str, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get a specific shipment by ID"""
+    db_item = crud.get_shipment(db, shipment_id=shipment_id)
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    return db_item
 
 @router.put("/{shipment_id}")
 def update_shipment(
@@ -247,6 +222,10 @@ def update_shipment_status(
         shipment.return_tracking = status_data.return_tracking
     if status_data.remove_from_inventory is not None:
         shipment.remove_from_inventory = status_data.remove_from_inventory
+    if status_data.charges_out is not None:
+        shipment.charges_out = status_data.charges_out
+    if status_data.charges_in is not None:
+        shipment.charges_in = status_data.charges_in
     
     # Set date_shipped if status is 'shipped' and not already set
     if status_data.status == 'shipped' and not shipment.date_shipped:

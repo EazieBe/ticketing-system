@@ -10,12 +10,18 @@ import { ArrowBack, Edit, AccessTime, CheckCircle, Warning, Delete, PanTool, Tim
 import { useToast } from './contexts/ToastContext';
 import { useAuth } from './AuthContext';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
+import StatusChip from './components/StatusChip';
+import PriorityChip from './components/PriorityChip';
+import TypeChip from './components/TypeChip';
+import useReadableChip from './hooks/useReadableChip';
 import CompactShipmentForm from './CompactShipmentForm';
 import { canDelete } from './utils/permissions';
 
 // Live Timer Component
 function LiveTimer({ startTime }) {
   const [elapsed, setElapsed] = useState('');
+  const { statusWarningBg } = useThemeTokens();
 
   useEffect(() => {
     const updateTimer = () => {
@@ -37,13 +43,13 @@ function LiveTimer({ startTime }) {
   }, [startTime]);
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, bgcolor: '#fff3e0', borderRadius: 1, border: '2px solid #ff9800' }}>
-      <Timer sx={{ color: '#f57c00', fontSize: 28 }} />
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, bgcolor: statusWarningBg, borderRadius: 1, border: '2px solid #ff9800' }}>
+      <Timer sx={{ color: 'warning.main', fontSize: 28 }} />
       <Box>
         <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary', display: 'block', lineHeight: 1 }}>
           Tech Onsite
         </Typography>
-        <Typography variant="h6" sx={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#f57c00', lineHeight: 1 }}>
+        <Typography variant="h6" sx={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'warning.main', lineHeight: 1 }}>
           {elapsed}
         </Typography>
       </Box>
@@ -56,6 +62,8 @@ function CompactTicketDetail() {
   const navigate = useNavigate();
   const api = useApi();
   const { user } = useAuth();
+  const { codeBlockBg } = useThemeTokens();
+  const { getChipSx } = useReadableChip();
   const { success, error: showError } = useToast();
   const [ticket, setTicket] = useState(null);
   const [comments, setComments] = useState([]);
@@ -92,10 +100,12 @@ function CompactTicketDetail() {
     }
   };
 
+  // Only load when user and token are available so requests are authenticated
   useEffect(() => {
-    load();
+    const hasToken = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('access_token');
+    if (user && ticketId && hasToken) load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticketId]);
+  }, [ticketId, user]);
 
   const handleQuickAction = async (action) => {
     try {
@@ -104,8 +114,9 @@ function CompactTicketDetail() {
       if (action === 'complete') await api.patch(`/tickets/${ticketId}/status`, { status: 'completed' });
       success(`${action} success!`);
       window.location.reload();
-    } catch {
-      showError('Failed');
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || 'Action failed';
+      showError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
   };
 
@@ -114,8 +125,9 @@ function CompactTicketDetail() {
       await api.put(`/tickets/${ticketId}/claim`, { claimed_by: user.user_id });
       success('Ticket claimed successfully!');
       window.location.reload();
-    } catch {
-      showError('Failed to claim ticket');
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || 'Failed to claim ticket';
+      showError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
   };
 
@@ -127,8 +139,9 @@ function CompactTicketDetail() {
       const c = await api.get(`/tickets/${ticketId}/comments`);
       setComments(c || []);
       success('Comment added');
-    } catch {
-      showError('Failed');
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || 'Failed to add comment';
+      showError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
   };
 
@@ -139,7 +152,8 @@ function CompactTicketDetail() {
       setDeleteDialogOpen(false);
       navigate('/tickets');
     } catch (err) {
-      showError('Failed to delete ticket');
+      const msg = err?.response?.data?.detail || err?.message || 'Failed to delete ticket';
+      showError(typeof msg === 'string' ? msg : JSON.stringify(msg));
       setDeleteDialogOpen(false);
     }
   };
@@ -176,9 +190,9 @@ function CompactTicketDetail() {
           <Stack direction="row" spacing={1} alignItems="center">
             <Button size="small" startIcon={<ArrowBack />} onClick={() => navigate('/tickets')}>Back</Button>
             <Typography variant="h6" sx={{ fontSize: '1.1rem', fontWeight: 'bold' }}>{ticket.ticket_id}</Typography>
-            <Chip label={ticket.status} size="small" sx={{ fontSize: '0.75rem' }} />
-            <Chip label={ticket.priority} size="small" color="error" sx={{ fontSize: '0.75rem' }} />
-            <Chip label={ticket.type} size="small" sx={{ fontSize: '0.75rem' }} />
+            <StatusChip status={ticket.status} entityType="ticket" size="small" sx={{ fontSize: '0.75rem' }} />
+            <PriorityChip priority={ticket.priority} size="small" sx={{ fontSize: '0.75rem' }} />
+            <TypeChip type={ticket.type} size="small" sx={{ fontSize: '0.75rem' }} />
           </Stack>
           <Stack direction="row" spacing={1}>
             {!ticket.claimed_by && !['completed', 'closed', 'approved'].includes(ticket.status) && (
@@ -225,12 +239,21 @@ function CompactTicketDetail() {
           <Grid item xs={6} md={3}><Typography><strong>Created:</strong> {ticket.created_at ? new Date(ticket.created_at).toLocaleString() : 'N/A'}</Typography></Grid>
           <Grid item xs={6} md={3}><Typography><strong>Scheduled:</strong> {ticket.date_scheduled ? new Date(ticket.date_scheduled).toLocaleDateString() : 'N/A'}</Typography></Grid>
           {ticket.claimed_at && <Grid item xs={6} md={3}><Typography><strong>Claimed:</strong> {new Date(ticket.claimed_at).toLocaleString()}</Typography></Grid>}
+          {ticket.check_in_time && <Grid item xs={6} md={3}><Typography><strong>Tech Arrived:</strong> {new Date(ticket.check_in_time).toLocaleString()}</Typography></Grid>}
+          {ticket.check_out_time && <Grid item xs={6} md={3}><Typography><strong>Tech Done:</strong> {new Date(ticket.check_out_time).toLocaleString()}</Typography></Grid>}
           {(ticket.end_time || ticket.check_out_time) && <Grid item xs={6} md={3}><Typography><strong>Completed:</strong> {new Date(ticket.end_time || ticket.check_out_time).toLocaleString()}</Typography></Grid>}
           {ticket.approved_at && <Grid item xs={6} md={3}><Typography><strong>Approved:</strong> {new Date(ticket.approved_at).toLocaleString()}</Typography></Grid>}
-          {ticket.time_spent && (
+          {(ticket.time_spent || ticket.onsite_duration_minutes) && (
             <Grid item xs={6} md={3}>
               <Typography>
-                <strong>Time Spent:</strong> {Math.floor(ticket.time_spent / 60)}h {ticket.time_spent % 60}m
+                <strong>Time Spent:</strong> {
+                  (() => {
+                    const minutes = ticket.time_spent || ticket.onsite_duration_minutes || 0;
+                    const hours = Math.floor(minutes / 60);
+                    const mins = minutes % 60;
+                    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+                  })()
+                }
               </Typography>
             </Grid>
           )}
@@ -251,7 +274,7 @@ function CompactTicketDetail() {
             <Box sx={{ mt: 2 }}>
               <Stack spacing={1} mb={2}>
                 {comments.map((c) => (
-                  <Paper key={c.comment_id} sx={{ p: 1, bgcolor: '#f5f5f5' }}>
+                  <Paper key={c.comment_id} sx={{ p: 1, bgcolor: codeBlockBg }}>
                     <Typography variant="caption" fontWeight="bold">{c.user?.name || 'Unknown'}</Typography>
                     <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>{c.comment}</Typography>
                     <Typography variant="caption" color="text.secondary">{new Date(c.created_at).toLocaleString()}</Typography>

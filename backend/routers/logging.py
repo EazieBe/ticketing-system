@@ -5,6 +5,7 @@ Logging and error tracking endpoints
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from database import get_db
+from utils.main_utils import get_current_user
 import models
 import schemas
 from datetime import datetime, timezone
@@ -12,17 +13,18 @@ import json
 import logging
 from typing import Dict, Any, Optional
 
-router = APIRouter()
+router = APIRouter(prefix="/api", tags=["logging"])
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-@router.post("/api/logs")
+@router.post("/logs")
 async def log_frontend_error(
     log_data: Dict[str, Any],
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """
     Receive and store frontend error logs
@@ -67,11 +69,12 @@ async def log_frontend_error(
         logger.error(f"Failed to log frontend error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to log error")
 
-@router.post("/api/errors")
+@router.post("/errors")
 async def log_frontend_error_detailed(
     error_data: Dict[str, Any],
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """
     Receive and store detailed frontend error information
@@ -114,10 +117,11 @@ async def log_frontend_error_detailed(
         logger.error(f"Failed to log frontend error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to log error")
 
-@router.get("/api/logs/stats")
+@router.get("/logs/stats")
 async def get_log_stats(
     hours: int = 24,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """
     Get logging statistics for the specified time period
@@ -173,12 +177,13 @@ async def get_log_stats(
         logger.error(f"Failed to get log stats: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get log statistics")
 
-@router.get("/api/logs/recent")
+@router.get("/logs/recent")
 async def get_recent_logs(
     limit: int = 100,
     level: Optional[str] = None,
     context: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """
     Get recent log entries with optional filtering
@@ -215,10 +220,11 @@ async def get_recent_logs(
         logger.error(f"Failed to get recent logs: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get recent logs")
 
-@router.get("/api/errors/recent")
+@router.get("/errors/recent")
 async def get_recent_errors(
     limit: int = 50,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """
     Get recent error entries

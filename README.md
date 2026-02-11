@@ -62,11 +62,18 @@ npm run build
 npx serve -s build -l 3000 --single
 ```
 
+## Deployment context
+
+- **Same server**: Frontend and backend run on the same machine (backend on 8000, frontend on 3000 or static build).
+- **LAN only**: The app is used only by PCs on the same local network; it is not accessed directly from the server or from the internet. All URLs below use the server’s LAN IP (e.g. 192.168.43.50).
+
 ## Access URLs
 
-- **Frontend**: http://192.168.43.50:3000
-- **Backend API**: http://192.168.43.50:8000
-- **API Documentation**: http://192.168.43.50:8000/docs
+- **Frontend**: `http://<server-lan-ip>:3000` (e.g. http://192.168.43.50:3000)
+- **Backend API**: `http://<server-lan-ip>:8000`
+- **API Documentation**: `http://<server-lan-ip>:8000/docs`
+
+Ensure `CORS_ORIGINS` in `.env` includes your frontend origin (e.g. `http://192.168.43.50:3000`). The frontend uses the same host as the page, so API and WebSocket URLs follow the address you use in the browser.
 
 ## Build Output and Locations
 
@@ -81,11 +88,12 @@ npx serve -s build -l 3000 --single
 
 ### Backend (FastAPI)
 - Entry point: `backend/main.py`
-- Routers: `backend/routers/*.py` (tickets, sites, users, shipments, inventory, fieldtechs, tasks, sla, audit, search)
+- Routers: `backend/routers/*.py` (tickets, sites, users, shipments, inventory, fieldtechs, fieldtech_companies, tasks, sla, audit, search)
 - Schemas: `backend/schemas.py`
 - Models: `backend/models.py`
 - CRUD: `backend/crud.py`
 - Auth utils: `backend/utils/auth.py`
+- Operations runbook: `backend/OPERATIONS.md`
 
 ### WebSocket
 - Endpoint: `ws://<backend-host>:8000/ws/updates?token=<JWT>`
@@ -98,6 +106,7 @@ npx serve -s build -l 3000 --single
 - Shipments: `frontend/src/CompactShipments.js`, `frontend/src/CompactShipmentForm.js`
 - Inventory: `frontend/src/CompactInventory.js`, `frontend/src/CompactInventoryForm.js`
 - Field Techs: `frontend/src/CompactFieldTechs.js`, `frontend/src/CompactFieldTechForm.js`
+- Field Tech Companies: `frontend/src/CompactFieldTechCompanies.js`, `frontend/src/CompactFieldTechCompanyForm.js`, `frontend/src/FieldTechMap.js`
 - Dashboard: `frontend/src/components/CompactOperationsDashboard.js`
 
 ## Removed Legacy Forms

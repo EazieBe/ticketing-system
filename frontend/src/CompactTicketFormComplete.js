@@ -5,9 +5,11 @@ import {
 } from '@mui/material';
 import { Save, Cancel } from '@mui/icons-material';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
 
 function CompactTicketFormComplete({ onSubmit, initialValues, isEdit }) {
   const api = useApi();
+  const { optionalFieldBg, surfacePaper } = useThemeTokens();
   const [activeTab, setActiveTab] = useState(0);
   const [values, setValues] = useState({
     // Core fields
@@ -21,6 +23,8 @@ function CompactTicketFormComplete({ onSubmit, initialValues, isEdit }) {
     estimated_hours: '', actual_hours: '', start_time: '', end_time: '', is_billable: true,
     requires_approval: false, approved_by: '', approved_at: '', rejection_reason: '',
     workflow_step: 'created', next_action_required: '', due_date: '',
+    // SLA fields
+    sla_target_hours: '', sla_breach_hours: '', escalation_level: 0,
     // Equipment/Parts
     equipment_affected: '', parts_needed: '', parts_ordered: false, parts_received: false,
     // Quality
@@ -249,6 +253,8 @@ function CompactTicketFormComplete({ onSubmit, initialValues, isEdit }) {
                   <MenuItem value="go_back_scheduled">Go Back Scheduled</MenuItem>
                   <MenuItem value="completed">Completed</MenuItem>
                   <MenuItem value="closed">Closed</MenuItem>
+                  <MenuItem value="approved">Approved</MenuItem>
+                  <MenuItem value="archived">Archived</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -274,7 +280,7 @@ function CompactTicketFormComplete({ onSubmit, initialValues, isEdit }) {
               <Grid item xs={12} md={6}>
                 <TextField fullWidth size="small" label="Scheduled Date ⭐" type="date" value={values.date_scheduled}
                   onChange={(e) => c('date_scheduled', e.target.value)} InputLabelProps={{ shrink: true }}
-                  sx={{ '& input': { fontSize: '0.875rem' }, bgcolor: !values.date_scheduled ? '#fff3e0' : 'white' }} />
+                  sx={{ '& input': { fontSize: '0.875rem' }, bgcolor: !values.date_scheduled ? optionalFieldBg : surfacePaper }} />
                 {!values.date_scheduled && <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}><Typography variant="caption">Set scheduled date for onsite!</Typography></Alert>}
               </Grid>
             )}
@@ -332,6 +338,25 @@ function CompactTicketFormComplete({ onSubmit, initialValues, isEdit }) {
             <Grid item xs={6} md={3}>
               <FormControlLabel control={<Switch size="small" checked={values.requires_approval} onChange={(e) => c('requires_approval', e.target.checked)} />}
                 label={<Typography sx={{ fontSize: '0.875rem' }}>Requires Approval</Typography>} />
+            </Grid>
+            {/* SLA Fields */}
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" sx={{ fontSize: '0.875rem', fontWeight: 600, mb: 1, mt: 1 }}>SLA Management</Typography>
+            </Grid>
+            <Grid item xs={6} md={4}>
+              <TextField fullWidth size="small" label="SLA Target Hours" type="number" value={values.sla_target_hours}
+                onChange={(e) => c('sla_target_hours', e.target.value)} 
+                inputProps={{ min: 0 }} sx={{ '& input': { fontSize: '0.875rem' } }} />
+            </Grid>
+            <Grid item xs={6} md={4}>
+              <TextField fullWidth size="small" label="SLA Breach Hours" type="number" value={values.sla_breach_hours}
+                onChange={(e) => c('sla_breach_hours', e.target.value)} 
+                inputProps={{ min: 0 }} sx={{ '& input': { fontSize: '0.875rem' } }} />
+            </Grid>
+            <Grid item xs={6} md={4}>
+              <TextField fullWidth size="small" label="Escalation Level" type="number" value={values.escalation_level}
+                onChange={(e) => c('escalation_level', e.target.value)} 
+                inputProps={{ min: 0 }} sx={{ '& input': { fontSize: '0.875rem' } }} />
             </Grid>
           </Grid>
         )}

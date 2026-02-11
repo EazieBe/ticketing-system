@@ -14,15 +14,20 @@ import {
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../AuthContext';
 import useApi from '../hooks/useApi';
+import useThemeTokens from '../hooks/useThemeTokens';
+import StatusChip from './StatusChip';
+import PriorityChip from './PriorityChip';
 import { useDataSync } from '../contexts/DataSyncContext';
 import { useNotifications } from '../contexts/NotificationProvider';
 import { TimestampDisplay } from './TimestampDisplay';
 import { getBestTimestamp } from '../utils/timezone';
+import { getPriorityBorderColor } from '../utils/statusChipConfig';
 
 function BetterDailyDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { get, put, patch, post } = useApi();
+  const { surfaceDefault, surfacePaper, barCardBg, statusErrorBg, statusWarningBg, codeBlockBg } = useThemeTokens();
   const { success, error: showError } = useToast();
   const { updateTrigger } = useDataSync('tickets');
   const { isConnected } = useNotifications();
@@ -177,7 +182,7 @@ function BetterDailyDashboard() {
     if (selectedTickets.size === 0) return;
     try {
       await Promise.all(
-        Array.from(selectedTickets).map(id => post(`/tickets/${id}/approve`, { approve: true }))
+        Array.from(selectedTickets).map(id => post(`/tickets/${id}/approve?approve=true`))
       );
       success(`Approved ${selectedTickets.size} tickets`);
       setSelectedTickets(new Set());
@@ -234,31 +239,8 @@ function BetterDailyDashboard() {
     return hours.toFixed(1);
   };
 
-  const getStatusColor = (status) => {
-    const colors = {
-      open: '#2196f3',
-      scheduled: '#9c27b0',
-      checked_in: '#ff9800',
-      in_progress: '#ff5722',
-      pending: '#795548',
-      needs_parts: '#f44336',
-      completed: '#4caf50',
-      closed: '#757575'
-    };
-    return colors[status] || '#757575';
-  };
-
-  const getPriorityColor = (priority) => {
-    const colors = {
-      normal: '#4caf50',
-      critical: '#ff9800',
-      emergency: '#f44336'
-    };
-    return colors[priority] || '#757575';
-  };
-
   return (
-    <Box sx={{ p: 3, backgroundColor: '#f5f7fa', minHeight: '100vh' }}>
+    <Box sx={{ p: 3, backgroundColor: surfaceDefault, minHeight: '100vh' }}>
       {/* Header with Stats */}
       <Paper sx={{ p: 3, mb: 3, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
@@ -304,7 +286,7 @@ function BetterDailyDashboard() {
               exclusive
               onChange={(e, newMode) => newMode && setViewMode(newMode)}
               size="small"
-              sx={{ bgcolor: 'white' }}
+              sx={{ bgcolor: barCardBg }}
             >
               <ToggleButton value="today">Today's Schedule</ToggleButton>
               <ToggleButton value="all">All Active</ToggleButton>
@@ -316,7 +298,7 @@ function BetterDailyDashboard() {
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
                 size="small"
-                sx={{ bgcolor: 'white', borderRadius: 1 }}
+                sx={{ bgcolor: barCardBg, borderRadius: 1 }}
               />
             )}
             
@@ -329,79 +311,79 @@ function BetterDailyDashboard() {
         {/* Quick Stats Widgets */}
         <Grid container spacing={2}>
           <Grid item xs={12} sm={6} md={2}>
-            <Card sx={{ bgcolor: 'rgba(255,255,255,0.95)' }}>
+            <Card sx={{ bgcolor: barCardBg }}>
               <CardContent sx={{ p: 2 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box>
                     <Typography variant="h4" fontWeight="bold">{stats.total}</Typography>
                     <Typography variant="caption" color="text.secondary">Total Active</Typography>
                   </Box>
-                  <Assignment sx={{ fontSize: 40, color: '#1976d2' }} />
+                  <Assignment sx={{ fontSize: 40, color: 'primary.main' }} />
                 </Stack>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={2}>
-            <Card sx={{ bgcolor: 'rgba(255,255,255,0.95)' }}>
+            <Card sx={{ bgcolor: barCardBg }}>
               <CardContent sx={{ p: 2 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box>
                     <Typography variant="h4" fontWeight="bold" color="warning.main">{stats.scheduledToday}</Typography>
                     <Typography variant="caption" color="text.secondary">Scheduled Today</Typography>
                   </Box>
-                  <CalendarToday sx={{ fontSize: 40, color: '#ff9800' }} />
+                  <CalendarToday sx={{ fontSize: 40, color: 'warning.main' }} />
                 </Stack>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={2}>
-            <Card sx={{ bgcolor: 'rgba(255,255,255,0.95)' }}>
+            <Card sx={{ bgcolor: barCardBg }}>
               <CardContent sx={{ p: 2 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box>
                     <Typography variant="h4" fontWeight="bold" color="info.main">{stats.inProgress}</Typography>
                     <Typography variant="caption" color="text.secondary">In Progress</Typography>
                   </Box>
-                  <TrendingUp sx={{ fontSize: 40, color: '#2196f3' }} />
+                  <TrendingUp sx={{ fontSize: 40, color: 'info.main' }} />
                 </Stack>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={2}>
-            <Card sx={{ bgcolor: 'rgba(255,255,255,0.95)', border: stats.needsParts > 0 ? '2px solid #f57c00' : 'none' }}>
+            <Card sx={{ bgcolor: barCardBg, border: stats.needsParts > 0 ? 2 : 0, borderColor: stats.needsParts > 0 ? 'warning.main' : 'transparent' }}>
               <CardContent sx={{ p: 2 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box>
                     <Typography variant="h4" fontWeight="bold" color="error.main">{stats.needsParts}</Typography>
                     <Typography variant="caption" color="text.secondary">Needs Shipping</Typography>
                   </Box>
-                  <LocalShipping sx={{ fontSize: 40, color: '#f57c00' }} />
+                  <LocalShipping sx={{ fontSize: 40, color: 'warning.main' }} />
                 </Stack>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={2}>
-            <Card sx={{ bgcolor: 'rgba(255,255,255,0.95)', border: stats.overdue > 0 ? '2px solid #d32f2f' : 'none' }}>
+            <Card sx={{ bgcolor: barCardBg, border: stats.overdue > 0 ? 2 : 0, borderColor: stats.overdue > 0 ? 'error.main' : 'transparent' }}>
               <CardContent sx={{ p: 2 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box>
                     <Typography variant="h4" fontWeight="bold" color="error.main">{stats.overdue}</Typography>
                     <Typography variant="caption" color="text.secondary">Overdue</Typography>
                   </Box>
-                  <ErrorIcon sx={{ fontSize: 40, color: '#d32f2f' }} />
+                  <ErrorIcon sx={{ fontSize: 40, color: 'error.main' }} />
                 </Stack>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={2}>
-            <Card sx={{ bgcolor: 'rgba(255,255,255,0.95)' }}>
+            <Card sx={{ bgcolor: barCardBg }}>
               <CardContent sx={{ p: 2 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box>
                     <Typography variant="h4" fontWeight="bold" color="success.main">{stats.completedToday}</Typography>
                     <Typography variant="caption" color="text.secondary">Done Today</Typography>
                   </Box>
-                  <CheckCircle sx={{ fontSize: 40, color: '#4caf50' }} />
+                  <CheckCircle sx={{ fontSize: 40, color: 'success.main' }} />
                 </Stack>
               </CardContent>
             </Card>
@@ -512,8 +494,8 @@ function BetterDailyDashboard() {
                   sx={{
                     cursor: 'pointer',
                     transition: 'all 0.2s',
-                    borderLeft: `6px solid ${onsiteTooLong ? '#d32f2f' : isOverdue ? '#ff9800' : getPriorityColor(ticket.priority)}`,
-                    bgcolor: onsiteTooLong ? 'rgba(211, 47, 47, 0.05)' : isOverdue ? 'rgba(255, 152, 0, 0.05)' : 'white',
+                    borderLeft: `6px solid ${onsiteTooLong ? '#d32f2f' : isOverdue ? '#ff9800' : getPriorityBorderColor(ticket.priority)}`,
+                    bgcolor: onsiteTooLong ? statusErrorBg : isOverdue ? statusWarningBg : surfacePaper,
                     '&:hover': {
                       boxShadow: 8,
                       transform: 'translateY(-4px)'
@@ -554,21 +536,9 @@ function BetterDailyDashboard() {
                     
                     {/* Ticket Header */}
                     <Stack direction="row" spacing={1} mb={1.5} flexWrap="wrap">
-                      <Chip 
-                        label={ticket.type} 
-                        size="small" 
-                        sx={{ bgcolor: ticket.type === 'onsite' ? '#1976d2' : '#2e7d32', color: 'white', fontWeight: 600 }}
-                      />
-                      <Chip
-                        label={ticket.status?.replace(/_/g, ' ')}
-                        size="small"
-                        sx={{ bgcolor: getStatusColor(ticket.status), color: 'white', fontWeight: 600 }}
-                      />
-                      <Chip
-                        label={ticket.priority}
-                        size="small"
-                        sx={{ bgcolor: getPriorityColor(ticket.priority), color: 'white', fontWeight: 600 }}
-                      />
+                      <TypeChip type={ticket.type} size="small" sx={{ fontWeight: 600 }} />
+                      <StatusChip status={ticket.status} entityType="ticket" size="small" sx={{ fontWeight: 600 }} />
+                      <PriorityChip priority={ticket.priority} size="small" sx={{ fontWeight: 600 }} />
                     </Stack>
                     
                     {/* Ticket ID */}
@@ -633,7 +603,7 @@ function BetterDailyDashboard() {
                           WebkitLineClamp: 2,
                           WebkitBoxOrient: 'vertical',
                           overflow: 'hidden',
-                          bgcolor: 'grey.50',
+                          bgcolor: codeBlockBg,
                           p: 1,
                           borderRadius: 1,
                           mb: 2

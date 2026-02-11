@@ -83,8 +83,8 @@ import CompactShipments from './CompactShipments';
 import CompactShipmentForm from './CompactShipmentForm';
 import CompactInventory from './CompactInventory';
 import CompactInventoryForm from './CompactInventoryForm';
-import CompactFieldTechs from './CompactFieldTechs';
-import CompactFieldTechForm from './CompactFieldTechForm';
+import CompactFieldTechCompanies from './CompactFieldTechCompanies';
+import CompactFieldTechCompanyForm from './CompactFieldTechCompanyForm';
 import CompactTasks from './CompactTasks';
 import CompactTaskForm from './CompactTaskForm';
 import CompactUsers from './CompactUsers';
@@ -93,6 +93,7 @@ import CompactUserForm from './CompactUserForm';
 import EquipmentForm from './EquipmentForm';
 // OTHER COMPONENTS
 import FieldTechMap from './FieldTechMap';
+import { getApiPath } from './apiPaths';
 import SLAManagement from './SLAManagement';
 import Equipment from './Equipment';
 import Audit from './Audit';
@@ -105,41 +106,7 @@ import ChangePassword from './ChangePassword';
 import useApi from './hooks/useApi';
 import { useToast } from './contexts/ToastContext';
 
-const drawerWidth = 280;
-
-// TicketFormWrapper component to handle form submission
-function TicketFormWrapper() {
-  const navigate = useNavigate();
-  const api = useApi();
-  const { success, error } = useToast();
-
-  const handleSubmit = async (values) => {
-    try {
-      console.log('TicketFormWrapper: Submitting values:', values);
-      console.log('TicketFormWrapper: api object:', api);
-      console.log('TicketFormWrapper: api.post type:', typeof api?.post);
-      
-      if (!api) {
-        throw new Error('API object is null or undefined');
-      }
-      
-      if (typeof api.post !== 'function') {
-        throw new Error(`API post method is not a function. Type: ${typeof api.post}`);
-      }
-      
-      const response = await api.post('/tickets/', values);
-      console.log('TicketFormWrapper: Response:', response);
-      success('Ticket created successfully');
-      navigate('/tickets');
-    } catch (err) {
-      console.error('Error creating ticket:', err);
-      error('Error creating ticket');
-      throw err; // Re-throw to let TicketForm handle it
-    }
-  };
-
-  return null;
-}
+const drawerWidth = 248;
 
 // SiteFormWrapper component to handle form submission
 function SiteFormWrapper() {
@@ -268,26 +235,6 @@ function ShipmentFormWrapper() {
       {/* Legacy ShipmentForm removed */}
     </Box>
   );
-}
-
-// FieldTechFormWrapper component to handle form submission
-function FieldTechFormWrapper() {
-  const navigate = useNavigate();
-  const api = useApi();
-  const { success, error } = useToast();
-
-  const handleSubmit = async (values) => {
-    try {
-      await api.post('/fieldtechs/', cleanFormData(values));
-      success('Field tech created successfully');
-      navigate('/fieldtechs');
-    } catch (err) {
-      console.error('Error creating field tech:', err);
-      error('Error creating field tech');
-    }
-  };
-
-  return null;
 }
 
 // Edit wrapper components
@@ -592,47 +539,6 @@ function ShipmentEditWrapper() {
   );
 }
 
-function FieldTechEditWrapper() {
-  const navigate = useNavigate();
-  const { field_tech_id } = useParams();
-  const api = useApi();
-  const { error, success } = useToast();
-  const [fieldTech, setFieldTech] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchFieldTech = async () => {
-      try {
-        const response = await api.get(`/fieldtechs/${field_tech_id}`);
-        setFieldTech(response);
-      } catch (err) {
-        console.error('Error fetching field tech:', err);
-        error('Error loading field tech');
-        navigate('/fieldtechs');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchFieldTech();
-  }, [field_tech_id, api, navigate, error]);
-
-  const handleSubmit = async (values) => {
-    try {
-      await api.put(`/fieldtechs/${field_tech_id}`, values);
-      success('Field tech updated successfully');
-      navigate('/fieldtechs');
-    } catch (err) {
-      console.error('Error updating field tech:', err);
-      error('Error updating field tech');
-    }
-  };
-
-  if (loading) return <div>Loading...</div>;
-  if (!fieldTech) return <div>Field tech not found</div>;
-
-  return null;
-}
-
 // ========================================
 // COMPACT FORM WRAPPERS - High Density UI
 // ========================================
@@ -640,23 +546,19 @@ function FieldTechEditWrapper() {
 // Utility function to clean form data - removes empty strings for optional fields
 const cleanFormData = (data) => {
   const cleaned = {};
+  // Ticket date/numeric fields: send null when empty so backend validation is consistent
+  const ticketNullIfEmpty = [
+    'item_id', 'ticket_id', 'charges_out', 'charges_in', 'parts_cost', 'total_cost',
+    'date_shipped', 'date_returned', 'date_created', 'date_scheduled', 'date_closed', 'due_date',
+    'time_spent', 'sla_target_hours', 'sla_breach_hours', 'escalation_level',
+    'estimated_hours', 'actual_hours', 'billing_rate', 'quality_score'
+  ];
   for (const [key, value] of Object.entries(data)) {
-    // Special handling for fields that should send null instead of being omitted
-    if (key === 'item_id' || 
-        key === 'ticket_id' ||
-        key === 'charges_out' || 
-        key === 'charges_in' || 
-        key === 'parts_cost' || 
-        key === 'total_cost' || 
-        key === 'date_shipped' || 
-        key === 'date_returned') {
-      cleaned[key] = value === '' ? null : value;
+    if (ticketNullIfEmpty.includes(key)) {
+      cleaned[key] = (value === '' || value === null || value === undefined) ? null : value;
       continue;
     }
-    // Skip empty strings, null, undefined - let backend handle defaults/validation
-    if (value === '' || value === null || value === undefined) {
-      continue;
-    }
+    if (value === '' || value === null || value === undefined) continue;
     cleaned[key] = value;
   }
   return cleaned;
@@ -674,7 +576,8 @@ function CompactTicketFormWrapper() {
       success('Ticket created');
       navigate('/tickets');
     } catch (err) {
-      error('Failed to create ticket');
+      const msg = err?.response?.data?.detail || err?.message || 'Failed to create ticket';
+      error(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
   };
   return <CompactTicketFormComplete onSubmit={handleSubmit} initialValues={{}} isEdit={false} />;
@@ -708,13 +611,37 @@ function CompactTicketEditWrapper() {
       await api.put(`/tickets/${ticket_id}`, cleanedData);
       success('Ticket updated');
       navigate(`/tickets/${ticket_id}`);
-    } catch {
-      error('Failed to update');
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || 'Failed to update ticket';
+      error(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
   };
+
+  // Normalize ticket for form: date inputs need YYYY-MM-DD; strip undefined/readonly API fields
+  const normalizedTicket = ticket ? (() => {
+    const toDateOnly = (v) => {
+      if (v == null || v === '') return '';
+      const s = typeof v === 'string' ? v : (v && v.toISOString?.()) || '';
+      return s.slice(0, 10) || '';
+    };
+    return {
+      ...ticket,
+      date_created: toDateOnly(ticket.date_created),
+      date_scheduled: toDateOnly(ticket.date_scheduled),
+      date_closed: toDateOnly(ticket.date_closed),
+      due_date: ticket.due_date ? (typeof ticket.due_date === 'string' && ticket.due_date.length > 10 ? ticket.due_date.slice(0, 16) : ticket.due_date) : '',
+      check_in_time: ticket.check_in_time || '',
+      check_out_time: ticket.check_out_time || '',
+      claimed_at: ticket.claimed_at || '',
+      approved_at: ticket.approved_at || '',
+      start_time: ticket.start_time || '',
+      end_time: ticket.end_time || '',
+    };
+  })() : null;
+
   if (loading) return <div>Loading...</div>;
   if (!ticket) return <div>Not found</div>;
-  return <CompactTicketFormComplete onSubmit={handleSubmit} initialValues={ticket} isEdit={true} />;
+  return <CompactTicketFormComplete onSubmit={handleSubmit} initialValues={normalizedTicket} isEdit={true} />;
 }
 
 function CompactSiteFormWrapper() {
@@ -1002,54 +929,123 @@ function CompactShipmentEditWrapper() {
   return <CompactShipmentForm onSubmit={handleSubmit} initialValues={shipment} isEdit={true} />;
 }
 
-function CompactFieldTechFormWrapper() {
+function cleanCompanyPayload(data) {
+  const { techs, ...rest } = data;
+  const cleaned = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if (value === '' || value === null || value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return cleaned;
+}
+
+async function runWithConcurrency(tasks, worker, maxConcurrent = 5) {
+  if (!tasks.length) return;
+  let idx = 0;
+  const runners = Array.from({ length: Math.min(maxConcurrent, tasks.length) }, async () => {
+    while (idx < tasks.length) {
+      const current = tasks[idx++];
+      // eslint-disable-next-line no-await-in-loop
+      await worker(current);
+    }
+  });
+  await Promise.all(runners);
+}
+
+function CompactFieldTechCompanyFormWrapper() {
   const navigate = useNavigate();
   const api = useApi();
   const { success, error } = useToast();
+  const [isSaving, setIsSaving] = useState(false);
   const handleSubmit = async (values) => {
+    if (isSaving) return;
+    setIsSaving(true);
     try {
-      await api.post('/fieldtechs/', cleanFormData(values));
-      success('Field tech created');
-      navigate('/fieldtechs');
-    } catch {
-      error('Failed');
+      const { techs = [] } = values;
+      const companyPayload = cleanCompanyPayload(values);
+      const company = await api.post(`${getApiPath('fieldtechCompanies')}/`, companyPayload);
+      const companyId = company?.company_id;
+      if (companyId && techs.length) {
+        const techCreates = techs.filter(t => (t.name || '').trim());
+        await runWithConcurrency(techCreates, (t) => api.post(`${getApiPath('fieldtechs')}/`, {
+          company_id: companyId,
+          name: t.name?.trim(),
+          tech_number: t.tech_number || null,
+          phone: t.phone || null,
+          email: t.email || null,
+          service_radius_miles: t.service_radius_miles ? Number(t.service_radius_miles) : null
+        }), 5);
+      }
+      success('Company created');
+      navigate('/companies');
+    } catch (err) {
+      error(err?.response?.data?.detail || err?.message || 'Failed to create company');
+    } finally {
+      setIsSaving(false);
     }
   };
-  return <CompactFieldTechForm onSubmit={handleSubmit} initialValues={{}} isEdit={false} />;
+  return <CompactFieldTechCompanyForm onSubmit={handleSubmit} initialValues={{}} isEdit={false} isSaving={isSaving} />;
 }
 
-function CompactFieldTechEditWrapper() {
+function CompactFieldTechCompanyEditWrapper() {
   const navigate = useNavigate();
-  const { field_tech_id } = useParams();
+  const { company_id } = useParams();
   const api = useApi();
   const { error, success } = useToast();
-  const [fieldTech, setFieldTech] = useState(null);
+  const [company, setCompany] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   useEffect(() => {
-    const fetchFieldTech = async () => {
+    const fetchCompany = async () => {
       try {
-        const response = await api.get(`/fieldtechs/${field_tech_id}`);
-        setFieldTech(response);
-      } catch {
-        error('Error loading');
+        const response = await api.get(`${getApiPath('fieldtechCompanies')}/${company_id}`);
+        setCompany(response);
+      } catch (err) {
+        error(err?.response?.data?.detail || err?.message || 'Error loading company');
       } finally {
         setLoading(false);
       }
     };
-    fetchFieldTech();
-  }, [field_tech_id, api, error]);
+    fetchCompany();
+  }, [company_id, api, error]);
   const handleSubmit = async (values) => {
+    if (isSaving) return;
+    setIsSaving(true);
     try {
-      await api.put(`/fieldtechs/${field_tech_id}`, cleanFormData(values));
-      success('Field tech updated');
-      navigate('/fieldtechs');
-    } catch {
-      error('Failed');
+      const { techs = [] } = values;
+      const companyPayload = cleanCompanyPayload(values);
+      await api.put(`${getApiPath('fieldtechCompanies')}/${company_id}`, companyPayload);
+      const existingTechIds = (company?.techs || []).map(t => t.field_tech_id);
+      const submittedTechs = techs.filter(t => (t.name || '').trim());
+      const submittedIds = submittedTechs.filter(t => t.field_tech_id).map(t => t.field_tech_id);
+      const deleteIds = existingTechIds.filter((id) => !submittedIds.includes(id));
+      await runWithConcurrency(deleteIds, (id) => api.delete(`${getApiPath('fieldtechs')}/${id}`).catch(() => null), 5);
+
+      await runWithConcurrency(submittedTechs, (t) => {
+        const payload = {
+          company_id,
+          name: t.name?.trim(),
+          tech_number: t.tech_number || null,
+          phone: t.phone || null,
+          email: t.email || null,
+          service_radius_miles: t.service_radius_miles ? Number(t.service_radius_miles) : null
+        };
+        if (t.field_tech_id) {
+          return api.put(`${getApiPath('fieldtechs')}/${t.field_tech_id}`, payload);
+        }
+        return api.post(`${getApiPath('fieldtechs')}/`, payload);
+      }, 5);
+      success('Company updated');
+      navigate('/companies');
+    } catch (err) {
+      error(err?.response?.data?.detail || err?.message || 'Failed to update company');
+    } finally {
+      setIsSaving(false);
     }
   };
   if (loading) return <div>Loading...</div>;
-  if (!fieldTech) return <div>Not found</div>;
-  return <CompactFieldTechForm onSubmit={handleSubmit} initialValues={fieldTech} isEdit={true} />;
+  if (!company) return <div>Not found</div>;
+  return <CompactFieldTechCompanyForm onSubmit={handleSubmit} initialValues={company} isEdit={true} isSaving={isSaving} />;
 }
 
 // ========================================
@@ -1103,23 +1099,25 @@ const createAppTheme = (darkMode, colorTheme = 'blue') => createTheme({
   },
   typography: {
     fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    h4: {
-      fontWeight: 700,
-    },
-    h6: {
-      fontWeight: 600,
-    },
+    fontSize: 14,
+    h4: { fontSize: '1.25rem', fontWeight: 700 },
+    h5: { fontSize: '1.1rem', fontWeight: 600 },
+    h6: { fontSize: '1rem', fontWeight: 600 },
+    subtitle1: { fontSize: '0.9rem', fontWeight: 600 },
+    subtitle2: { fontSize: '0.8rem', fontWeight: 600 },
+    body1: { fontSize: '0.875rem' },
+    body2: { fontSize: '0.8125rem' },
+    caption: { fontSize: '0.75rem' },
+    button: { fontSize: '0.8125rem', fontWeight: 500 },
   },
   shape: {
-    borderRadius: 12,
+    borderRadius: 8,
   },
   components: {
     MuiCard: {
       styleOverrides: {
         root: {
-          boxShadow: darkMode 
-            ? '0 2px 8px rgba(0,0,0,0.3)' 
-            : '0 2px 8px rgba(0,0,0,0.1)',
+          boxShadow: darkMode ? '0 2px 8px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.1)',
           backgroundColor: darkMode ? '#1a1a1a' : '#ffffff',
           border: darkMode ? '1px solid #333333' : '1px solid #e0e0e0',
         },
@@ -1151,6 +1149,8 @@ const createAppTheme = (darkMode, colorTheme = 'blue') => createTheme({
       styleOverrides: {
         root: {
           borderBottom: darkMode ? '1px solid #333333' : '1px solid #e0e0e0',
+          padding: '6px 12px',
+          fontSize: '0.8125rem',
         },
       },
     },
@@ -1158,6 +1158,10 @@ const createAppTheme = (darkMode, colorTheme = 'blue') => createTheme({
       styleOverrides: {
         root: {
           backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+          color: darkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.87)',
+          height: 22,
+          fontSize: '0.75rem',
+          '& .MuiChip-label': { px: 0.75, color: 'inherit' },
         },
       },
     },
@@ -1165,15 +1169,17 @@ const createAppTheme = (darkMode, colorTheme = 'blue') => createTheme({
       styleOverrides: {
         root: {
           textTransform: 'none',
-          fontWeight: 600,
+          fontWeight: 500,
+          fontSize: '0.8125rem',
         },
       },
     },
     MuiListItemButton: {
       styleOverrides: {
         root: {
-          borderRadius: 8,
-          margin: '2px 8px',
+          borderRadius: 6,
+          margin: '1px 6px',
+          py: 0.75,
           '&:hover': {
             backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(25,118,210,0.08)',
           },
@@ -1184,6 +1190,27 @@ const createAppTheme = (darkMode, colorTheme = 'blue') => createTheme({
             },
           },
         },
+      },
+    },
+    MuiListItemIcon: {
+      styleOverrides: {
+        root: { minWidth: 36 },
+      },
+    },
+    MuiListItemText: {
+      styleOverrides: {
+        primary: { fontSize: '0.875rem' },
+      },
+    },
+    MuiInputBase: {
+      styleOverrides: {
+        root: { fontSize: '0.875rem' },
+        input: { fontSize: '0.875rem' },
+      },
+    },
+    MuiInputLabel: {
+      styleOverrides: {
+        root: { fontSize: '0.875rem' },
       },
     },
   },
@@ -1221,9 +1248,9 @@ const navigationItems = [
     badge: null
   },
   {
-    title: 'Field Techs',
-    path: '/fieldtechs',
-    icon: <Engineering sx={{ color: '#00796b' }} />,
+    title: 'Companies',
+    path: '/companies',
+    icon: <Business sx={{ color: '#5d4037' }} />,
     badge: null
   },
   {
@@ -1276,10 +1303,6 @@ const adminItems = [
 
 function AppLayout() {
   const { user, logout, loading } = useAuth();
-  
-  // Debug logging
-  console.log('AppLayout render - user:', user ? 'exists' : 'none', 'loading:', loading);
-  console.log('AppLayout sessionStorage token:', sessionStorage.getItem('access_token') ? 'exists' : 'none');
   const { notifications, unreadCount, markAsRead, markAllAsRead, clearAll, clearNotification } = useNotifications();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState(null);
@@ -1420,7 +1443,7 @@ function AppLayout() {
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Logo/Brand */}
       <Box sx={{ 
-        p: 3, 
+        p: 2, 
         borderBottom: 1, 
         borderColor: 'divider'
       }}>
@@ -1434,7 +1457,7 @@ function AppLayout() {
           <ListItem disablePadding>
             <ListItemButton
               onClick={() => toggleExpanded('main')}
-              sx={{ px: 3 }}
+              sx={{ px: 2 }}
             >
               <ListItemIcon>
                 <Home />
@@ -1451,7 +1474,7 @@ function AppLayout() {
                   <ListItemButton
                     selected={location.pathname === item.path}
                     onClick={() => navigate(item.path)}
-                    sx={{ pl: 6 }}
+                    sx={{ pl: 5 }}
                   >
                     <ListItemIcon>{item.icon}</ListItemIcon>
                     <ListItemText primary={item.title} />
@@ -1473,7 +1496,7 @@ function AppLayout() {
             <ListItem disablePadding>
               <ListItemButton
                 onClick={() => toggleExpanded('admin')}
-                sx={{ px: 3 }}
+                sx={{ px: 2 }}
               >
                 <ListItemIcon>
                   <AdminPanelSettings />
@@ -1490,7 +1513,7 @@ function AppLayout() {
                     <ListItemButton
                       selected={location.pathname === item.path}
                       onClick={() => navigate(item.path)}
-                      sx={{ pl: 6 }}
+                      sx={{ pl: 5 }}
                     >
                       <ListItemIcon>{item.icon}</ListItemIcon>
                       <ListItemText primary={item.title} />
@@ -1588,7 +1611,7 @@ function AppLayout() {
             zIndex: theme.zIndex.drawer + 1
           }}
         >
-          <Toolbar>
+          <Toolbar sx={{ minHeight: 48 }}>
             <IconButton
               color="inherit"
               aria-label="open drawer"
@@ -1600,7 +1623,7 @@ function AppLayout() {
             </IconButton>
             
             <Box sx={{ flex: 1 }}>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '1rem' }}>
                 {getPageTitle()}
               </Typography>
               <Breadcrumbs separator={<ChevronRight fontSize="small" />}>
@@ -1612,7 +1635,7 @@ function AppLayout() {
                     underline="hover"
                     sx={{ 
                       cursor: 'pointer',
-                      fontSize: '0.875rem'
+                      fontSize: '0.8125rem'
                     }}
                   >
                     {crumb.title}
@@ -1719,11 +1742,11 @@ function AppLayout() {
           component="main"
           sx={{
             flexGrow: 1,
-            p: 3,
+            p: 2,
             width: { sm: `calc(100% - ${drawerWidth}px)` },
-            mt: 8,
+            mt: 6,
             backgroundColor: darkMode ? '#0a0a0a' : '#fafafa',
-            minHeight: 'calc(100vh - 64px)'
+            minHeight: 'calc(100vh - 48px)'
           }}
         >
           <Routes>
@@ -1767,10 +1790,10 @@ function AppLayout() {
             <Route path="/shipments/new" element={<CompactShipmentFormWrapper />} />
             <Route path="/shipments/:shipment_id/edit" element={<CompactShipmentEditWrapper />} />
             
-            {/* Field Tech Routes - ALL COMPACT */}
-            <Route path="/fieldtechs" element={<CompactFieldTechs />} />
-            <Route path="/fieldtechs/new" element={<CompactFieldTechFormWrapper />} />
-            <Route path="/fieldtechs/:field_tech_id/edit" element={<CompactFieldTechEditWrapper />} />
+            {/* Company Routes (one address + techs; replaces standalone Field Techs page) */}
+            <Route path="/companies" element={<CompactFieldTechCompanies />} />
+            <Route path="/companies/new" element={<CompactFieldTechCompanyFormWrapper />} />
+            <Route path="/companies/:company_id/edit" element={<CompactFieldTechCompanyEditWrapper />} />
             
             {/* Other Routes */}
             <Route path="/audit" element={<Audit />} />
@@ -1960,7 +1983,7 @@ function App() {
       <ToastProvider>
         <DataSyncProvider>
           <NotificationProvider>
-            <Router>
+            <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route path="/*" element={

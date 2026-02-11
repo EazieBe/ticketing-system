@@ -6,103 +6,126 @@ const api = axios.create({
   timeout: config.TIMEOUT,
 });
 
-// Initialize Authorization header if token exists (session or local storage)
-(() => {
+// Set Authorization from storage on load (for page refresh)
+(function initAuthHeader() {
   try {
-    const bootToken = sessionStorage.getItem('access_token');
-    if (bootToken) {
-      api.defaults.headers.common['Authorization'] = `Bearer ${bootToken}`;
+    const token = sessionStorage.getItem('access_token');
+    if (token) {
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     }
   } catch {}
 })();
 
-// Flag to prevent multiple refresh attempts
 let isRefreshing = false;
-let failedQueue = [];
+let refreshSubscribers = [];
 
-const processQueue = (error, token = null) => {
-  failedQueue.forEach(prom => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve(token);
-    }
-  });
-  
-  failedQueue = [];
-};
+function subscribeTokenRefresh(resolve, reject) {
+  refreshSubscribers.push({ resolve, reject });
+}
 
+function onRefreshed(token) {
+  refreshSubscribers.forEach(({ resolve }) => resolve(token));
+  refreshSubscribers = [];
+}
+
+function onRefreshFailed(err) {
+  refreshSubscribers.forEach(({ reject }) => reject(err));
+  refreshSubscribers = [];
+}
+
+function clearAuthAndNotify() {
+  sessionStorage.removeItem('access_token');
+  sessionStorage.removeItem('refresh_token');
+  delete api.defaults.headers.common['Authorization'];
+  if (typeof window !== 'undefined' && window.dispatchEvent) {
+    window.dispatchEvent(new CustomEvent('auth:session-expired'));
+  }
+}
+
+// Request: always attach current token from sessionStorage (sync, no refresh here)
 api.interceptors.request.use(
-  (config) => {
+  (reqConfig) => {
+    if (reqConfig.url?.includes('/login') || reqConfig.url?.includes('/refresh')) {
+      return reqConfig;
+    }
     const token = sessionStorage.getItem('access_token');
     if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`;
+      reqConfig.headers['Authorization'] = `Bearer ${token}`;
     }
-    return config;
+    return reqConfig;
   },
-  (error) => Promise.reject(error)
+  (err) => Promise.reject(err)
 );
 
+// Response: on 401, refresh once and retry the failed request (and any others waiting)
 api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
+  (res) => res,
+  async (err) => {
+    const originalRequest = err.config;
 
-    // Don't intercept 401 errors from login or refresh endpoints
-    const isLoginRequest = originalRequest.url?.includes('/login') || originalRequest.url?.includes('/refresh');
-    
-    if (error.response?.status === 401 && !originalRequest._retry && !isLoginRequest) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        }).then(token => {
-          originalRequest.headers['Authorization'] = `Bearer ${token}`;
-          return api(originalRequest);
-        }).catch(err => Promise.reject(err));
-      }
-
-      originalRequest._retry = true;
-      isRefreshing = true;
-
-      const refreshToken = sessionStorage.getItem('refresh_token');
-      if (!refreshToken) {
-        // No refresh token, clear auth and redirect to login
-        sessionStorage.removeItem('access_token');
-        sessionStorage.removeItem('refresh_token');
-        window.location.href = '/login';
-        return Promise.reject(error);
-      }
-
-      try {
-        const response = await axios.post(`${config.API_BASE_URL}/refresh`, {
-          refresh_token: refreshToken
-        });
-
-        const { access_token, refresh_token } = response.data;
-        sessionStorage.setItem('access_token', access_token);
-        sessionStorage.setItem('refresh_token', refresh_token);
-
-        api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-        originalRequest.headers['Authorization'] = `Bearer ${access_token}`;
-
-        processQueue(null, access_token);
-        isRefreshing = false;
-
-        return api(originalRequest);
-      } catch (refreshError) {
-        processQueue(refreshError, null);
-        isRefreshing = false;
-
-        // Clear auth data and redirect to login
-        sessionStorage.removeItem('access_token');
-        sessionStorage.removeItem('refresh_token');
-        window.location.href = '/login';
-        return Promise.reject(refreshError);
-      }
+    const isAuthRoute = originalRequest.url?.includes('/login') || originalRequest.url?.includes('/refresh');
+    if (err.response?.status !== 401 || originalRequest._retry || isAuthRoute) {
+      return Promise.reject(err);
     }
 
-    return Promise.reject(error);
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        subscribeTokenRefresh((token) => {
+          const retryConfig = {
+            ...originalRequest,
+            headers: { ...originalRequest.headers, Authorization: `Bearer ${token}` },
+          };
+          api(retryConfig).then(resolve).catch(reject);
+        }, reject);
+      });
+    }
+
+    originalRequest._retry = true;
+    isRefreshing = true;
+
+    const refreshToken = sessionStorage.getItem('refresh_token');
+    if (!refreshToken) {
+      isRefreshing = false;
+      clearAuthAndNotify();
+      return Promise.reject(err);
+    }
+
+    const base = (config.API_BASE_URL || '').replace(/\/$/, '');
+    const refreshUrl = base ? `${base}/refresh` : '/refresh';
+
+    try {
+      const res = await axios.post(refreshUrl, { refresh_token: refreshToken }, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: config.TIMEOUT,
+      });
+
+      const { access_token, refresh_token: newRefreshToken } = res.data;
+      sessionStorage.setItem('access_token', access_token);
+      sessionStorage.setItem('refresh_token', newRefreshToken);
+      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+
+      onRefreshed(access_token);
+
+      // Retry with a fresh config so the new token is definitely sent (avoid stale refs)
+      const retryConfig = {
+        ...originalRequest,
+        headers: {
+          ...originalRequest.headers,
+          Authorization: `Bearer ${access_token}`,
+        },
+      };
+      isRefreshing = false;
+
+      return api(retryConfig);
+    } catch (refreshErr) {
+      isRefreshing = false;
+      onRefreshFailed(refreshErr);
+      if (refreshErr.response?.status === 401) {
+        clearAuthAndNotify();
+      }
+      return Promise.reject(refreshErr);
+    }
   }
 );
 
-export default api; 
+export default api;

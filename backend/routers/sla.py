@@ -63,13 +63,15 @@ def update_sla_rule(
 ):
     """Update an SLA rule"""
     result = crud.update_sla_rule(db, rule_id=rule_id, rule=data)
+    if not result:
+        raise HTTPException(status_code=404, detail="SLA rule not found")
     audit = schemas.TicketAuditCreate(
         ticket_id=None,
         user_id=current_user.user_id,
         change_time=datetime.now(timezone.utc),
         field_changed="sla_rule_update",
         old_value=None,
-        new_value=str(result.rule_id if hasattr(result, 'rule_id') else result.id)
+        new_value=str(result.rule_id if hasattr(result, 'rule_id') else getattr(result, 'id', rule_id))
     )
     crud.create_ticket_audit(db, audit)
     

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Body
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Body, Response
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -26,6 +26,7 @@ def _normalize_ticket_dt(t: models.Ticket):
 
 @router.get("/count")
 def tickets_count(
+    response: Response,
     status: Optional[str] = None,
     priority: Optional[str] = None,
     assigned_user_id: Optional[str] = None,
@@ -33,8 +34,7 @@ def tickets_count(
     ticket_type: Optional[str] = None,
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-    response: Response = None
+    current_user: models.User = Depends(get_current_user)
 ):
     count = crud.count_tickets(
         db,
@@ -45,8 +45,7 @@ def tickets_count(
         ticket_type=ticket_type,
         search=search,
     )
-    if response is not None:
-        response.headers["Cache-Control"] = "public, max-age=15"
+    response.headers["Cache-Control"] = "public, max-age=15"
     return {"count": count}
 
 @router.post("/", response_model=schemas.TicketOut)
@@ -76,7 +75,9 @@ def create_ticket(
     
     if background_tasks:
         _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"create"}')
-    return _normalize_ticket_dt(result)
+    # Refetch with relations to avoid N+1 during TicketOut serialization
+    out = crud.get_ticket_for_response(db, result.ticket_id)
+    return _normalize_ticket_dt(out)
 
 @router.get("/", response_model=List[schemas.TicketOut])
 def list_tickets(
@@ -88,20 +89,24 @@ def list_tickets(
     site_id: Optional[str] = None,
     ticket_type: Optional[str] = None,
     search: Optional[str] = None,
+    include_related: bool = True,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     """List tickets with pagination and filters"""
+    safe_skip = max(0, skip)
+    safe_limit = max(1, min(limit, 200))
     tickets = crud.get_tickets(
         db,
-        skip=skip,
-        limit=limit,
+        skip=safe_skip,
+        limit=safe_limit,
         status=status,
         priority=priority,
         assigned_user_id=assigned_user_id,
         site_id=site_id,
         ticket_type=ticket_type,
         search=search,
+        include_related=include_related,
     )
     return [_normalize_ticket_dt(t) for t in tickets]
 
@@ -151,7 +156,7 @@ def update_ticket(
     ticket.last_updated_at = datetime.now(timezone.utc)
     
     try:
-        result = crud.update_ticket(db, ticket_id=ticket_id, ticket=ticket)
+        crud.update_ticket(db, ticket_id=ticket_id, ticket=ticket)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not update ticket: {str(e)}")
     
@@ -161,7 +166,9 @@ def update_ticket(
     
     if background_tasks:
         _enqueue_broadcast(background_tasks, '{"type":"ticket","action":"update"}')
-    return _normalize_ticket_dt(result)
+    # Refetch with relations to avoid N+1 during TicketOut serialization
+    out = crud.get_ticket_for_response(db, ticket_id)
+    return _normalize_ticket_dt(out)
 
 @router.patch("/{ticket_id}/status", response_model=schemas.TicketOut)
 def update_ticket_status(
@@ -383,7 +390,10 @@ def check_out_ticket(
             check_in = check_in.replace(tzinfo=timezone.utc)
         
         duration = ticket.check_out_time - check_in
-        ticket.onsite_duration_minutes = int(duration.total_seconds() / 60)
+        duration_minutes = int(duration.total_seconds() / 60)
+        ticket.onsite_duration_minutes = duration_minutes
+        # Also set time_spent so it displays in the frontend
+        ticket.time_spent = duration_minutes
     
     ticket.status = models.TicketStatus.completed.value
     
@@ -492,7 +502,7 @@ def update_ticket_costs(
     background_tasks: BackgroundTasks = None
 ):
     """Update ticket cost information"""
-    result = crud.update_ticket_costs(db, ticket_id, cost_data.dict(exclude_unset=True))
+    result = crud.update_ticket_costs(db, ticket_id, cost_data.model_dump(exclude_unset=True))
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
     
@@ -536,7 +546,7 @@ def create_comment(
         raise HTTPException(status_code=404, detail="Ticket not found")
     
     # Create comment with user info
-    comment_dict = comment_data.dict()
+    comment_dict = comment_data.model_dump()
     comment_dict['ticket_id'] = ticket_id
     comment_dict['user_id'] = current_user.user_id
     
@@ -567,7 +577,7 @@ def update_comment(
     if comment.user_id != current_user.user_id and current_user.role != models.UserRole.admin:
         raise HTTPException(status_code=403, detail="Not authorized to edit this comment")
     
-    result = crud.update_ticket_comment(db, comment_id=comment_id, comment_data=comment_data.dict(exclude_unset=True))
+    result = crud.update_ticket_comment(db, comment_id=comment_id, comment_data=comment_data.model_dump(exclude_unset=True))
     
     # Broadcast update
     if background_tasks:
@@ -635,7 +645,7 @@ def create_time_entry(
         raise HTTPException(status_code=404, detail="Ticket not found")
     
     # Create time entry with user and ticket info
-    entry_dict = entry_data.dict()
+    entry_dict = entry_data.model_dump()
     entry_dict['ticket_id'] = ticket_id
     entry_dict['user_id'] = current_user.user_id
     
@@ -666,7 +676,7 @@ def update_time_entry(
     if entry.user_id != current_user.user_id and current_user.role != models.UserRole.admin:
         raise HTTPException(status_code=403, detail="Not authorized to edit this time entry")
     
-    result = crud.update_time_entry(db, entry_id=entry_id, time_entry_data=entry_data.dict(exclude_unset=True))
+    result = crud.update_time_entry(db, entry_id=entry_id, time_entry_data=entry_data.model_dump(exclude_unset=True))
     
     # Broadcast update
     if background_tasks:

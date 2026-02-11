@@ -49,12 +49,15 @@ class ErrorBoundary extends React.Component {
       url: window.location.href
     };
 
-    // Example: Send to your backend error logging endpoint
+    // Send to backend error logging endpoint (with auth when logged in)
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const token = sessionStorage.getItem('access_token');
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    } catch (_) {}
     fetch('/api/errors', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(errorData)
     }).catch(err => {
       console.error('Failed to log error to service:', err);
@@ -195,11 +198,14 @@ export const useErrorHandler = () => {
         url: window.location.href
       };
 
+      const headers = { 'Content-Type': 'application/json' };
+      try {
+        const token = sessionStorage.getItem('access_token');
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+      } catch (_) {}
       fetch('/api/errors', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(errorData)
       }).catch(err => {
         console.error('Failed to report error:', err);

@@ -1,21 +1,31 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { Snackbar, Alert } from '@mui/material';
 
 const ToastContext = createContext();
 
+// Dedupe: don't show the same error message again within this window (stops "lots of errors flashing")
+const ERROR_DEDUPE_MS = 4000;
+
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
+  const lastErrorRef = useRef({ message: '', at: 0 });
 
   const removeToast = useCallback((id) => {
     setToasts(prev => prev.filter(toast => toast.id !== id));
   }, []);
 
   const addToast = useCallback((message, severity = 'info', duration = 6000) => {
-    const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    // Ensure message is always a string
     const safeMessage = typeof message === 'string' ? message : JSON.stringify(message);
+    // Dedupe errors: same message within ERROR_DEDUPE_MS = skip adding another
+    if (severity === 'error') {
+      const now = Date.now();
+      const same = lastErrorRef.current.message === safeMessage && (now - lastErrorRef.current.at) < ERROR_DEDUPE_MS;
+      if (same) return;
+      lastErrorRef.current = { message: safeMessage, at: now };
+    }
+    const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     setToasts(prev => [...prev, { id, message: safeMessage, severity, duration }]);
-    
+
     setTimeout(() => {
       removeToast(id);
     }, duration);

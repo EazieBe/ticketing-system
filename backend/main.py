@@ -1,5 +1,5 @@
 import logging
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, WebSocket, Query
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, WebSocket, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -11,15 +11,18 @@ import string
 import os
 import json
 import asyncio
-import os
 from redis.asyncio import Redis
 import jwt
 from contextlib import asynccontextmanager
 
 import models, schemas, crud
 from database import SessionLocal, engine, get_db
-from utils.main_utils import *
 from settings import settings
+
+# Set SECRET_KEY in env before any import that loads auth (auth validates length at import)
+os.environ.setdefault("SECRET_KEY", settings.SECRET_KEY)
+
+from utils.main_utils import verify_password, create_access_token, APILatencyTracker, timer_ms
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
@@ -27,6 +30,7 @@ models.Base.metadata.create_all(bind=engine)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ticketing")
+latency_tracker = APILatencyTracker(max_samples_per_key=600)
 
 # Redis connection for WebSocket broadcasting (async client)
 redis_client: Redis | None = None
@@ -56,6 +60,22 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+def _latency_bucket(request: Request) -> str:
+    path = request.url.path or "/"
+    query = request.url.query or ""
+    if path.startswith("/tickets"):
+        return "tickets"
+    if path.startswith("/fieldtech-companies"):
+        if "for_map=true" in query:
+            return "fieldtech_map"
+        return "fieldtech_companies"
+    if path.startswith("/sites"):
+        return "sites"
+    if path.startswith("/shipments"):
+        return "shipments"
+    return "other"
+
 # Middlewares
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
@@ -66,14 +86,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def latency_middleware(request: Request, call_next):
+    start = timer_ms()
+    response = await call_next(request)
+    elapsed_ms = timer_ms() - start
+    bucket = _latency_bucket(request)
+    latency_tracker.record(bucket, elapsed_ms)
+    response.headers["X-Response-Time-Ms"] = f"{elapsed_ms:.2f}"
+    if elapsed_ms > 1200:
+        logger.warning(
+            "slow_request method=%s path=%s bucket=%s elapsed_ms=%.2f",
+            request.method,
+            request.url.path,
+            bucket,
+            elapsed_ms,
+        )
+    return response
+
 # Include routers
-from routers import tickets, users, sites, shipments, fieldtechs, tasks, equipment, inventory, sla, audit, logging, search
+from routers import tickets, users, sites, shipments, fieldtechs, fieldtech_companies, tasks, equipment, inventory, sla, audit, logging, search
 
 app.include_router(tickets.router)
 app.include_router(users.router)
 app.include_router(sites.router)
 app.include_router(shipments.router)
 app.include_router(fieldtechs.router)
+app.include_router(fieldtech_companies.router)
 app.include_router(tasks.router)
 app.include_router(equipment.router)
 app.include_router(inventory.router)
@@ -82,10 +122,8 @@ app.include_router(audit.router)
 app.include_router(logging.router)
 app.include_router(search.router)
 
-# Import authentication from auth module
-# Ensure SECRET_KEY present from settings
-os.environ.setdefault("SECRET_KEY", settings.SECRET_KEY)
-from utils.auth import get_current_user, require_role, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, rate_limit
+# Import authentication from auth module (SECRET_KEY already set above)
+from utils.auth import get_current_user, require_role, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, rate_limit, rate_limit_public
 
 # Override _enqueue_broadcast with redis_client access
 def _enqueue_broadcast(background_tasks: BackgroundTasks, message: str):
@@ -126,7 +164,7 @@ async def get_redis() -> Redis | None:
 def login_form(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
-    _rl: None = Depends(rate_limit("login", limit=10, window_seconds=60))
+    _rl: None = Depends(rate_limit_public("login", limit=10, window_seconds=60))
 ):
     """Login endpoint (OAuth2 form)"""
     user = crud.get_user_by_email(db, email=form_data.username)
@@ -153,7 +191,7 @@ def login_form(
 def login_json(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
-    _rl: None = Depends(rate_limit("login", limit=10, window_seconds=60))
+    _rl: None = Depends(rate_limit_public("login", limit=10, window_seconds=60))
 ):
     """Login endpoint (form-encoded for frontend)"""
     user = crud.get_user_by_email(db, email=form_data.username)
@@ -198,22 +236,28 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 @app.post("/refresh")
-def refresh_token(refresh_data: RefreshRequest, db: Session = Depends(get_db)):
+def refresh_token(
+    refresh_data: RefreshRequest,
+    db: Session = Depends(get_db),
+    _rl: None = Depends(rate_limit_public("refresh", limit=30, window_seconds=60)),
+):
     """Refresh access token"""
     refresh_token = refresh_data.refresh_token
     
     try:
         # Decode the refresh token to get the user_id
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("sub")
+        sub = payload.get("sub")
         token_type = payload.get("type")
         
-        if not user_id:
+        if sub is None:
             raise HTTPException(status_code=401, detail="Invalid refresh token")
         
         # Verify it's actually a refresh token
         if token_type != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token type")
+        
+        user_id = str(sub)  # Ensure string for crud.get_user
             
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Refresh token expired")
@@ -309,7 +353,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket, user_id)
     
     try:
-        print(f"WebSocket connection established for user: {user_id}")
+        logger.info(f"WebSocket connection established for user: {user_id}")
         
         # If Redis is available, subscribe to updates
         pubsub = None
@@ -391,6 +435,17 @@ async def websocket_endpoint(websocket: WebSocket):
 def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/ops/latency")
+def get_latency_baseline(
+    current_user: models.User = Depends(require_role([models.UserRole.admin.value, models.UserRole.dispatcher.value]))
+):
+    """Rolling p50/p95 latency summary for hot endpoint groups."""
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "summary": latency_tracker.summary(),
+    }
 
 # Root endpoint
 @app.get("/")

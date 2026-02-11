@@ -11,6 +11,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
 import { useDataSync } from './contexts/DataSyncContext';
 import dayjs from 'dayjs';
 import EquipmentForm from './EquipmentForm';
@@ -22,6 +23,7 @@ function Equipment() {
   const { user } = useAuth();
   const api = useApi();
   const { success, error: showError } = useToast();
+  const { surfacePaper, statusWarningBg } = useThemeTokens();
   const { updateTrigger } = useDataSync('all');
   const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -160,10 +162,10 @@ function Equipment() {
     }
   };
 
-  // Color cue: highlight row if missing serial number
+  // Color cue: highlight row if missing serial number (theme-aware)
   const getRowColor = (eq) => {
-    if (!eq.serial_number) return '#fff9c4'; // yellow
-    return '#fff';
+    if (!eq.serial_number) return statusWarningBg;
+    return surfacePaper;
   };
 
   if (loading) return (

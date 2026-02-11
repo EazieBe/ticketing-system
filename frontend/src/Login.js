@@ -27,7 +27,7 @@ function Login() {
         navigate('/');
       }
     } else {
-      setError('Invalid email or password');
+      setError(result.error || 'Invalid email or password');
     }
   };
 

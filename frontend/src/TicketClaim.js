@@ -14,6 +14,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import TypeChip from './components/TypeChip';
 import dayjs from 'dayjs';
 
 function TicketClaim() {
@@ -191,11 +192,7 @@ function TicketClaim() {
 
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="body2" color="text.secondary">Type</Typography>
-                  <Chip 
-                    label={ticket.type} 
-                    size="small" 
-                    color="primary"
-                  />
+                  <TypeChip type={ticket.type} size="small" />
                 </Box>
 
                 <Box sx={{ mb: 2 }}>

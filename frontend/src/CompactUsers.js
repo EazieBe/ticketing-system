@@ -8,10 +8,14 @@ import {
 import { Add, Visibility, Edit, Search, Refresh, ViewColumn } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
+import useReadableChip from './hooks/useReadableChip';
 
 function CompactUsers() {
   const navigate = useNavigate();
   const api = useApi();
+  const { tableHeaderBg } = useThemeTokens();
+  const { getChipSx } = useReadableChip();
   const { error: showError } = useToast();
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
@@ -78,7 +82,7 @@ function CompactUsers() {
   return (
     <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Stack direction="row" justifyContent="space-between" mb={1}>
-        <Typography variant="h6" fontWeight="bold">Users ({filtered.length})</Typography>
+        <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.95rem' }}>Users ({filtered.length})</Typography>
         <Stack direction="row" spacing={1}>
           <TextField size="small" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)}
             InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
@@ -95,7 +99,7 @@ function CompactUsers() {
         <TableContainer sx={{ height: '100%' }}>
           <Table size="small" stickyHeader sx={{ '& td, & th': { py: 0.5, px: 1, fontSize: '0.75rem', whiteSpace: 'nowrap' } }}>
             <TableHead>
-              <TableRow sx={{ '& th': { bgcolor: '#f5f5f5', fontWeight: 'bold', borderBottom: 2, borderColor: '#388e3c' } }}>
+              <TableRow sx={{ '& th': { bgcolor: tableHeaderBg, fontWeight: 'bold', borderBottom: 2, borderColor: 'primary.main' } }}>
                 {visibleColumns.name && <TableCell>Name</TableCell>}
                 {visibleColumns.email && <TableCell>Email</TableCell>}
                 {visibleColumns.role && <TableCell>Role</TableCell>}
@@ -111,7 +115,7 @@ function CompactUsers() {
                   {visibleColumns.email && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{u.email}</Typography></TableCell>}
                   {visibleColumns.role && <TableCell><Chip label={u.role} size="small" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600 }} /></TableCell>}
                   {visibleColumns.phone && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{u.phone}</Typography></TableCell>}
-                  {visibleColumns.status && <TableCell><Chip label={u.active ? 'Active' : 'Inactive'} size="small" color={u.active ? 'success' : 'default'} sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600 }} /></TableCell>}
+                  {visibleColumns.status && <TableCell><Chip label={u.active ? 'Active' : 'Inactive'} size="small" sx={{ height: 18, fontSize: '0.65rem', ...getChipSx(u.active ? 'success' : 'default') }} /></TableCell>}
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Stack direction="row" spacing={0.5}>
                       <IconButton size="small" sx={{ p: 0.3 }}><Visibility sx={{ fontSize: 16 }} /></IconButton>

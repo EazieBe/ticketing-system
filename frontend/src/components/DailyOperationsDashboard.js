@@ -63,6 +63,9 @@ import {
 } from '@mui/icons-material';
 import { useToast } from '../contexts/ToastContext';
 import useApi from '../hooks/useApi';
+import useThemeTokens from '../hooks/useThemeTokens';
+import StatusChip from './StatusChip';
+import PriorityChip from './PriorityChip';
 import LoadingSpinner from './LoadingSpinner';
 import TicketFilters from './TicketFilters';
 import { filterTickets, getDefaultFilters } from '../utils/filterTickets';
@@ -73,6 +76,7 @@ import { getBestTimestamp, getCurrentUTCTimestamp } from '../utils/timezone';
 
 function DailyOperationsDashboard() {
   const navigate = useNavigate();
+  const { avatarBg, avatarIcon } = useThemeTokens();
   const { updateTrigger: ticketUpdateTrigger } = useDataSync('tickets');
   const { updateTrigger: shipmentUpdateTrigger } = useDataSync('shipments');
   const { isConnected } = useNotifications();
@@ -243,16 +247,6 @@ function DailyOperationsDashboard() {
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'completed': return 'success';
-      case 'in_progress': return 'info';
-      case 'scheduled': return 'warning';
-      case 'open': return 'default';
-      default: return 'default';
-    }
-  };
-
   const getPriorityIcon = (priority) => {
     switch (priority) {
       case 'emergency': return <Error />;
@@ -330,8 +324,8 @@ function DailyOperationsDashboard() {
     if (ticketList.length === 0) {
       return (
         <Box p={4} textAlign="center">
-          <Avatar sx={{ bgcolor: 'grey.100', width: 64, height: 64, mx: 'auto', mb: 2 }}>
-            <Assignment sx={{ fontSize: 32, color: 'grey.500' }} />
+          <Avatar sx={{ bgcolor: avatarBg, width: 64, height: 64, mx: 'auto', mb: 2 }}>
+            <Assignment sx={{ fontSize: 32, color: avatarIcon }} />
           </Avatar>
           <Typography variant="h6" color="textSecondary" gutterBottom>
             No tickets found
@@ -399,12 +393,7 @@ function DailyOperationsDashboard() {
                 </Box>
 
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                  <Chip
-                    icon={getStatusIcon(ticket.status)}
-                    label={ticket.status}
-                    color={getStatusColor(ticket.status)}
-                    size="small"
-                  />
+                  <StatusChip status={ticket.status} entityType="ticket" size="small" />
                   <Typography variant="caption" color="textSecondary">
                     <AccessTime sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
                     <TimestampDisplay entity={ticket} entityType="tickets" format="absolute" variant="caption" />
@@ -459,8 +448,8 @@ function DailyOperationsDashboard() {
     if (shipments.length === 0) {
       return (
         <Box p={4} textAlign="center">
-          <Avatar sx={{ bgcolor: 'grey.100', width: 64, height: 64, mx: 'auto', mb: 2 }}>
-            <LocalShipping sx={{ fontSize: 32, color: 'grey.500' }} />
+          <Avatar sx={{ bgcolor: avatarBg, width: 64, height: 64, mx: 'auto', mb: 2 }}>
+            <LocalShipping sx={{ fontSize: 32, color: avatarIcon }} />
           </Avatar>
           <Typography variant="h6" color="textSecondary" gutterBottom>
             No shipments found
@@ -506,11 +495,7 @@ function DailyOperationsDashboard() {
                       {shipment.what_is_being_shipped || 'Unknown Item'}
                     </Typography>
                   </Box>
-                  <Chip
-                    label={shipment.status}
-                    color={getStatusColor(shipment.status)}
-                          size="small"
-                  />
+                  <StatusChip status={shipment.status} entityType="shipment" size="small" />
                 </Box>
 
                 <Box mb={2}>

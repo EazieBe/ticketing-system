@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { InputBase, Paper, List, ListItem, ListItemText, ListSubheader, Popper, ClickAwayListener, IconButton } from '@mui/material';
+import React, { useState, useEffect, useRef } from 'react';
+import { InputBase, Paper, List, ListItem, ListItemText, ListSubheader, Popper, ClickAwayListener, IconButton, Box } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
 import { useNavigate } from 'react-router-dom';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import Tooltip from '@mui/material/Tooltip';
@@ -12,7 +13,7 @@ const typeLabels = {
   shipment: 'Shipments',
   inventory: 'Inventory',
   user: 'Users',
-  fieldtech: 'Field Techs',
+  fieldtech: 'Companies',
 };
 
 function GlobalSearch() {
@@ -23,6 +24,7 @@ function GlobalSearch() {
   const anchorRef = useRef();
   const navigate = useNavigate();
   const api = useApi();
+  const { toastSuccessBg, toastSuccessBorder } = useThemeTokens();
   const [copyFeedback, setCopyFeedback] = useState('');
   const copyTimeoutRef = React.useRef(null);
   const apiRef = React.useRef(api);
@@ -145,7 +147,11 @@ function GlobalSearch() {
           </Paper>
         </Popper>
       </div>
-      {copyFeedback && <div style={{ position: 'fixed', top: 80, right: 40, zIndex: 2000, background: '#e0ffe0', padding: 8, borderRadius: 4 }}>Copied!</div>}
+      {copyFeedback && (
+        <Box sx={{ position: 'fixed', top: 80, right: 40, zIndex: 2000, bgcolor: toastSuccessBg, border: toastSuccessBorder, color: 'text.primary', p: 1, borderRadius: 1 }}>
+          Copied!
+        </Box>
+      )}
     </ClickAwayListener>
   );
 }

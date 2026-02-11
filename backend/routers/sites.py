@@ -11,17 +11,16 @@ router = APIRouter(prefix="/sites", tags=["sites"])
 
 @router.get("/lookup")
 def lookup_sites(
+    response: Response,
     prefix: str,
     limit: int = 50,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-    response: Response = None
+    current_user: models.User = Depends(get_current_user)
 ):
     """Fast lookup for Autocomplete: prefix match on site_id only"""
     q = db.query(models.Site).filter(models.Site.site_id.ilike(f"{prefix}%"))
     items = q.order_by(models.Site.site_id.asc()).limit(limit).all()
-    if response is not None:
-        response.headers["Cache-Control"] = "public, max-age=30"
+    response.headers["Cache-Control"] = "public, max-age=30"
     return items
 
 @router.post("/", response_model=schemas.SiteOut)
@@ -48,15 +47,14 @@ def create_site(
 
 @router.get("/count")
 def sites_count(
+    response: Response,
     region: str | None = None,
     search: str | None = None,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-    response: Response = None
+    current_user: models.User = Depends(get_current_user)
 ):
     count = crud.count_sites(db, region=region, search=search)
-    if response is not None:
-        response.headers["Cache-Control"] = "public, max-age=15"
+    response.headers["Cache-Control"] = "public, max-age=15"
     return {"count": count}
 
 @router.get("/{site_id}", response_model=schemas.SiteOut)

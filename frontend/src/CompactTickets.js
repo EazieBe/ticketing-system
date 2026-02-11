@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -11,6 +11,10 @@ import {
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
+import StatusChip from './components/StatusChip';
+import PriorityChip from './components/PriorityChip';
+import TypeChip from './components/TypeChip';
 import { useDataSync } from './contexts/DataSyncContext';
 import { canDelete } from './utils/permissions';
 
@@ -18,6 +22,7 @@ function CompactTickets() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const api = useApi();
+  const { tableHeaderBg, rowHoverBg } = useThemeTokens();
   const { success, error: showError } = useToast();
   const apiRef = React.useRef(api);
   const { updateTrigger } = useDataSync('tickets');
@@ -30,6 +35,8 @@ function CompactTickets() {
   const [archivedCount, setArchivedCount] = useState(0);
   const [selected, setSelected] = useState(new Set());
   const [filters, setFilters] = useState({ type: 'all', status: 'active', priority: 'all', search: '' });
+  const [searchInput, setSearchInput] = useState('');
+  const searchDebounceRef = useRef(null);
   const [columnAnchor, setColumnAnchor] = useState(null);
   const [visibleColumns, setVisibleColumns] = useState({
     ticket_id: true,
@@ -89,10 +96,22 @@ function CompactTickets() {
     }
   };
 
+  // Debounce search input -> filters.search
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setFilters(prev => ({ ...prev, search: searchInput.trim() }));
+      setPage(0); // Reset to first page when search changes
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchInput]);
+
   useEffect(() => {
     fetchTickets();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateTrigger, page, rowsPerPage]);
+  }, [updateTrigger, page, rowsPerPage, filters.type, filters.status, filters.priority, filters.search]);
 
   const filtered = useMemo(() => {
     let result = tickets;
@@ -124,12 +143,19 @@ function CompactTickets() {
 
   const bulkApprove = async () => {
     try {
-      await Promise.all(Array.from(selected).map(id => api.post(`/tickets/${id}/approve`, { approve: true })));
-      success(`Approved ${selected.size}`);
+      const results = await Promise.allSettled(Array.from(selected).map(id => api.post(`/tickets/${id}/approve?approve=true`)));
+      const succeeded = results.filter(r => r.status === 'fulfilled').length;
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed > 0) {
+        const errors = results.filter(r => r.status === 'rejected').map(r => r.reason?.message || 'Unknown error');
+        showError(`Approved ${succeeded}, failed ${failed}: ${errors[0]}`);
+      } else {
+        success(`Approved ${succeeded} ticket${succeeded !== 1 ? 's' : ''}`);
+      }
       setSelected(new Set());
       fetchTickets();
-    } catch {
-      showError('Failed');
+    } catch (err) {
+      showError(err?.message || 'Failed to approve tickets');
     }
   };
 
@@ -137,24 +163,12 @@ function CompactTickets() {
     setVisibleColumns(prev => ({ ...prev, [column]: !prev[column] }));
   };
 
-  const getStatusColor = (status) => {
-    const configs = {
-      open: { color: '#1976d2', bg: '#e3f2fd' },
-      scheduled: { color: '#9c27b0', bg: '#f3e5f5' },
-      checked_in: { color: '#ff9800', bg: '#fff3e0' },
-      in_progress: { color: '#ff5722', bg: '#fbe9e7' },
-      needs_parts: { color: '#f44336', bg: '#ffebee' },
-      completed: { color: '#4caf50', bg: '#e8f5e9' }
-    };
-    return configs[status] || { color: '#757575', bg: '#f5f5f5' };
-  };
-
   return (
-    <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ p: 1.5, height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Compact Header */}
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-        <Typography variant="h6" fontWeight="bold">
-          Tickets ({total || filtered.length}) • Archived ({archivedCount})
+        <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.95rem' }}>
+          Tickets ({total ?? filtered.length}) • Archived ({archivedCount})
         </Typography>
         <Stack direction="row" spacing={1}>
           <Button size="small" variant="contained" startIcon={<Add />} onClick={() => navigate('/tickets/new')}>
@@ -207,8 +221,8 @@ function CompactTickets() {
           <TextField
             size="small"
             placeholder="Search..."
-            value={filters.search}
-            onChange={(e) => setFilters(f => ({ ...f, search: e.target.value }))}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
             sx={{ width: 200, '& input': { py: 0.5, fontSize: '0.875rem' } }}
           />
@@ -251,7 +265,7 @@ function CompactTickets() {
         <TableContainer sx={{ height: '100%' }}>
           <Table size="small" stickyHeader sx={{ '& td, & th': { py: 0.5, px: 1, fontSize: '0.75rem' } }}>
             <TableHead>
-              <TableRow sx={{ '& th': { bgcolor: '#f5f5f5', fontWeight: 'bold', borderBottom: 2, borderColor: '#1976d2' } }}>
+              <TableRow sx={{ '& th': { bgcolor: tableHeaderBg, fontWeight: 'bold', borderBottom: 2, borderColor: 'primary.main' } }}>
                 <TableCell padding="checkbox" sx={{ width: 40 }}>
                   <Checkbox size="small" onChange={(e) => setSelected(e.target.checked ? new Set(filtered.map(t => t.ticket_id)) : new Set())} />
                 </TableCell>
@@ -267,13 +281,11 @@ function CompactTickets() {
             </TableHead>
             <TableBody>
               {filtered.map((t) => {
-                const statusCfg = getStatusColor(t.status);
-                
                 return (
                   <TableRow
                     key={t.ticket_id}
                     hover
-                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: '#f5f5f5' } }}
+                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: rowHoverBg } }}
                     onClick={() => navigate(`/tickets/${t.ticket_id}`)}
                   >
                     <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
@@ -285,7 +297,6 @@ function CompactTickets() {
                         }}
                       />
                     </TableCell>
-                    
                     {visibleColumns.ticket_id && (
                       <TableCell>
                         <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.75rem' }}>
@@ -293,13 +304,11 @@ function CompactTickets() {
                         </Typography>
                       </TableCell>
                     )}
-                    
                     {visibleColumns.type && (
                       <TableCell>
-                        <Chip label={t.type} size="small" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600 }} />
+                        <TypeChip type={t.type} size="small" sx={{ height: 18, fontSize: '0.65rem' }} />
                       </TableCell>
                     )}
-                    
                     {visibleColumns.site && (
                       <TableCell>
                         <Stack direction="row" spacing={1} alignItems="center">
@@ -317,33 +326,23 @@ function CompactTickets() {
                         </Stack>
                       </TableCell>
                     )}
-                    
                     {visibleColumns.status && (
                       <TableCell>
-                        <Chip label={t.status?.replace(/_/g, ' ')} size="small" 
-                          sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600, color: statusCfg.color, bgcolor: statusCfg.bg }} />
+                        <StatusChip status={t.status} entityType="ticket" size="small" sx={{ height: 18, fontSize: '0.65rem' }} />
                       </TableCell>
                     )}
-                    
                     {visibleColumns.priority && (
                       <TableCell>
-                        <Chip label={t.priority} size="small" 
-                          sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600,
-                          color: t.priority === 'emergency' ? '#f44336' : t.priority === 'critical' ? '#ff9800' : '#4caf50',
-                          bgcolor: t.priority === 'emergency' ? '#ffebee' : t.priority === 'critical' ? '#fff3e0' : '#e8f5e9'
-                        }} 
-                      />
+                        <PriorityChip priority={t.priority} size="small" sx={{ height: 18, fontSize: '0.65rem' }} />
                       </TableCell>
                     )}
-                    
-                {visibleColumns.date && (
-                  <TableCell>
-                    <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
-                      {t.date_scheduled ? new Date(t.date_scheduled).toLocaleDateString() : ''}
-                    </Typography>
-                  </TableCell>
-                )}
-                    
+                    {visibleColumns.date && (
+                      <TableCell>
+                        <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+                          {t.date_scheduled ? new Date(t.date_scheduled).toLocaleDateString() : ''}
+                        </Typography>
+                      </TableCell>
+                    )}
                     {visibleColumns.assigned && (
                       <TableCell>
                         <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
@@ -351,7 +350,6 @@ function CompactTickets() {
                         </Typography>
                       </TableCell>
                     )}
-                    
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Stack direction="row" spacing={0.5}>
                         {!['completed','closed','approved'].includes(t.status) && (
@@ -362,7 +360,7 @@ function CompactTickets() {
                           </Tooltip>
                         )}
                         {t.status === 'completed' && (user?.role === 'admin' || user?.role === 'dispatcher') && (
-                          <Tooltip title="Approve"><IconButton size="small" color="primary" onClick={async (e) => { e.stopPropagation(); try { await api.post(`/tickets/${t.ticket_id}/approve?approve=true`); success('Approved'); fetchTickets(); } catch { showError('Failed'); } }} sx={{ p: 0.3 }}>
+                          <Tooltip title="Approve"><IconButton size="small" color="primary" onClick={async (e) => { e.stopPropagation(); try { await api.post(`/tickets/${t.ticket_id}/approve?approve=true`); success('Approved'); fetchTickets(); } catch (err) { showError(err?.response?.data?.detail || err?.message || 'Approve failed'); } }} sx={{ p: 0.3 }}>
                             <DoneAll sx={{ fontSize: 16 }} />
                           </IconButton></Tooltip>
                         )}
@@ -379,20 +377,31 @@ function CompactTickets() {
         </TableContainer>
       </Paper>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
-        <Typography variant="caption">
-          Showing {total === 0 ? 0 : page * rowsPerPage + 1}-{Math.min((page + 1) * rowsPerPage, total)} of {total}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1, flexWrap: 'wrap', gap: 1 }}>
+        <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>
+          {total === 0 ? '0' : `${page * rowsPerPage + 1}-${Math.min((page + 1) * rowsPerPage, total)}`} of {total}
+          {total > 0 && (
+            <Box component="span" sx={{ ml: 1, color: 'text.secondary' }}>
+              · Page {page + 1} of {Math.max(1, Math.ceil(total / rowsPerPage))}
+            </Box>
+          )}
         </Typography>
         <Stack direction="row" spacing={1} alignItems="center">
-          <FormControl size="small">
-            <Select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(0); }}>
+          <Typography variant="caption" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>Rows</Typography>
+          <FormControl size="small" sx={{ minWidth: 72 }}>
+            <Select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(0); }} sx={{ fontSize: '0.8125rem', height: 28 }}>
+              <MenuItem value={25}>25</MenuItem>
               <MenuItem value={50}>50</MenuItem>
               <MenuItem value={100}>100</MenuItem>
               <MenuItem value={200}>200</MenuItem>
+              <MenuItem value={250}>250</MenuItem>
+              <MenuItem value={500}>500</MenuItem>
             </Select>
           </FormControl>
-          <Button size="small" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Prev</Button>
-          <Button size="small" disabled={(page + 1) * rowsPerPage >= total} onClick={() => setPage((p) => p + 1)}>Next</Button>
+          <Button size="small" disabled={page === 0} onClick={() => setPage(0)} sx={{ minWidth: 32, fontSize: '0.75rem' }}>First</Button>
+          <Button size="small" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))} sx={{ minWidth: 32, fontSize: '0.75rem' }}>Prev</Button>
+          <Button size="small" disabled={(page + 1) * rowsPerPage >= total} onClick={() => setPage((p) => p + 1)} sx={{ minWidth: 32, fontSize: '0.75rem' }}>Next</Button>
+          <Button size="small" disabled={total === 0 || (page + 1) * rowsPerPage >= total} onClick={() => setPage(Math.max(0, Math.ceil(total / rowsPerPage) - 1))} sx={{ minWidth: 32, fontSize: '0.75rem' }}>Last</Button>
         </Stack>
       </Box>
 

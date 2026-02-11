@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import useWebSocket from '../hooks/useWebSocket';
 import { getWebSocketFullUrl } from '../config';
 import { useDataSync } from './DataSyncContext';
+import { useAuth } from '../AuthContext';
 
 const NotificationContext = createContext();
 
@@ -18,11 +19,16 @@ export function NotificationProvider({ children }) {
   };
   const [wsUrl, setWsUrl] = useState(getWsUrlIfToken());
   const { triggerRefresh } = useDataSync();
+  const { token } = useAuth();
   const lastTriggerAtRef = useRef({}); // debounce per message type
   const GLOBAL_DEBOUNCE_MS = 400;
 
   // Update WebSocket URL when token changes
   useEffect(() => {
+    // Immediate reaction to in-app auth changes
+    const computed = token ? getWebSocketFullUrl() : null;
+    if (computed !== wsUrl) setWsUrl(computed);
+
     const handleStorageChange = () => {
       const newWsUrl = getWsUrlIfToken();
       if (newWsUrl !== wsUrl) {
@@ -47,7 +53,7 @@ export function NotificationProvider({ children }) {
       window.removeEventListener('storage', handleStorageChange);
       clearInterval(interval);
     };
-  }, [wsUrl]);
+  }, [wsUrl, token]);
 
   // Handle WebSocket messages and create notifications
   const handleWebSocketMessage = useCallback((message) => {

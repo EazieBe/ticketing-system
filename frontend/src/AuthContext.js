@@ -27,6 +27,7 @@ export const AuthProvider = ({ children }) => {
     setAccessToken(null);
     setRefreshToken(null);
     setUser(null);
+    setLoading(false);
     // Clear axios default headers
     delete api.defaults.headers.common['Authorization'];
     if (refreshTimeoutRef.current) {
@@ -89,16 +90,9 @@ export const AuthProvider = ({ children }) => {
 
   // Initialize auth state
   useEffect(() => {
-    console.log('AuthContext useEffect - accessToken:', accessToken ? 'exists' : 'none', 'user:', user ? 'exists' : 'none', 'loading:', loading);
-    console.log('SessionStorage tokens:', {
-      access: sessionStorage.getItem('access_token') ? 'exists' : 'none',
-      refresh: sessionStorage.getItem('refresh_token') ? 'exists' : 'none'
-    });
-    
     // Set a timeout to prevent infinite loading
     const loadingTimeout = setTimeout(() => {
       if (loading && isMountedRef.current) {
-        console.log('Loading timeout reached, setting loading to false');
         setLoading(false);
       }
     }, 10000); // 10 second timeout
@@ -108,7 +102,6 @@ export const AuthProvider = ({ children }) => {
     const storedRefreshToken = sessionStorage.getItem('refresh_token');
     
     if (!accessToken && storedAccessToken) {
-      console.log('Found stored tokens, setting state...');
       setAccessToken(storedAccessToken);
       setRefreshToken(storedRefreshToken);
       // Set axios default headers
@@ -120,59 +113,57 @@ export const AuthProvider = ({ children }) => {
       const decoded = validateToken(accessToken);
       
       if (decoded && decoded.sub) {
-        console.log('Valid access token found, fetching user data...');
-        api.get(`/users/${decoded.sub}`)
-          .then(res => {
-            console.log('User fetch successful:', res.data);
-            console.log('Setting user data:', res.data);
-            setUser(res.data);
-            
-            // Load user-specific dark mode preference
-            const userDarkMode = localStorage.getItem(`darkMode_${res.data.user_id}`);
+        const currentTime = Math.floor(Date.now() / 1000);
+        const timeUntilExpiry = decoded.exp - currentTime;
+        const nearExpiry = timeUntilExpiry < 300;
+
+        const fetchUserAndScheduleRefresh = async () => {
+          try {
+            if (nearExpiry) {
+              const ok = await refreshAccessToken();
+              if (!ok) {
+                clearAuth();
+                setLoading(false);
+                return;
+              }
+            }
+            const res = await api.get(`/users/${decoded.sub}`);
+            const userData = res.data;
+            setUser(userData);
+
+            const userDarkMode = localStorage.getItem(`darkMode_${userData.user_id}`);
             if (userDarkMode !== null) {
               setDarkMode(JSON.parse(userDarkMode));
             } else {
               const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
               setDarkMode(systemPrefersDark);
             }
-            
-            // Schedule token refresh
-            const currentTime = Math.floor(Date.now() / 1000);
-            const timeUntilExpiry = decoded.exp - currentTime;
-            const refreshTime = Math.max((timeUntilExpiry - 300) * 1000, 60000); // 5 min before expiry, or 1 min minimum
-            
+
+            const decodedAfter = nearExpiry ? validateToken(sessionStorage.getItem('access_token')) : decoded;
+            const exp = decodedAfter?.exp ?? decoded.exp;
+            const timeUntilExpiryAfter = exp - Math.floor(Date.now() / 1000);
+            const refreshTime = Math.max((timeUntilExpiryAfter - 300) * 1000, 60000);
             if (refreshTimeoutRef.current) {
               clearTimeout(refreshTimeoutRef.current);
             }
             refreshTimeoutRef.current = setTimeout(refreshAccessToken, refreshTime);
-          })
-          .catch(err => {
+          } catch (err) {
             console.error('Error fetching user:', err);
-            // Only clear auth if it's a 401 (unauthorized) error
             if (err.response?.status === 401) {
-              console.log('Token invalid, clearing auth');
               clearAuth();
-            } else if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-              console.log('Network error - backend might be down, keeping user logged in');
-              // For network errors, keep the user logged in
-            } else {
-              console.log('Other error, keeping user logged in:', err.message);
-              // For other errors, keep the user logged in
             }
-          })
-          .finally(() => {
+          } finally {
             setLoading(false);
-          });
+          }
+        };
+
+        fetchUserAndScheduleRefresh();
       } else {
-        console.log('Invalid or expired access token, attempting refresh...');
-        console.log('Token validation failed - decoded:', decoded);
         refreshAccessToken().finally(() => {
           setLoading(false);
         });
       }
     } else if (!accessToken && !sessionStorage.getItem('access_token')) {
-      // Only set loading to false if there's truly no token anywhere
-      console.log('No access token found anywhere');
       setLoading(false);
     }
     
@@ -181,6 +172,15 @@ export const AuthProvider = ({ children }) => {
       clearTimeout(loadingTimeout);
     };
   }, [accessToken, user, loading, refreshAccessToken]);
+
+  // Listen for session-expired from axios interceptor (refresh failed with 401)
+  useEffect(() => {
+    const handler = () => {
+      clearAuth();
+    };
+    window.addEventListener('auth:session-expired', handler);
+    return () => window.removeEventListener('auth:session-expired', handler);
+  }, [clearAuth]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -197,11 +197,13 @@ export const AuthProvider = ({ children }) => {
       const formData = new URLSearchParams();
       formData.append('username', email);
       formData.append('password', password);
-      const response = await api.post('/login', formData, {
+      // Send as string so backend always receives form-encoded body (OAuth2PasswordRequestForm)
+      const response = await api.post('/login', formData.toString(), {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       });
+      // api is raw axios: response body is in response.data
       const { access_token, refresh_token, expires_in, must_change_password, user: userFromLogin } = response.data;
       
       // Set tokens in sessionStorage FIRST before any API calls
@@ -216,13 +218,17 @@ export const AuthProvider = ({ children }) => {
       api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
       // If backend returned user, use it to avoid an immediate extra request
+      let finalUserData = null;
       if (userFromLogin && userFromLogin.user_id) {
         setUser(userFromLogin);
+        finalUserData = userFromLogin;
       } else {
         const decoded = JSON.parse(atob(access_token.split('.')[1]));
         const user_id = decoded.sub;
         const userResponse = await api.get(`/users/${user_id}`);
-        setUser(userResponse.data);
+        // useApi already returns response.data, so userResponse is the user object directly
+        setUser(userResponse);
+        finalUserData = userResponse;
       }
       
       // Schedule token refresh
@@ -232,10 +238,9 @@ export const AuthProvider = ({ children }) => {
       }
       refreshTimeoutRef.current = setTimeout(refreshAccessToken, refreshTime);
       
-      // Load user preferences
-      const finalUser = userFromLogin || (user && user.user_id ? user : null);
-      if (finalUser) {
-        const userDarkMode = localStorage.getItem(`darkMode_${finalUser.user_id}`);
+      // Load user preferences using the captured user data (not state, which is async)
+      if (finalUserData && finalUserData.user_id) {
+        const userDarkMode = localStorage.getItem(`darkMode_${finalUserData.user_id}`);
         if (userDarkMode !== null) {
           setDarkMode(JSON.parse(userDarkMode));
         } else {
@@ -244,10 +249,17 @@ export const AuthProvider = ({ children }) => {
         }
       }
       
-      return { success: true, mustChangePassword: must_change_password, userId: (userFromLogin && userFromLogin.user_id) || null };
+      return { success: true, mustChangePassword: must_change_password, userId: finalUserData?.user_id || null };
     } catch (error) {
       console.error('Login error:', error);
-      return { success: false, error: error.response?.data?.detail || 'Login failed' };
+      let message = 'Login failed';
+      if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+        message = 'Cannot reach server. Check that the app and API are running and you can reach the server.';
+      } else if (error.response?.data?.detail) {
+        const d = error.response.data.detail;
+        message = Array.isArray(d) ? d.map(e => e.msg || JSON.stringify(e)).join(', ') : String(d);
+      }
+      return { success: false, error: message };
     }
   };
 
@@ -268,7 +280,8 @@ export const AuthProvider = ({ children }) => {
   const updateUser = async (userData) => {
     try {
       const response = await api.put(`/users/${user.user_id}`, userData);
-      setUser(response.data);
+      // useApi returns response.data directly, so response is already the user object
+      setUser(response);
       return { success: true };
     } catch (error) {
       console.error('Update user error:', error);

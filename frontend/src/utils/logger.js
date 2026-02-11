@@ -68,11 +68,12 @@ class Logger {
 
   async sendToBackend(logEntry) {
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      const token = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('access_token');
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       await fetch('/api/logs', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(logEntry)
       });
     } catch (error) {

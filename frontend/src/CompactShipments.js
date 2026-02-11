@@ -13,6 +13,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
+import StatusChip from './components/StatusChip';
+import PriorityChip from './components/PriorityChip';
 import CompactShipmentForm from './CompactShipmentForm';
 import { useDataSync } from './contexts/DataSyncContext';
 import { TimestampDisplay } from './components/TimestampDisplay';
@@ -22,6 +25,7 @@ function CompactShipments() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const api = useApi();
+  const { tableHeaderBg, rowHoverBg } = useThemeTokens();
   const { success, error: showError } = useToast();
   const { updateTrigger } = useDataSync('shipments');
   const [shipments, setShipments] = useState([]);
@@ -35,7 +39,9 @@ function CompactShipments() {
   const [statusUpdate, setStatusUpdate] = useState({
     status: 'pending',
     tracking_number: '',
-    return_tracking: ''
+    return_tracking: '',
+    charges_out: '',
+    charges_in: ''
   });
   const [filterStatus, setFilterStatus] = useState('all');
   const [showArchived, setShowArchived] = useState(false);
@@ -144,7 +150,9 @@ function CompactShipments() {
     setStatusUpdate({
       status: shipment.status || 'pending',
       tracking_number: shipment.tracking_number || '',
-      return_tracking: shipment.return_tracking || ''
+      return_tracking: shipment.return_tracking || '',
+      charges_out: shipment.charges_out || '',
+      charges_in: shipment.charges_in || ''
     });
     setStatusDialog(true);
   };
@@ -156,7 +164,15 @@ function CompactShipments() {
       return;
     }
     try {
-      const response = await api.patch(`/shipments/${statusShipment.shipment_id}/status`, statusUpdate);
+      // Prepare payload, converting empty strings to null for optional fields
+      const payload = {
+        status: statusUpdate.status,
+        tracking_number: statusUpdate.tracking_number || null,
+        return_tracking: statusUpdate.return_tracking || null,
+        charges_out: statusUpdate.charges_out === '' ? null : (statusUpdate.charges_out ? parseFloat(statusUpdate.charges_out) : null),
+        charges_in: statusUpdate.charges_in === '' ? null : (statusUpdate.charges_in ? parseFloat(statusUpdate.charges_in) : null)
+      };
+      const response = await api.patch(`/shipments/${statusShipment.shipment_id}/status`, payload);
       setShipments(prevShipments => prevShipments.map(s => 
         s.shipment_id === statusShipment.shipment_id ? response : s
       ));
@@ -172,16 +188,6 @@ function CompactShipments() {
   const openFedExTracking = (trackingNumber) => {
     if (trackingNumber) {
       window.open(`https://www.fedex.com/fedextrack/?trknbr=${trackingNumber}`, '_blank');
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'pending': return 'warning';
-      case 'shipped': return 'info';
-      case 'delivered': return 'success';
-      case 'returned': return 'default';
-      default: return 'default';
     }
   };
 
@@ -232,7 +238,7 @@ function CompactShipments() {
 
   return (
     <>
-      <Typography variant="h4" gutterBottom>Shipments</Typography>
+      <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.95rem' }} gutterBottom>Shipments</Typography>
       
       <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
         <Button variant="contained" onClick={handleAddShipment} startIcon={<Add />}>
@@ -275,7 +281,7 @@ function CompactShipments() {
       <TableContainer component={Paper}>
         <Table size="small" stickyHeader sx={{ '& td, & th': { py: 0.5, px: 1, fontSize: '0.75rem' } }}>
           <TableHead>
-            <TableRow sx={{ '& th': { bgcolor: '#f5f5f5', fontWeight: 'bold', borderBottom: 2, borderColor: '#1976d2' } }}>
+            <TableRow sx={{ '& th': { bgcolor: tableHeaderBg, fontWeight: 'bold', borderBottom: 2, borderColor: 'primary.main' } }}>
               <TableCell sx={{ width: 100 }}>Shipment ID</TableCell>
               <TableCell sx={{ width: 80 }}>Site</TableCell>
               <TableCell>What is Being Shipped</TableCell>
@@ -307,7 +313,7 @@ function CompactShipments() {
                 hover
                 sx={{ 
                   cursor: 'pointer',
-                  '&:hover': { bgcolor: '#f5f5f5' }
+                  '&:hover': { bgcolor: rowHoverBg }
                 }}
                 onClick={() => handleEdit(shipment)}
               >
@@ -348,20 +354,10 @@ function CompactShipments() {
                   }
                 </TableCell>
                 <TableCell>
-                  <Chip
-                    icon={getStatusIcon(shipment.status)}
-                    label={shipment.status || 'pending'}
-                    color={getStatusColor(shipment.status)}
-                    size="small"
-                  />
+                  <StatusChip status={shipment.status || 'pending'} entityType="shipment" size="small" />
                 </TableCell>
                 <TableCell>
-                  <Chip
-                    label={shipment.shipping_priority || 'normal'}
-                    color={shipment.shipping_priority === 'urgent' ? 'error' : 
-                           shipment.shipping_priority === 'critical' ? 'error' : 'default'}
-                    size="small"
-                  />
+                  <PriorityChip priority={shipment.shipping_priority || 'normal'} type="shipment" size="small" />
                 </TableCell>
                 <TableCell>{formatCurrency(shipment.charges_out)}</TableCell>
                 <TableCell>{formatCurrency(shipment.charges_in)}</TableCell>
@@ -534,6 +530,28 @@ function CompactShipments() {
               label="Return Tracking Number"
               value={statusUpdate.return_tracking}
               onChange={(e) => setStatusUpdate(prev => ({ ...prev, return_tracking: e.target.value }))}
+            />
+            
+            <TextField
+              fullWidth
+              type="number"
+              label="Charges Out"
+              value={statusUpdate.charges_out}
+              onChange={(e) => setStatusUpdate(prev => ({ ...prev, charges_out: e.target.value === '' ? '' : parseFloat(e.target.value) || 0 }))}
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+              }}
+            />
+            
+            <TextField
+              fullWidth
+              type="number"
+              label="Charges In"
+              value={statusUpdate.charges_in}
+              onChange={(e) => setStatusUpdate(prev => ({ ...prev, charges_in: e.target.value === '' ? '' : parseFloat(e.target.value) || 0 }))}
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+              }}
             />
           </Box>
         </DialogContent>

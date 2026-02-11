@@ -4,7 +4,6 @@ import {
   CardContent,
   Box,
   Typography,
-  Chip,
   IconButton,
   Stack,
   Tooltip,
@@ -23,42 +22,16 @@ import {
   Warning
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import useThemeTokens from '../hooks/useThemeTokens';
+import StatusChip from './StatusChip';
+import PriorityChip from './PriorityChip';
+import TypeChip from './TypeChip';
 import { formatDashboardTimestamp } from '../utils/timezone';
+import { getPriorityBorderColor } from '../utils/statusChipConfig';
 
 function TicketCard({ ticket, onEdit }) {
   const navigate = useNavigate();
-
-  // Priority colors
-  const getPriorityColor = (priority) => {
-    switch (priority?.toLowerCase()) {
-      case 'emergency': return { bg: '#d32f2f', text: '#fff' };
-      case 'critical': return { bg: '#f44336', text: '#fff' };
-      case 'normal': return { bg: '#2196f3', text: '#fff' };
-      default: return { bg: '#757575', text: '#fff' };
-    }
-  };
-
-  // Status colors
-  const getStatusColor = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'open': return 'error';
-      case 'in_progress': return 'warning';
-      case 'scheduled': return 'info';
-      case 'completed': return 'success';
-      case 'closed': return 'default';
-      default: return 'default';
-    }
-  };
-
-  // Type icons
-  const getTypeIcon = (type) => {
-    switch (type?.toLowerCase()) {
-      case 'onsite': return <Build fontSize="small" />;
-      case 'inhouse': return <Home fontSize="small" />;
-      case 'projects': return <Assignment fontSize="small" />;
-      default: return <Build fontSize="small" />;
-    }
-  };
+  const { codeBlockBg } = useThemeTokens();
 
   // Check if tech has been onsite too long (2+ hours)
   const checkOnsiteDuration = () => {
@@ -82,7 +55,6 @@ function TicketCard({ ticket, onEdit }) {
   };
 
   const onsiteAlert = checkOnsiteDuration();
-  const priorityColors = getPriorityColor(ticket.priority);
 
   return (
     <Card 
@@ -94,7 +66,7 @@ function TicketCard({ ticket, onEdit }) {
           boxShadow: 6,
           transform: 'translateY(-2px)'
         },
-        borderLeft: `5px solid ${onsiteAlert ? '#d32f2f' : priorityColors.bg}`,
+        borderLeft: `5px solid ${onsiteAlert ? '#d32f2f' : getPriorityBorderColor(ticket.priority)}`,
         bgcolor: onsiteAlert ? 'rgba(211, 47, 47, 0.05)' : 'background.paper'
       }}
       onClick={() => navigate(`/tickets/${ticket.ticket_id}`)}
@@ -117,27 +89,9 @@ function TicketCard({ ticket, onEdit }) {
           {/* Left side - Main info */}
           <Box sx={{ flex: 1 }}>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-              <Chip 
-                icon={getTypeIcon(ticket.type)}
-                label={ticket.type || 'Unknown'}
-                size="small"
-                color="primary"
-                variant="outlined"
-              />
-              <Chip
-                label={ticket.status || 'Unknown'}
-                size="small"
-                color={getStatusColor(ticket.status)}
-              />
-              <Chip
-                label={ticket.priority || 'Normal'}
-                size="small"
-                sx={{ 
-                  bgcolor: priorityColors.bg, 
-                  color: priorityColors.text,
-                  fontWeight: 600
-                }}
-              />
+              <TypeChip type={ticket.type} size="small" />
+              <StatusChip status={ticket.status} entityType="ticket" size="small" />
+              <PriorityChip priority={ticket.priority} size="small" />
             </Stack>
 
             <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
@@ -218,7 +172,7 @@ function TicketCard({ ticket, onEdit }) {
             sx={{ 
               mt: 1, 
               p: 1, 
-              bgcolor: 'grey.50', 
+              bgcolor: codeBlockBg, 
               borderRadius: 1,
               overflow: 'hidden',
               textOverflow: 'ellipsis',

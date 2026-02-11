@@ -18,11 +18,26 @@ import {
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../AuthContext';
 import useApi from '../hooks/useApi';
+import useThemeTokens from '../hooks/useThemeTokens';
+import StatusChip from './StatusChip';
+import PriorityChip from './PriorityChip';
 import { useDataSync } from '../contexts/DataSyncContext';
 import { useNotifications } from '../contexts/NotificationProvider';
 
+// Helpers
+const toDateOnly = (iso) => (iso ? new Date(iso) : null);
+const isWithin = (date, start, end) => {
+  if (!date) return false;
+  const t = date.getTime();
+  return t >= start.getTime() && t < end.getTime();
+};
+const percentChange = (currentCount, previousCount) => {
+  if (previousCount === 0) return currentCount > 0 ? 100 : 0;
+  return ((currentCount - previousCount) / previousCount) * 100;
+};
+
 // Widget Components
-const StatCard = ({ title, value, change, icon, color, trend, onClick, loading }) => {
+const StatCard = ({ title, value, change, icon, color, trend, onClick, loading, compact = false, tooltip }) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   
@@ -40,49 +55,52 @@ const StatCard = ({ title, value, change, icon, color, trend, onClick, loading }
           background: isDark 
             ? 'linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%)'
             : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-          border: `1px solid ${isDark ? '#333' : '#e0e0e0'}`,
+          border: `1px solid ${theme.palette.divider}`,
           position: 'relative',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          p: compact ? 0.5 : 0
         }}
         onClick={onClick}
       >
         {loading ? (
-          <CardContent sx={{ p: 2 }}>
-            <Skeleton variant="rectangular" height={40} />
+          <CardContent sx={{ p: compact ? 1 : 2 }}>
+            <Skeleton variant="rectangular" height={compact ? 28 : 40} />
             <Skeleton variant="text" sx={{ mt: 1 }} />
           </CardContent>
         ) : (
           <>
-            <CardContent sx={{ p: 2, position: 'relative' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <CardContent sx={{ p: compact ? 1.25 : 2, position: 'relative' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: compact ? 0.5 : 1 }}>
                 <Box>
-                  <Typography variant="h5" fontWeight="bold" color={color} sx={{ mb: 0.5, fontSize: '1.5rem' }}>
+                  <Typography variant="h5" fontWeight="bold" color={color} sx={{ mb: 0.25, fontSize: compact ? '1.1rem' : '1.5rem' }}>
                     {value}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: compact ? '0.65rem' : '0.75rem' }}>
                     {title}
                   </Typography>
                 </Box>
-                <Avatar sx={{ bgcolor: color, width: 36, height: 36 }}>
+                <Avatar sx={{ bgcolor: color, width: compact ? 28 : 36, height: compact ? 28 : 36 }}>
                   {icon}
                 </Avatar>
               </Box>
               
               {change !== undefined && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  {trend === 'up' ? (
-                    <TrendingUp color="success" fontSize="small" />
-                  ) : trend === 'down' ? (
-                    <TrendingDown color="error" fontSize="small" />
-                  ) : null}
-                  <Typography 
-                    variant="body2" 
-                    color={trend === 'up' ? 'success.main' : trend === 'down' ? 'error.main' : 'text.secondary'}
-                    sx={{ fontSize: '0.7rem', fontWeight: 600 }}
-                  >
-                    {change > 0 ? '+' : ''}{change}%
-                  </Typography>
-                </Box>
+                <Tooltip title={tooltip || ''} disableInteractive>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    {trend === 'up' ? (
+                      <TrendingUp color="success" fontSize="small" />
+                    ) : trend === 'down' ? (
+                      <TrendingDown color="error" fontSize="small" />
+                    ) : null}
+                    <Typography 
+                      variant="body2" 
+                      color={trend === 'up' ? 'success.main' : trend === 'down' ? 'error.main' : 'text.secondary'}
+                      sx={{ fontSize: compact ? '0.6rem' : '0.7rem', fontWeight: 600 }}
+                    >
+                      {change > 0 ? '+' : ''}{change}%
+                    </Typography>
+                  </Box>
+                </Tooltip>
               )}
             </CardContent>
             
@@ -92,8 +110,8 @@ const StatCard = ({ title, value, change, icon, color, trend, onClick, loading }
                 position: 'absolute',
                 top: 0,
                 right: 0,
-                width: 60,
-                height: 60,
+                width: compact ? 48 : 60,
+                height: compact ? 48 : 60,
                 background: `linear-gradient(45deg, ${color}20, transparent)`,
                 borderRadius: '0 0 0 100%',
                 opacity: 0.1
@@ -106,7 +124,7 @@ const StatCard = ({ title, value, change, icon, color, trend, onClick, loading }
   );
 };
 
-const QuickActionCard = ({ title, description, icon, color, onClick, badge }) => {
+const QuickActionCard = ({ title, description, icon, color, onClick, badge, compact = false }) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   
@@ -124,21 +142,21 @@ const QuickActionCard = ({ title, description, icon, color, onClick, badge }) =>
           background: isDark 
             ? 'linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%)'
             : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-          border: `1px solid ${isDark ? '#333' : '#e0e0e0'}`,
+          border: `1px solid ${theme.palette.divider}`,
           position: 'relative'
         }}
         onClick={onClick}
       >
-        <CardContent sx={{ p: 1.5, textAlign: 'center' }}>
+        <CardContent sx={{ p: compact ? 1 : 1.5, textAlign: 'center' }}>
           <Badge badgeContent={badge} color="error" invisible={!badge}>
-            <Avatar sx={{ bgcolor: color, width: 40, height: 40, mx: 'auto', mb: 1 }}>
+            <Avatar sx={{ bgcolor: color, width: compact ? 28 : 40, height: compact ? 28 : 40, mx: 'auto', mb: compact ? 0.5 : 1 }}>
               {icon}
             </Avatar>
           </Badge>
-          <Typography variant="body1" fontWeight="bold" sx={{ mb: 0.5, fontSize: '0.875rem' }}>
+          <Typography variant="body1" fontWeight="bold" sx={{ mb: compact ? 0.25 : 0.5, fontSize: compact ? '0.8rem' : '0.875rem' }}>
             {title}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: compact ? '0.6rem' : '0.7rem' }}>
             {description}
           </Typography>
         </CardContent>
@@ -158,7 +176,7 @@ const RecentActivityCard = ({ title, activities, loading, onViewAll }) => {
         background: isDark 
           ? 'linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%)'
           : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-        border: `1px solid ${isDark ? '#333' : '#e0e0e0'}`,
+        border: `1px solid ${theme.palette.divider}`,
         position: 'relative'
       }}
     >
@@ -229,7 +247,7 @@ const PerformanceChart = ({ title, data, loading }) => {
         background: isDark 
           ? 'linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%)'
           : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-        border: `1px solid ${isDark ? '#333' : '#e0e0e0'}`,
+        border: `1px solid ${theme.palette.divider}`,
         position: 'relative'
       }}
     >
@@ -286,6 +304,7 @@ function ModernDashboard() {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const { tableHeaderBg, rowHoverBg, divider } = useThemeTokens();
   
   const { user } = useAuth();
   const { get } = useApi();
@@ -304,14 +323,45 @@ function ModernDashboard() {
     showTasks: true,
     showInventory: true,
     showPerformance: true,
-    showActivity: true
+    showActivity: true,
+    showCalendar: true,
+    showTimeline: true,
+    compactCards: true,
+    kpiTrendWindowDays: 7,
+    calendarItemsPerDay: 5,
+    timelineLimit: 50,
+    calendarDays: 14,
+    timelineDays: 14,
+    densityPreset: 'compact', // 'comfortable' | 'compact' | 'ultra'
+    showKpiActiveTickets: true,
+    showKpiPendingShipments: true,
+    showKpiActiveTasks: true,
+    showKpiLowStock: true
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedTickets, setSelectedTickets] = useState(new Set());
+  const [calendarDialog, setCalendarDialog] = useState({ open: false, date: null, tickets: [] });
 
   // Clock moved to isolated component to avoid re-rendering the whole dashboard each second
+
+  // Load/save dashboard settings
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('dashboardSettings');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setWidgetSettings((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem('dashboardSettings', JSON.stringify(widgetSettings));
+    } catch {}
+  }, [widgetSettings]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -339,7 +389,8 @@ function ModernDashboard() {
   }, [fetchData, updateTrigger]);
 
   const stats = useMemo(() => {
-    const activeTickets = tickets.filter(t => !['completed', 'closed', 'archived'].includes(t.status));
+    // Match backend logic: exclude completed, closed, approved, and archived
+    const activeTickets = tickets.filter(t => !['completed', 'closed', 'approved', 'archived'].includes(t.status));
     const pendingShipments = shipments.filter(s => s.status === 'pending');
     const activeTasks = tasks.filter(t => t.status === 'active');
     const lowStockItems = inventory.filter(i => i.quantity < 10);
@@ -357,6 +408,58 @@ function ModernDashboard() {
       }).length
     };
   }, [tickets, shipments, tasks, inventory]);
+
+  // KPI trends: compare current period vs previous period using created dates
+  const kpiTrends = useMemo(() => {
+    const days = Number(widgetSettings.kpiTrendWindowDays) || 7;
+    const now = new Date();
+    const startCurrent = new Date(now);
+    startCurrent.setDate(now.getDate() - days);
+    const startPrevious = new Date(now);
+    startPrevious.setDate(now.getDate() - days * 2);
+
+    const endPrevious = startCurrent;
+    const endCurrent = now;
+
+    const inCurrent = (d) => isWithin(toDateOnly(d), startCurrent, endCurrent);
+    const inPrevious = (d) => isWithin(toDateOnly(d), startPrevious, endPrevious);
+
+    // Active tickets (match backend logic: exclude completed, closed, approved, and archived)
+    const isActiveTicket = (t) => !['completed', 'closed', 'approved', 'archived'].includes(t.status);
+    const activeCurrent = tickets.filter((t) => isActiveTicket(t) && inCurrent(t.date_created)).length;
+    const activePrevious = tickets.filter((t) => isActiveTicket(t) && inPrevious(t.date_created)).length;
+    const activePct = Number(percentChange(activeCurrent, activePrevious).toFixed(1));
+
+    // Pending shipments created in period
+    const isPendingShipment = (s) => s.status === 'pending';
+    const pendShipCurrent = shipments.filter((s) => isPendingShipment(s) && inCurrent(s.date_created)).length;
+    const pendShipPrevious = shipments.filter((s) => isPendingShipment(s) && inPrevious(s.date_created)).length;
+    const pendShipPct = Number(percentChange(pendShipCurrent, pendShipPrevious).toFixed(1));
+
+    // Active tasks created in period (if date_created exists)
+    const isActiveTask = (t) => t.status === 'active';
+    const activeTaskCurrent = tasks.filter((t) => isActiveTask(t) && t.date_created && inCurrent(t.date_created)).length;
+    const activeTaskPrevious = tasks.filter((t) => isActiveTask(t) && t.date_created && inPrevious(t.date_created)).length;
+    const activeTaskPct = Number(percentChange(activeTaskCurrent, activeTaskPrevious).toFixed(1));
+
+    // Low stock: insufficient historical signals — keep neutral
+    const lowStockPct = 0;
+
+    const dir = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : 'neutral');
+    const windowLabel = `${days}d vs prior ${days}d`;
+
+    return {
+      activeTickets: { change: activePct, trend: dir(activePct), tooltip: `New active tickets ${windowLabel}` },
+      pendingShipments: { change: pendShipPct, trend: dir(pendShipPct), tooltip: `New pending shipments ${windowLabel}` },
+      activeTasks: { change: activeTaskPct, trend: dir(activeTaskPct), tooltip: `New active tasks ${windowLabel}` },
+      lowStockItems: { change: lowStockPct, trend: 'neutral', tooltip: 'Low stock trend not tracked' }
+    };
+  }, [tickets, shipments, tasks, widgetSettings.kpiTrendWindowDays]);
+
+  // Density helpers
+  const density = widgetSettings.densityPreset;
+  const densitySpacing = density === 'ultra' ? 1 : density === 'compact' ? 2 : 3;
+  const kpiMdCols = density === 'comfortable' ? 3 : 2;
 
   const recentActivities = useMemo(() => {
     const activities = [];
@@ -410,7 +513,8 @@ function ModernDashboard() {
   const filteredTickets = useMemo(() => {
     let filtered = tickets.filter(t => !['archived'].includes(t.status));
     if (statusFilter === 'active') {
-      filtered = filtered.filter(t => !['completed', 'closed'].includes(t.status));
+      // Match backend logic: exclude completed, closed, approved, and archived
+      filtered = filtered.filter(t => !['completed', 'closed', 'approved', 'archived'].includes(t.status));
     } else if (statusFilter !== 'all') {
       filtered = filtered.filter(t => t.status === statusFilter);
     }
@@ -429,22 +533,6 @@ function ModernDashboard() {
     }
     return filtered.sort((a, b) => new Date(b.date_created) - new Date(a.date_created));
   }, [shipments, statusFilter]);
-
-  const getStatusColor = (status) => {
-    const configs = {
-      open: '#2196f3',
-      scheduled: '#9c27b0',
-      checked_in: '#ff9800',
-      in_progress: '#ff5722',
-      needs_parts: '#f44336',
-      completed: '#4caf50',
-      pending: '#ff9800',
-      shipped: '#2196f3',
-      delivered: '#4caf50',
-      returned: '#9c27b0'
-    };
-    return configs[status] || '#757575';
-  };
 
   const handleSelectAll = (e) => {
     if (activeTab === 0) {
@@ -567,55 +655,71 @@ function ModernDashboard() {
       </Box>
 
       {/* Stats Cards */}
-      <Grid container spacing={3} sx={{ position: 'relative', zIndex: 1, mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <StatCard
-            title="Active Tickets"
-            value={stats.totalTickets}
-            change={5.2}
-            trend="up"
-            icon={<Assignment />}
-            color="#1976d2"
-            loading={loading}
-            onClick={() => navigate('/tickets')}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <StatCard
-            title="Pending Shipments"
-            value={stats.pendingShipments}
-            change={-2.1}
-            trend="down"
-            icon={<LocalShipping />}
-            color="#ff9800"
-            loading={loading}
-            onClick={() => navigate('/shipments')}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <StatCard
-            title="Active Tasks"
-            value={stats.activeTasks}
-            change={12.5}
-            trend="up"
-            icon={<Task />}
-            color="#9c27b0"
-            loading={loading}
-            onClick={() => navigate('/tasks')}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <StatCard
-            title="Low Stock Items"
-            value={stats.lowStockItems}
-            change={0}
-            trend="neutral"
-            icon={<Warning />}
-            color="#f44336"
-            loading={loading}
-            onClick={() => navigate('/inventory')}
-          />
-        </Grid>
+      <Grid container spacing={densitySpacing} sx={{ position: 'relative', zIndex: 1, mb: 3 }}>
+        {widgetSettings.showKpiActiveTickets && (
+          <Grid item xs={12} sm={6} md={kpiMdCols}>
+            <StatCard
+              title="Active Tickets"
+              value={stats.totalTickets}
+              change={kpiTrends.activeTickets.change}
+              trend={kpiTrends.activeTickets.trend}
+              tooltip={kpiTrends.activeTickets.tooltip}
+              icon={<Assignment />}
+              color="#1976d2"
+              loading={loading}
+              compact={widgetSettings.compactCards || density !== 'comfortable'}
+              onClick={() => navigate('/tickets')}
+            />
+          </Grid>
+        )}
+        {widgetSettings.showKpiPendingShipments && (
+          <Grid item xs={12} sm={6} md={kpiMdCols}>
+            <StatCard
+              title="Pending Shipments"
+              value={stats.pendingShipments}
+              change={kpiTrends.pendingShipments.change}
+              trend={kpiTrends.pendingShipments.trend}
+              tooltip={kpiTrends.pendingShipments.tooltip}
+              icon={<LocalShipping />}
+              color="#ff9800"
+              loading={loading}
+              compact={widgetSettings.compactCards || density !== 'comfortable'}
+              onClick={() => navigate('/shipments')}
+            />
+          </Grid>
+        )}
+        {widgetSettings.showKpiActiveTasks && (
+          <Grid item xs={12} sm={6} md={kpiMdCols}>
+            <StatCard
+              title="Active Tasks"
+              value={stats.activeTasks}
+              change={kpiTrends.activeTasks.change}
+              trend={kpiTrends.activeTasks.trend}
+              tooltip={kpiTrends.activeTasks.tooltip}
+              icon={<Task />}
+              color="#9c27b0"
+              loading={loading}
+              compact={widgetSettings.compactCards || density !== 'comfortable'}
+              onClick={() => navigate('/tasks')}
+            />
+          </Grid>
+        )}
+        {widgetSettings.showKpiLowStock && (
+          <Grid item xs={12} sm={6} md={kpiMdCols}>
+            <StatCard
+              title="Low Stock Items"
+              value={stats.lowStockItems}
+              change={kpiTrends.lowStockItems.change}
+              trend={kpiTrends.lowStockItems.trend}
+              tooltip={kpiTrends.lowStockItems.tooltip}
+              icon={<Warning />}
+              color="#f44336"
+              loading={loading}
+              compact={widgetSettings.compactCards || density !== 'comfortable'}
+              onClick={() => navigate('/inventory')}
+            />
+          </Grid>
+        )}
       </Grid>
 
       {/* Quick Actions */}
@@ -623,10 +727,10 @@ function ModernDashboard() {
         <Typography variant="h5" fontWeight="bold" sx={{ mb: 3 }}>
           Quick Actions
         </Typography>
-        <Grid container spacing={3}>
+        <Grid container spacing={densitySpacing}>
           {quickActions.map((action, index) => (
-            <Grid item xs={12} sm={6} md={3} key={index}>
-              <QuickActionCard {...action} />
+            <Grid item xs={12} sm={6} md={(widgetSettings.compactCards || density !== 'comfortable') ? 2 : 3} key={index}>
+              <QuickActionCard {...action} compact={widgetSettings.compactCards || density !== 'comfortable'} />
             </Grid>
           ))}
         </Grid>
@@ -652,6 +756,134 @@ function ModernDashboard() {
             loading={loading}
           />
         </Grid>
+
+        {/* Calendar (next 14 days) */}
+        {widgetSettings.showCalendar && (
+          <Grid item xs={12}>
+            <Card sx={{
+              background: isDark 
+                ? 'linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%)'
+                : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+              border: `1px solid ${divider}`,
+            }}>
+              <CardContent sx={{ p: 2 }}>
+                <Typography variant="h6" fontWeight="bold" sx={{ mb: 2 }}>Upcoming (14 days)</Typography>
+                <Grid container spacing={2}>
+                  {Array.from({ length: Number(widgetSettings.calendarDays) || 14 }, (_, i) => {
+                    const date = new Date();
+                    date.setDate(date.getDate() + i);
+                    const dateStr = date.toISOString().split('T')[0];
+                    const dayTickets = tickets.filter((t) => (t.date_scheduled || t.date_created)?.startsWith(dateStr));
+                    const limit = Number(widgetSettings.calendarItemsPerDay) || 5;
+                    const overflow = Math.max(0, dayTickets.length - limit);
+                    return (
+                      <Grid item xs={12} sm={6} md={3} lg={2} key={dateStr}>
+                        <Box sx={{ border: `1px dashed ${isDark ? '#444' : '#ddd'}`, borderRadius: 1, p: 1 }}>
+                          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                            {date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          </Typography>
+                          {dayTickets.length === 0 ? (
+                            <Typography variant="caption" color="text.secondary">No tickets</Typography>
+                          ) : (
+                            <>
+                            {dayTickets.slice(0, limit).map((t) => (
+                              <Box key={t.ticket_id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                                <PriorityChip priority={t.priority} size="small" sx={{ height: 18, fontSize: '0.6rem' }} />
+                                <Typography variant="caption" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {t.ticket_id} • {t.site_id}
+                                </Typography>
+                              </Box>
+                            ))}
+                            {overflow > 0 && (
+                              <Typography
+                                variant="caption"
+                                sx={{ cursor: 'pointer', color: 'primary.main', fontWeight: 600 }}
+                                onClick={() => setCalendarDialog({ open: true, date: dateStr, tickets: dayTickets })}
+                              >
+                                +{overflow} more
+                              </Typography>
+                            )}
+                            </>
+                          )}
+                        </Box>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {/* Timeline (Gantt-like) for next 14 days */}
+        {widgetSettings.showTimeline && (
+          <Grid item xs={12}>
+            <Card sx={{
+              background: isDark 
+                ? 'linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%)'
+                : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+              border: `1px solid ${divider}`,
+            }}>
+              <CardContent sx={{ p: 2 }}>
+                <Typography variant="h6" fontWeight="bold" sx={{ mb: 2 }}>Timeline (next 14 days)</Typography>
+                <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                  {Array.from({ length: Number(widgetSettings.timelineDays) || 14 }, (_, i) => {
+                    const d = new Date();
+                    d.setDate(d.getDate() + i);
+                    return (
+                      <Typography key={i} variant="caption" sx={{ flex: 1, textAlign: 'center' }}>
+                        {d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}
+                      </Typography>
+                    );
+                  })}
+                </Box>
+                <Divider sx={{ mb: 1 }} />
+                <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
+                  <Stack spacing={1}>
+                    {tickets.slice(0, Number(widgetSettings.timelineLimit) || 50).map((t) => {
+                    const start = new Date(t.date_created || new Date());
+                    const end = new Date(t.date_scheduled || t.date_created || new Date());
+                    // Ensure at least 1 day bar
+                    if (end <= start) end.setDate(start.getDate() + 1);
+                    const today = new Date();
+                    const rangeStart = new Date();
+                    rangeStart.setDate(today.getDate());
+                    const rangeEnd = new Date();
+                      rangeEnd.setDate(today.getDate() + (Number(widgetSettings.timelineDays) || 14));
+                    const totalMs = rangeEnd - rangeStart;
+                    const barStart = Math.max(0, start - rangeStart);
+                    const barEnd = Math.min(totalMs, end - rangeStart);
+                    const leftPct = (barStart / totalMs) * 100;
+                    const widthPct = Math.max(2, ((barEnd - barStart) / totalMs) * 100);
+                    return (
+                      <Box key={t.ticket_id}>
+                        <Typography variant="caption" sx={{ mb: 0.5, display: 'block' }}>
+                          {t.ticket_id} • {t.site_id} • {t.priority}
+                        </Typography>
+                        <Box sx={{ position: 'relative', height: 10, bgcolor: isDark ? '#222' : '#eee', borderRadius: 1 }}>
+                          <Box sx={{
+                            position: 'absolute',
+                            left: `${leftPct}%`,
+                            width: `${widthPct}%`,
+                            height: '100%',
+                            bgcolor: t.priority === 'emergency' ? '#f44336' : t.priority === 'critical' ? '#ff9800' : '#4caf50',
+                            borderRadius: 1
+                          }} />
+                        </Box>
+                      </Box>
+                    );
+                    })}
+                  </Stack>
+                </Box>
+                {tickets.length > Number(widgetSettings.timelineLimit) && (
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                    Showing {Math.min(tickets.length, Number(widgetSettings.timelineLimit))} of {tickets.length}
+                  </Typography>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
       </Grid>
 
       {/* List View with Tabs */}
@@ -661,11 +893,11 @@ function ModernDashboard() {
             background: isDark 
               ? 'linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%)'
               : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-            border: `1px solid ${isDark ? '#333' : '#e0e0e0'}`,
+            border: `1px solid ${divider}`,
           }}
         >
           {/* Tabs Header */}
-          <Box sx={{ borderBottom: `1px solid ${isDark ? '#333' : '#e0e0e0'}` }}>
+          <Box sx={{ borderBottom: `1px solid ${divider}` }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
               <Tabs 
                 value={activeTab} 
@@ -730,7 +962,7 @@ function ModernDashboard() {
           <TableContainer sx={{ maxHeight: 400 }}>
             <Table size="small" stickyHeader sx={{ '& td, & th': { py: 0.5, px: 1, fontSize: '0.75rem' } }}>
               <TableHead>
-                <TableRow sx={{ '& th': { bgcolor: isDark ? '#2d2d2d' : '#f5f5f5', fontWeight: 'bold' } }}>
+                <TableRow sx={{ '& th': { bgcolor: tableHeaderBg, fontWeight: 'bold' } }}>
                   {activeTab === 0 && (
                     <TableCell padding="checkbox" sx={{ width: 40 }}>
                       <Checkbox 
@@ -770,7 +1002,7 @@ function ModernDashboard() {
                       <TableRow
                         key={ticket.ticket_id}
                         hover
-                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: isDark ? '#2a2a2a' : '#f5f5f5' } }}
+                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: rowHoverBg } }}
                         onClick={() => navigate(`/tickets/${ticket.ticket_id}`)}
                       >
                         <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
@@ -805,32 +1037,10 @@ function ModernDashboard() {
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Chip
-                            label={ticket.status?.replace(/_/g, ' ')}
-                            size="small"
-                            sx={{
-                              height: 20,
-                              fontSize: '0.65rem',
-                              bgcolor: `${getStatusColor(ticket.status)}20`,
-                              color: getStatusColor(ticket.status),
-                              fontWeight: 600
-                            }}
-                          />
+                          <StatusChip status={ticket.status} entityType="ticket" size="small" sx={{ height: 20, fontSize: '0.65rem' }} />
                         </TableCell>
                         <TableCell>
-                          <Chip
-                            label={ticket.priority}
-                            size="small"
-                            sx={{
-                              height: 20,
-                              fontSize: '0.65rem',
-                              bgcolor: ticket.priority === 'emergency' ? '#ffebee' : 
-                                      ticket.priority === 'critical' ? '#fff3e0' : '#e8f5e9',
-                              color: ticket.priority === 'emergency' ? '#f44336' : 
-                                     ticket.priority === 'critical' ? '#ff9800' : '#4caf50',
-                              fontWeight: 600
-                            }}
-                          />
+                          <PriorityChip priority={ticket.priority} size="small" sx={{ height: 20, fontSize: '0.65rem' }} />
                         </TableCell>
                         <TableCell>
                           <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
@@ -868,7 +1078,7 @@ function ModernDashboard() {
                       <TableRow
                         key={shipment.shipment_id}
                         hover
-                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: isDark ? '#2a2a2a' : '#f5f5f5' } }}
+                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: rowHoverBg } }}
                         onClick={() => navigate(`/shipments/${shipment.shipment_id}/edit`)}
                       >
                         <TableCell>
@@ -906,32 +1116,10 @@ function ModernDashboard() {
                           </Box>
                         </TableCell>
                         <TableCell>
-                          <Chip
-                            label={shipment.status}
-                            size="small"
-                            sx={{
-                              height: 20,
-                              fontSize: '0.65rem',
-                              bgcolor: `${getStatusColor(shipment.status)}20`,
-                              color: getStatusColor(shipment.status),
-                              fontWeight: 600
-                            }}
-                          />
+                          <StatusChip status={shipment.status} entityType="shipment" size="small" sx={{ height: 20, fontSize: '0.65rem' }} />
                         </TableCell>
                         <TableCell>
-                          <Chip
-                            label={shipment.shipping_priority || 'normal'}
-                            size="small"
-                            sx={{
-                              height: 20,
-                              fontSize: '0.65rem',
-                              bgcolor: shipment.shipping_priority === 'urgent' ? '#fff3e0' : 
-                                      shipment.shipping_priority === 'critical' ? '#ffebee' : '#e8f5e9',
-                              color: shipment.shipping_priority === 'urgent' ? '#ff9800' : 
-                                     shipment.shipping_priority === 'critical' ? '#f44336' : '#4caf50',
-                              fontWeight: 600
-                            }}
-                          />
+                          <PriorityChip priority={shipment.shipping_priority || 'normal'} type="shipment" size="small" sx={{ height: 20, fontSize: '0.65rem' }} />
                         </TableCell>
                         <TableCell>
                           <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
@@ -967,22 +1155,130 @@ function ModernDashboard() {
         <DialogContent>
           <Typography variant="h6" sx={{ mb: 2 }}>Widget Visibility</Typography>
           <Stack spacing={2}>
-            {Object.entries(widgetSettings).map(([key, value]) => (
+            {Object.entries(widgetSettings).filter(([_, value]) => typeof value === 'boolean').map(([key, value]) => (
               <FormControlLabel
                 key={key}
                 control={
                   <Switch
                     checked={value}
-                    onChange={(e) => setWidgetSettings(prev => ({ ...prev, [key]: e.target.checked }))}
+                    onChange={(e) => setWidgetSettings(prev => ({ ...prev, [key]: typeof value === 'boolean' ? e.target.checked : value }))}
                   />
                 }
                 label={key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
               />
             ))}
+            <Divider />
+            <Typography variant="body1">Advanced</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Typography variant="body2">Trend Window (days)</Typography>
+              <Select
+                size="small"
+                value={widgetSettings.kpiTrendWindowDays}
+                onChange={(e) => setWidgetSettings(prev => ({ ...prev, kpiTrendWindowDays: Number(e.target.value) }))}
+                sx={{ width: 100 }}
+              >
+                <MenuItem value={7}>7</MenuItem>
+                <MenuItem value={14}>14</MenuItem>
+                <MenuItem value={30}>30</MenuItem>
+              </Select>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Typography variant="body2">Density</Typography>
+              <Select
+                size="small"
+                value={widgetSettings.densityPreset}
+                onChange={(e) => setWidgetSettings(prev => ({ ...prev, densityPreset: e.target.value }))}
+                sx={{ width: 160 }}
+              >
+                <MenuItem value={'comfortable'}>Comfortable</MenuItem>
+                <MenuItem value={'compact'}>Compact</MenuItem>
+                <MenuItem value={'ultra'}>Ultra-compact</MenuItem>
+              </Select>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Typography variant="body2">Calendar items per day</Typography>
+              <Select
+                size="small"
+                value={widgetSettings.calendarItemsPerDay}
+                onChange={(e) => setWidgetSettings(prev => ({ ...prev, calendarItemsPerDay: Number(e.target.value) }))}
+                sx={{ width: 100 }}
+              >
+                <MenuItem value={5}>5</MenuItem>
+                <MenuItem value={10}>10</MenuItem>
+                <MenuItem value={25}>25</MenuItem>
+              </Select>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Typography variant="body2">Calendar range (days)</Typography>
+              <Select
+                size="small"
+                value={widgetSettings.calendarDays}
+                onChange={(e) => setWidgetSettings(prev => ({ ...prev, calendarDays: Number(e.target.value) }))}
+                sx={{ width: 120 }}
+              >
+                <MenuItem value={7}>7</MenuItem>
+                <MenuItem value={14}>14</MenuItem>
+                <MenuItem value={30}>30</MenuItem>
+              </Select>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Typography variant="body2">Timeline row limit</Typography>
+              <Select
+                size="small"
+                value={widgetSettings.timelineLimit}
+                onChange={(e) => setWidgetSettings(prev => ({ ...prev, timelineLimit: Number(e.target.value) }))}
+                sx={{ width: 100 }}
+              >
+                <MenuItem value={20}>20</MenuItem>
+                <MenuItem value={50}>50</MenuItem>
+                <MenuItem value={100}>100</MenuItem>
+              </Select>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Typography variant="body2">Timeline range (days)</Typography>
+              <Select
+                size="small"
+                value={widgetSettings.timelineDays}
+                onChange={(e) => setWidgetSettings(prev => ({ ...prev, timelineDays: Number(e.target.value) }))}
+                sx={{ width: 120 }}
+              >
+                <MenuItem value={7}>7</MenuItem>
+                <MenuItem value={14}>14</MenuItem>
+                <MenuItem value={30}>30</MenuItem>
+              </Select>
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSettingsOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Calendar overflow modal */}
+      <Dialog open={Boolean(calendarDialog?.open)} onClose={() => setCalendarDialog({ open: false, date: null, tickets: [] })} maxWidth="sm" fullWidth>
+        <DialogTitle>Tickets on {calendarDialog?.date}</DialogTitle>
+        <DialogContent>
+          <List dense>
+            {(calendarDialog?.tickets || []).map((t) => (
+              <ListItem key={t.ticket_id} sx={{ px: 0 }}>
+                <ListItemIcon>
+                  <PriorityChip priority={t.priority} size="small" sx={{ height: 18, fontSize: '0.6rem' }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary={<Typography variant="body2">{t.ticket_id} • {t.site_id}</Typography>}
+                  secondary={<Typography variant="caption" color="text.secondary">{t.description || 'No description'}</Typography>}
+                />
+                <ListItemSecondaryAction>
+                  <IconButton size="small" edge="end" onClick={() => { setCalendarDialog({ open: false, date: null, tickets: [] }); navigate(`/tickets/${t.ticket_id}`); }}>
+                    <Visibility fontSize="small" />
+                  </IconButton>
+                </ListItemSecondaryAction>
+              </ListItem>
+            ))}
+          </List>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCalendarDialog({ open: false, date: null, tickets: [] })}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>

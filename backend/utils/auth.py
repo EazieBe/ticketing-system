@@ -2,8 +2,11 @@
 Authentication utilities
 """
 
+import logging
 import jwt
 import os
+
+logger = logging.getLogger("ticketing")
 from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
@@ -32,6 +35,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """Get current user from JWT token"""
     if not token:
+        logger.warning("get_current_user: no token provided")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated"
@@ -39,18 +43,24 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        if user_id is None:
+        sub = payload.get("sub")
+        if sub is None:
+            logger.warning("get_current_user: token missing sub")
             raise HTTPException(status_code=401, detail="Invalid token")
+        user_id = str(sub)  # Ensure string (JWT may return int in some edge cases)
     except jwt.ExpiredSignatureError:
+        logger.info("get_current_user: token expired")
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        logger.warning("get_current_user: invalid token: %s", e)
         raise HTTPException(status_code=401, detail="Invalid token")
     except Exception as e:
+        logger.exception("get_current_user: error %s", e)
         raise HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")
     
     user = crud.get_user(db, user_id=user_id)
     if user is None:
+        logger.warning("get_current_user: user not found for user_id=%s", user_id)
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
@@ -87,6 +97,22 @@ def rate_limit(key_prefix: str, limit: int = 60, window_seconds: int = 60):
         now = int(time())
         window = now // window_seconds
         bucket_key = f"{key_prefix}:{current_user.user_id}:{window}"
+        count = _RATE_BUCKETS.get(bucket_key, 0)
+        if count >= limit:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        _RATE_BUCKETS[bucket_key] = count + 1
+    return _limiter
+
+def rate_limit_public(key_prefix: str, limit: int = 60, window_seconds: int = 60):
+    """Dependency to rate limit actions per client IP per window.
+    Use for unauthenticated endpoints like /login.
+    """
+    def _limiter(request: Request):
+        from time import time
+        now = int(time())
+        window = now // window_seconds
+        client_ip = getattr(request.client, "host", "unknown")
+        bucket_key = f"{key_prefix}:{client_ip}:{window}"
         count = _RATE_BUCKETS.get(bucket_key, 0)
         if count >= limit:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")

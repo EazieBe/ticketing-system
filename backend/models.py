@@ -41,17 +41,38 @@ class User(Base):
     audits = relationship('TicketAudit', back_populates='user')
     inventory_transactions = relationship('InventoryTransaction', back_populates='user')
 
+class FieldTechCompany(Base):
+    """One company address; techs under this company use this address for map."""
+    __tablename__ = 'field_tech_companies'
+    company_id = Column(String, primary_key=True, index=True)
+    company_name = Column(String, nullable=False)
+    company_number = Column(String)
+    address = Column(String)
+    city = Column(String)
+    state = Column(String)
+    zip = Column(String)
+    region = Column(String)  # Derived from state for map filter
+    notes = Column(Text)
+    service_radius_miles = Column(Integer)  # Default service area radius from this address (e.g. 50, 100)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    techs = relationship('FieldTech', back_populates='company', foreign_keys='FieldTech.company_id')
+
 class FieldTech(Base):
     __tablename__ = 'field_techs'
     field_tech_id = Column(String, primary_key=True, index=True)
+    company_id = Column(String, ForeignKey('field_tech_companies.company_id'))  # Optional: tech belongs to company
     name = Column(String, nullable=False)
+    tech_number = Column(String)  # Tech number within company
     phone = Column(String)
     email = Column(String)
+    # Legacy / fallback when no company: region, city, state, zip (map uses company address when company_id set)
     region = Column(String)
     city = Column(String)
     state = Column(String)
     zip = Column(String)
     notes = Column(Text)
+    service_radius_miles = Column(Integer)  # How far this tech will travel from company address (overrides company default)
+    company = relationship('FieldTechCompany', back_populates='techs', foreign_keys=[company_id])
     onsite_tickets = relationship('Ticket', back_populates='onsite_tech')
 
 class Site(Base):
@@ -187,6 +208,7 @@ class Ticket(Base):
     # Quality and Follow-up
     quality_score = Column(Integer)  # Quality rating (1-5)
     customer_satisfaction = Column(Integer)  # Customer rating (1-5)
+    tech_rating = Column(Integer)  # Onsite tech rating (1-5), stored per ticket, aggregated per tech
     follow_up_required = Column(Boolean, default=False)  # Whether follow-up is needed
     follow_up_date = Column(Date)  # When to follow up
     follow_up_notes = Column(Text)  # Follow-up notes

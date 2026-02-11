@@ -46,7 +46,9 @@ import {
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
 import { useDataSync } from './contexts/DataSyncContext';
+import TypeChip from './components/TypeChip';
 import LoadingSpinner from './components/LoadingSpinner';
+import { getApiPath } from './apiPaths';
 
 function SLAManagement() {
   const { updateTrigger } = useDataSync('all');
@@ -72,7 +74,7 @@ function SLAManagement() {
 
   const fetchSLARules = useCallback(async () => {
     try {
-      const rules = await get('/sla-rules/');
+      const rules = await get('/sla/');
       setSlaRules(rules);
     } catch (err) {
       showError('Failed to fetch SLA rules');
@@ -141,7 +143,7 @@ function SLAManagement() {
   const handleDeleteRule = async (ruleId) => {
     if (window.confirm('Are you sure you want to delete this SLA rule?')) {
       try {
-        await del(`/sla-rules/${ruleId}`);
+        await del(`${getApiPath('sla')}/${ruleId}`);
         success('SLA rule deleted successfully');
         fetchSLARules();
       } catch (err) {
@@ -152,17 +154,23 @@ function SLAManagement() {
 
   const handleSubmit = async () => {
     try {
+      if (!formData.name || formData.name.trim() === '') {
+        showError('Rule name is required');
+        return;
+      }
       if (editingRule) {
-        await put(`/sla-rules/${editingRule.rule_id}`, formData);
+        await put(`/sla/${editingRule.rule_id}`, formData);
         success('SLA rule updated successfully');
       } else {
-        await post('/sla-rules/', formData);
+        await post(`${getApiPath('sla')}/`, formData);
         success('SLA rule created successfully');
       }
       setEditDialog(false);
       fetchSLARules();
     } catch (err) {
-      showError('Failed to save SLA rule');
+      const errorMsg = err?.response?.data?.detail || err?.message || 'Failed to save SLA rule';
+      showError(errorMsg);
+      console.error('SLA save error:', err);
     }
   };
 
@@ -172,18 +180,6 @@ function SLAManagement() {
       case 'high': return 'warning';
       case 'medium': return 'info';
       case 'low': return 'success';
-      default: return 'default';
-    }
-  };
-
-  const getTypeColor = (type) => {
-    switch (type) {
-      case 'onsite': return 'error';
-      case 'inhouse': return 'primary';
-      case 'shipping': return 'secondary';
-      case 'projects': return 'warning';
-      case 'nro': return 'info';
-      case 'misc': return 'default';
       default: return 'default';
     }
   };
@@ -248,11 +244,7 @@ function SLAManagement() {
                       </TableCell>
                       <TableCell>
                         {rule.ticket_type && (
-                          <Chip
-                            label={rule.ticket_type}
-                            color={getTypeColor(rule.ticket_type)}
-                            size="small"
-                          />
+                          <TypeChip type={rule.ticket_type} size="small" />
                         )}
                       </TableCell>
                       <TableCell>

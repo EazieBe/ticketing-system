@@ -8,6 +8,8 @@ import {
 import { Add, Visibility, Edit, Search, Refresh, ViewColumn, Delete } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import useThemeTokens from './hooks/useThemeTokens';
+import useReadableChip from './hooks/useReadableChip';
 import { useAuth } from './AuthContext';
 import { canDelete } from './utils/permissions';
 
@@ -15,6 +17,8 @@ function CompactInventory() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const api = useApi();
+  const { tableHeaderBg } = useThemeTokens();
+  const { getChipSx } = useReadableChip();
   const { error: showError } = useToast();
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
@@ -72,7 +76,7 @@ function CompactInventory() {
   return (
     <Box sx={{ p: 2, height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Stack direction="row" justifyContent="space-between" mb={1}>
-        <Typography variant="h6" fontWeight="bold">Inventory ({filtered.length})</Typography>
+        <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.95rem' }}>Inventory ({filtered.length})</Typography>
         <Stack direction="row" spacing={1}>
           <TextField size="small" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)}
             InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
@@ -89,7 +93,7 @@ function CompactInventory() {
         <TableContainer sx={{ height: '100%' }}>
           <Table size="small" stickyHeader sx={{ '& td, & th': { py: 0.5, px: 1, fontSize: '0.75rem', whiteSpace: 'nowrap' } }}>
             <TableHead>
-              <TableRow sx={{ '& th': { bgcolor: '#f5f5f5', fontWeight: 'bold', borderBottom: 2, borderColor: '#7b1fa2' } }}>
+              <TableRow sx={{ '& th': { bgcolor: tableHeaderBg, fontWeight: 'bold', borderBottom: 2, borderColor: 'primary.main' } }}>
                 {visibleColumns.name && <TableCell>Name</TableCell>}
                 {visibleColumns.sku && <TableCell>SKU</TableCell>}
                 {visibleColumns.barcode && <TableCell>Barcode</TableCell>}
@@ -105,7 +109,7 @@ function CompactInventory() {
                   {visibleColumns.name && <TableCell><Typography variant="body2" sx={{ fontSize: '0.75rem' }}>{i.name}</Typography></TableCell>}
                   {visibleColumns.sku && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{i.sku}</Typography></TableCell>}
                   {visibleColumns.barcode && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{i.barcode}</Typography></TableCell>}
-                  {visibleColumns.quantity && <TableCell><Chip label={i.quantity_on_hand} size="small" color={i.quantity_on_hand < 10 ? 'error' : 'default'} sx={{ height: 18, fontSize: '0.65rem' }} /></TableCell>}
+                  {visibleColumns.quantity && <TableCell><Chip label={i.quantity_on_hand} size="small" sx={{ height: 18, fontSize: '0.65rem', ...getChipSx(i.quantity_on_hand < 10 ? 'error' : 'default') }} /></TableCell>}
                   {visibleColumns.cost && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>${i.cost}</Typography></TableCell>}
                   {visibleColumns.location && <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{i.location}</Typography></TableCell>}
                   <TableCell onClick={(e) => e.stopPropagation()}>

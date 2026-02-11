@@ -220,7 +220,7 @@ def update_site(db: Session, site_id: str, site: schemas.SiteCreate):
         return None
     
     # Update all fields
-    for field, value in site.dict().items():
+    for field, value in site.model_dump().items():
         if hasattr(db_site, field) and value is not None:
             setattr(db_site, field, value)
     # Normalize dependent fields after applying incoming values
@@ -242,10 +242,14 @@ def delete_site(db: Session, site_id: str):
     # 1) Delete equipment and site_equipment
     db.query(models.Equipment).filter(models.Equipment.site_id == site_id).delete(synchronize_session=False)
     db.query(models.SiteEquipment).filter(models.SiteEquipment.site_id == site_id).delete(synchronize_session=False)
-    # 2) Delete shipments (and any inventory transactions linked)
+    # 2) Delete shipments (and inventory transactions linked via shipment_items)
     shipment_ids = [s.shipment_id for s in db.query(models.Shipment).filter(models.Shipment.site_id == site_id).all()]
     if shipment_ids:
-        db.query(models.InventoryTransaction).filter(models.InventoryTransaction.shipment_id.in_(shipment_ids)).delete(synchronize_session=False)
+        shipment_items = db.query(models.ShipmentItem).filter(models.ShipmentItem.shipment_id.in_(shipment_ids)).all()
+        shipment_item_ids = [si.shipment_item_id for si in shipment_items]
+        if shipment_item_ids:
+            db.query(models.InventoryTransaction).filter(models.InventoryTransaction.shipment_item_id.in_(shipment_item_ids)).delete(synchronize_session=False)
+        db.query(models.ShipmentItem).filter(models.ShipmentItem.shipment_id.in_(shipment_ids)).delete(synchronize_session=False)
         db.query(models.Shipment).filter(models.Shipment.shipment_id.in_(shipment_ids)).delete(synchronize_session=False)
     # 3) Delete tickets and their children
     ticket_ids = [t.ticket_id for t in db.query(models.Ticket).filter(models.Ticket.site_id == site_id).all()]
@@ -418,24 +422,50 @@ def get_ticket(db: Session, ticket_id: str):
         selectinload(models.Ticket.audits).joinedload(models.TicketAudit.user)
     ).filter(models.Ticket.ticket_id == ticket_id).first()
 
+def get_ticket_for_response(db: Session, ticket_id: str):
+    """Lightweight load for create/update response: only relations needed by TicketOut (avoids N+1)."""
+    return db.query(models.Ticket).options(
+        joinedload(models.Ticket.site),
+        joinedload(models.Ticket.assigned_user),
+        joinedload(models.Ticket.onsite_tech),
+        joinedload(models.Ticket.claimed_user),
+    ).filter(models.Ticket.ticket_id == ticket_id).first()
+
 def get_tickets(db: Session, skip: int = 0, limit: int = 100, 
                 status: Optional[str] = None, 
                 priority: Optional[str] = None,
                 assigned_user_id: Optional[str] = None,
                 site_id: Optional[str] = None,
                 ticket_type: Optional[str] = None,
-                search: Optional[str] = None):
+                search: Optional[str] = None,
+                include_related: bool = True):
     """Get tickets with comprehensive filtering and eager loading"""
-    query = db.query(models.Ticket).options(
-        joinedload(models.Ticket.site),
-        joinedload(models.Ticket.assigned_user),
-        joinedload(models.Ticket.claimed_user),
-        joinedload(models.Ticket.onsite_tech)
-    )
+    query = db.query(models.Ticket)
+    if include_related:
+        query = query.options(
+            joinedload(models.Ticket.site),
+            joinedload(models.Ticket.assigned_user),
+            joinedload(models.Ticket.claimed_user),
+            joinedload(models.Ticket.onsite_tech)
+        )
     
     # Apply filters
     if status:
-        query = query.filter(models.Ticket.status == status)
+        # Support logical "active" status by excluding terminal states
+        if status == 'active':
+            query = query.filter(~models.Ticket.status.in_([
+                models.TicketStatus.completed,
+                models.TicketStatus.closed,
+                models.TicketStatus.approved,
+                models.TicketStatus.archived,
+            ]))
+        else:
+            # Compare against enum when possible; fall back to string
+            try:
+                enum_status = models.TicketStatus(status)
+                query = query.filter(models.Ticket.status == enum_status)
+            except Exception:
+                query = query.filter(models.Ticket.status == status)
     if priority:
         query = query.filter(models.Ticket.priority == priority)
     if assigned_user_id:
@@ -445,13 +475,17 @@ def get_tickets(db: Session, skip: int = 0, limit: int = 100,
     if ticket_type:
         query = query.filter(models.Ticket.type == ticket_type)
     if search:
-        like = f"%{search}%"
+        clean = search.strip()
+        like_any = f"%{clean}%"
+        like_prefix = f"{clean}%"
         query = query.filter(or_(
-            models.Ticket.ticket_id.ilike(like),
-            models.Ticket.site_id.ilike(like),
-            models.Ticket.inc_number.ilike(like),
-            models.Ticket.so_number.ilike(like),
-            models.Ticket.notes.ilike(like)
+            # Prefix search is index-friendly for identifiers
+            models.Ticket.ticket_id.ilike(like_prefix),
+            models.Ticket.site_id.ilike(like_prefix),
+            models.Ticket.inc_number.ilike(like_prefix),
+            models.Ticket.so_number.ilike(like_prefix),
+            # Keep contains search for notes
+            models.Ticket.notes.ilike(like_any)
         ))
     
     return query.order_by(desc(models.Ticket.created_at)).offset(skip).limit(limit).all()
@@ -465,7 +499,19 @@ def count_tickets(db: Session,
                   search: Optional[str] = None) -> int:
     query = db.query(models.Ticket)
     if status:
-        query = query.filter(models.Ticket.status == status)
+        if status == 'active':
+            query = query.filter(~models.Ticket.status.in_([
+                models.TicketStatus.completed,
+                models.TicketStatus.closed,
+                models.TicketStatus.approved,
+                models.TicketStatus.archived,
+            ]))
+        else:
+            try:
+                enum_status = models.TicketStatus(status)
+                query = query.filter(models.Ticket.status == enum_status)
+            except Exception:
+                query = query.filter(models.Ticket.status == status)
     if priority:
         query = query.filter(models.Ticket.priority == priority)
     if assigned_user_id:
@@ -475,13 +521,15 @@ def count_tickets(db: Session,
     if ticket_type:
         query = query.filter(models.Ticket.type == ticket_type)
     if search:
-        like = f"%{search}%"
+        clean = search.strip()
+        like_any = f"%{clean}%"
+        like_prefix = f"{clean}%"
         query = query.filter(or_(
-            models.Ticket.ticket_id.ilike(like),
-            models.Ticket.site_id.ilike(like),
-            models.Ticket.inc_number.ilike(like),
-            models.Ticket.so_number.ilike(like),
-            models.Ticket.notes.ilike(like)
+            models.Ticket.ticket_id.ilike(like_prefix),
+            models.Ticket.site_id.ilike(like_prefix),
+            models.Ticket.inc_number.ilike(like_prefix),
+            models.Ticket.so_number.ilike(like_prefix),
+            models.Ticket.notes.ilike(like_any)
         ))
     return query.count()
 
@@ -492,7 +540,7 @@ def update_ticket(db: Session, ticket_id: str, ticket: schemas.TicketUpdate):
         return None
     
     # Update fields dynamically
-    for field, value in ticket.dict(exclude_unset=True).items():
+    for field, value in ticket.model_dump(exclude_unset=True).items():
         if hasattr(db_ticket, field) and value is not None:
             setattr(db_ticket, field, value)
     
@@ -632,7 +680,7 @@ def update_shipment(db: Session, shipment_id: str, shipment: schemas.ShipmentCre
         return None
     
     # Update fields dynamically
-    for field, value in shipment.dict(exclude_unset=True).items():
+    for field, value in shipment.model_dump(exclude_unset=True).items():
         if hasattr(db_shipment, field) and value is not None:
             setattr(db_shipment, field, value)
     
@@ -720,49 +768,176 @@ def delete_shipment_item(db: Session, shipment_item_id: str):
     db.commit()
     return db_shipment_item
 
+# Field Tech Company CRUD
+def create_field_tech_company(db: Session, company: schemas.FieldTechCompanyCreate):
+    """Create company; region derived from state."""
+    from region_utils import state_to_region
+    region = state_to_region(company.state) if company.state else company.region
+    company_id = generate_sequential_id(db, models.FieldTechCompany, 'company_id', 'FTC', 6)
+    db_company = models.FieldTechCompany(
+        company_id=company_id,
+        company_name=company.company_name,
+        company_number=company.company_number,
+        address=company.address,
+        city=company.city,
+        state=company.state,
+        zip=company.zip,
+        region=region or company.region,
+        notes=company.notes,
+        service_radius_miles=company.service_radius_miles,
+    )
+    db.add(db_company)
+    db.commit()
+    db.refresh(db_company)
+    return db_company
+
+def get_field_tech_company(db: Session, company_id: str):
+    """Get company with techs."""
+    return db.query(models.FieldTechCompany).options(
+        selectinload(models.FieldTechCompany.techs)
+    ).filter(models.FieldTechCompany.company_id == company_id).first()
+
+def get_field_tech_companies(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    region: Optional[str] = None,
+    state: Optional[str] = None,
+    city: Optional[str] = None,
+    include_techs: bool = False,
+    search: Optional[str] = None,
+):
+    """List companies with optional region/state/city/search filter for map. include_techs eager-loads techs."""
+    query = db.query(models.FieldTechCompany)
+    if include_techs:
+        query = query.options(selectinload(models.FieldTechCompany.techs))
+    if region:
+        query = query.filter(models.FieldTechCompany.region == region)
+    if state:
+        query = query.filter(models.FieldTechCompany.state == state)
+    if city:
+        query = query.filter(func.lower(models.FieldTechCompany.city) == city.lower())
+    if search:
+        like = f"%{search.strip()}%"
+        # Search by company fields and associated tech fields
+        query = query.outerjoin(models.FieldTechCompany.techs).filter(or_(
+            models.FieldTechCompany.company_name.ilike(like),
+            models.FieldTechCompany.city.ilike(like),
+            models.FieldTechCompany.state.ilike(like),
+            models.FieldTechCompany.region.ilike(like),
+            models.FieldTech.name.ilike(like),
+            models.FieldTech.phone.ilike(like),
+            models.FieldTech.tech_number.ilike(like),
+            models.FieldTech.email.ilike(like),
+        )).distinct()
+    return query.order_by(models.FieldTechCompany.company_name).offset(skip).limit(limit).all()
+
+def update_field_tech_company(db: Session, company_id: str, company: schemas.FieldTechCompanyCreate):
+    """Update company; region derived from state."""
+    from region_utils import state_to_region
+    db_company = db.query(models.FieldTechCompany).filter(models.FieldTechCompany.company_id == company_id).first()
+    if not db_company:
+        return None
+    data = company.model_dump(exclude_unset=True)
+    region = state_to_region(data.get('state') or db_company.state)
+    if region:
+        data['region'] = region
+    for field, value in data.items():
+        if hasattr(db_company, field):
+            setattr(db_company, field, value)
+    db.commit()
+    db.refresh(db_company)
+    return db_company
+
+def delete_field_tech_company(db: Session, company_id: str):
+    """Delete company only if no techs (or cascade unlink techs)."""
+    db_company = db.query(models.FieldTechCompany).filter(models.FieldTechCompany.company_id == company_id).first()
+    if not db_company:
+        return None
+    tech_count = db.query(models.FieldTech).filter(models.FieldTech.company_id == company_id).count()
+    if tech_count > 0:
+        raise ValueError(f"Cannot delete company with {tech_count} techs. Remove or reassign techs first.")
+    db.delete(db_company)
+    db.commit()
+    return db_company
+
 # Field Tech CRUD - Optimized
 def create_field_tech(db: Session, tech: schemas.FieldTechCreate):
-    """Create field tech with optimized query"""
+    """Create field tech; region from company if company_id set."""
+    from region_utils import state_to_region
     db_tech = models.FieldTech(
         field_tech_id=str(uuid.uuid4()),
+        company_id=getattr(tech, 'company_id', None),
         name=tech.name,
+        tech_number=getattr(tech, 'tech_number', None),
         phone=tech.phone,
         email=tech.email,
         region=tech.region,
         city=tech.city,
         state=tech.state,
         zip=tech.zip,
-        notes=tech.notes
+        notes=tech.notes,
+        service_radius_miles=getattr(tech, 'service_radius_miles', None),
     )
+    if db_tech.company_id:
+        comp = db.query(models.FieldTechCompany).filter(models.FieldTechCompany.company_id == db_tech.company_id).first()
+        if comp:
+            db_tech.region = db_tech.region or comp.region
+            db_tech.city = db_tech.city or comp.city
+            db_tech.state = db_tech.state or comp.state
+            db_tech.zip = db_tech.zip or comp.zip
+    elif db_tech.state and not db_tech.region:
+        db_tech.region = state_to_region(db_tech.state)
     db.add(db_tech)
     db.commit()
     db.refresh(db_tech)
     return db_tech
 
 def get_field_tech(db: Session, field_tech_id: str):
-    """Get field tech with related tickets eager loaded"""
+    """Get field tech with company and tickets."""
     return db.query(models.FieldTech).options(
+        joinedload(models.FieldTech.company),
         selectinload(models.FieldTech.onsite_tickets)
     ).filter(models.FieldTech.field_tech_id == field_tech_id).first()
 
-def get_field_techs(db: Session, skip: int = 0, limit: int = 100, region: Optional[str] = None):
-    """Get field techs with pagination and region filtering"""
-    query = db.query(models.FieldTech)
+def get_field_techs(db: Session, skip: int = 0, limit: int = 100, region: Optional[str] = None, company_id: Optional[str] = None, search: Optional[str] = None):
+    """Get field techs with optional region, company, and search (tech name, company name, city, state, phone)."""
+    query = db.query(models.FieldTech).options(joinedload(models.FieldTech.company))
     if region:
         query = query.filter(models.FieldTech.region == region)
-    return query.offset(skip).limit(limit).all()
+    if company_id:
+        query = query.filter(models.FieldTech.company_id == company_id)
+    if search:
+        like = f"%{search}%"
+        query = query.outerjoin(models.FieldTech.company).filter(or_(
+            models.FieldTech.name.ilike(like),
+            models.FieldTech.phone.ilike(like),
+            models.FieldTech.city.ilike(like),
+            models.FieldTech.state.ilike(like),
+            models.FieldTechCompany.company_name.ilike(like),
+        ))
+    return query.order_by(models.FieldTech.name).offset(skip).limit(limit).all()
 
 def update_field_tech(db: Session, field_tech_id: str, tech: schemas.FieldTechCreate):
-    """Update field tech with optimized query"""
+    """Update field tech with optimized query."""
     db_tech = db.query(models.FieldTech).filter(models.FieldTech.field_tech_id == field_tech_id).first()
     if not db_tech:
         return None
-    
-    # Update fields dynamically
-    for field, value in tech.dict(exclude_unset=True).items():
-        if hasattr(db_tech, field) and value is not None:
+    data = tech.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        if hasattr(db_tech, field):
             setattr(db_tech, field, value)
-    
+    if db_tech.company_id and (db_tech.region is None or db_tech.state):
+        comp = db.query(models.FieldTechCompany).filter(models.FieldTechCompany.company_id == db_tech.company_id).first()
+        if comp:
+            if not db_tech.region:
+                db_tech.region = comp.region
+            if not db_tech.city:
+                db_tech.city = comp.city
+            if not db_tech.state:
+                db_tech.state = comp.state
+            if not db_tech.zip:
+                db_tech.zip = comp.zip
     db.commit()
     db.refresh(db_tech)
     return db_tech
@@ -788,10 +963,8 @@ def create_task(db: Session, task: schemas.TaskCreate):
     db_task = models.Task(
         task_id=generate_sequential_id(db, models.Task, 'task_id', 'TASK', 6),
         ticket_id=task.ticket_id,
-        title=task.title,
         description=task.description,
-        status=task.status,
-        priority=task.priority,
+        status=task.status if task.status else models.TaskStatus.open,
         assigned_user_id=task.assigned_user_id,
         due_date=task.due_date,
         created_at=datetime.now(timezone.utc)
@@ -834,7 +1007,7 @@ def update_task(db: Session, task_id: str, task: schemas.TaskCreate):
         return None
     
     # Update fields dynamically
-    for field, value in task.dict(exclude_unset=True).items():
+    for field, value in task.model_dump(exclude_unset=True).items():
         if hasattr(db_task, field) and value is not None:
             setattr(db_task, field, value)
     
@@ -898,7 +1071,7 @@ def update_equipment(db: Session, equipment_id: str, equipment: schemas.Equipmen
         return None
     
     # Update fields dynamically
-    for field, value in equipment.dict(exclude_unset=True).items():
+    for field, value in equipment.model_dump(exclude_unset=True).items():
         if hasattr(db_equipment, field) and value is not None:
             setattr(db_equipment, field, value)
     
@@ -960,7 +1133,7 @@ def update_inventory_item(db: Session, item_id: str, item: schemas.InventoryItem
         return None
     
     # Update fields dynamically
-    for field, value in item.dict(exclude_unset=True).items():
+    for field, value in item.model_dump(exclude_unset=True).items():
         if hasattr(db_item, field) and value is not None:
             setattr(db_item, field, value)
     
@@ -1077,7 +1250,7 @@ def update_sla_rule(db: Session, rule_id: str, rule: schemas.SLARuleUpdate):
         return None
     
     # Update fields dynamically
-    for field, value in rule.dict(exclude_unset=True).items():
+    for field, value in rule.model_dump(exclude_unset=True).items():
         if hasattr(db_rule, field) and value is not None:
             setattr(db_rule, field, value)
     
@@ -1271,7 +1444,7 @@ def update_site_equipment(db: Session, equipment_id: str, equipment: schemas.Sit
         return None
     
     # Update fields dynamically
-    for field, value in equipment.dict(exclude_unset=True).items():
+    for field, value in equipment.model_dump(exclude_unset=True).items():
         if hasattr(db_equipment, field) and value is not None:
             setattr(db_equipment, field, value)
     
@@ -1328,7 +1501,7 @@ def update_ticket_attachment(db: Session, attachment_id: str, attachment: schema
         return None
     
     # Update fields dynamically
-    for field, value in attachment.dict(exclude_unset=True).items():
+    for field, value in attachment.model_dump(exclude_unset=True).items():
         if hasattr(db_attachment, field) and value is not None:
             setattr(db_attachment, field, value)
     

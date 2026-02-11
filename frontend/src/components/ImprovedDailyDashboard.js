@@ -12,6 +12,8 @@ import {
 } from '@mui/icons-material';
 import { useToast } from '../contexts/ToastContext';
 import useApi from '../hooks/useApi';
+import StatusChip from './StatusChip';
+import TypeChip from './TypeChip';
 import { useDataSync } from '../contexts/DataSyncContext';
 import { TimestampDisplay } from './TimestampDisplay';
 
@@ -169,7 +171,7 @@ function ImprovedDailyDashboard() {
     try {
       await Promise.all(
         Array.from(selectedTickets).map(ticketId =>
-          post(`/tickets/${ticketId}/approve`, { approve: true })
+          post(`/tickets/${ticketId}/approve?approve=true`)
         )
       );
       success(`Approved ${selectedTickets.size} tickets`);
@@ -195,20 +197,6 @@ function ImprovedDailyDashboard() {
     } catch (err) {
       showError('Failed to check in some techs');
     }
-  };
-
-  const getStatusColor = (status) => {
-    const colors = {
-      open: 'error',
-      scheduled: 'info',
-      checked_in: 'warning',
-      in_progress: 'warning',
-      pending: 'default',
-      needs_parts: 'error',
-      completed: 'success',
-      closed: 'default'
-    };
-    return colors[status] || 'default';
   };
 
   const getPriorityColor = (priority) => {
@@ -437,7 +425,7 @@ function ImprovedDailyDashboard() {
                       </TableCell>
                       
                       <TableCell>
-                        <Chip label={ticket.type} size="small" variant="outlined" />
+                        <TypeChip type={ticket.type} size="small" />
                       </TableCell>
                       
                       <TableCell>
@@ -452,11 +440,7 @@ function ImprovedDailyDashboard() {
                       </TableCell>
                       
                       <TableCell>
-                        <Chip 
-                          label={ticket.status?.replace(/_/g, ' ')} 
-                          size="small" 
-                          color={getStatusColor(ticket.status)}
-                        />
+                        <StatusChip status={ticket.status} entityType="ticket" size="small" />
                       </TableCell>
                       
                       <TableCell>

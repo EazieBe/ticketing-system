@@ -1,22 +1,27 @@
-// Centralized configuration for the ticketing system
-// This file centralizes all base URLs and configuration settings
-
-// Get the current hostname and protocol dynamically
-const getBaseUrl = () => {
-  // Use the static IP for this LAN-only application
-  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  const hostname = '192.168.43.50'; // Static IP of the server
-  const port = '8000'; // Backend port
-  
-  return `${protocol}//${hostname}:${port}`;
+// Centralized configuration for the ticketing system.
+// Front and back run on the same server; app is only accessed from PCs on the same LAN.
+// We use the same host as the page so API/WS URLs work whether you open by localhost or by the server's LAN IP.
+const getApiHost = () => {
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    return window.location.hostname;
+  }
+  return 'localhost';
 };
 
-// Get WebSocket URL based on the same logic
+// Always hit the backend on port 8000 (same host as the page).
+// This works for both: npm start (dev) and serve -s build (prod). Using empty base + proxy
+// was causing API calls to hit the wrong server or lose the Authorization header.
+const getBaseUrl = () => {
+  const protocol = typeof window !== 'undefined' && window.location?.protocol === 'https:' ? 'https:' : 'http:';
+  const hostname = getApiHost();
+  return `${protocol}//${hostname}:8000`;
+};
+
 const getWebSocketUrl = () => {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const hostname = '192.168.43.50'; // Static IP of the server
-  const port = '8000'; // Backend port
-  
+  // WebSocket is not proxied by CRA; always use backend host:port
+  const protocol = typeof window !== 'undefined' && window.location?.protocol === 'https:' ? 'wss:' : 'ws:';
+  const hostname = getApiHost();
+  const port = '8000';
   return `${protocol}//${hostname}:${port}`;
 };
 

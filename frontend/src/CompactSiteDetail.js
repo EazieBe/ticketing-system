@@ -2,11 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Grid, Typography, Button, Stack, Table, TableBody, TableCell,
-  TableHead, TableRow, Divider, Tabs, Tab, TextField, InputAdornment, IconButton, Tooltip, Chip
+  TableHead, TableRow, Divider, Tabs, Tab, TextField, InputAdornment, IconButton, Tooltip, Chip,
+  FormControl, InputLabel, Select, MenuItem
 } from '@mui/material';
 import { ArrowBack, Edit, Search, Save, Close } from '@mui/icons-material';
 import { useToast } from './contexts/ToastContext';
 import useApi from './hooks/useApi';
+import StatusChip from './components/StatusChip';
+import TypeChip from './components/TypeChip';
 
 function CompactSiteDetail() {
   const { site_id: siteId } = useParams();
@@ -18,6 +21,7 @@ function CompactSiteDetail() {
   const [shipments, setShipments] = useState([]);
   const [activeTab, setActiveTab] = useState(0);
   const [ticketSearch, setTicketSearch] = useState('');
+  const [ticketStatusFilter, setTicketStatusFilter] = useState('all');
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
@@ -28,16 +32,34 @@ function CompactSiteDetail() {
     loadingRef.current = true;
     
     try {
-      const [s, t, sh] = await Promise.all([
+      const results = await Promise.allSettled([
         api.get(`/sites/${siteId}`),
-        api.get(`/tickets/?site_id=${siteId}&limit=1000`),
+        // Fetch all tickets for this site (no status filter) - users can filter in UI
+        api.get(`/tickets/?site_id=${siteId}&limit=500&skip=0`),
         api.get(`/sites/${siteId}/shipments`)
       ]);
-      setSite(s);
-      setNotesDraft(s?.notes || '');
-      setTickets(t || []);
-      setShipments(sh || []);
+      const [siteRes, ticketsRes, shipmentsRes] = results;
+
+      if (siteRes.status === 'fulfilled') {
+        setSite(siteRes.value);
+        setNotesDraft(siteRes.value?.notes || '');
+      } else {
+        showError('Failed to load site');
+      }
+
+      if (ticketsRes.status === 'fulfilled') {
+        setTickets(Array.isArray(ticketsRes.value) ? ticketsRes.value : (ticketsRes.value || []));
+      } else {
+        setTickets([]);
+      }
+
+      if (shipmentsRes.status === 'fulfilled') {
+        setShipments(Array.isArray(shipmentsRes.value) ? shipmentsRes.value : (shipmentsRes.value || []));
+      } else {
+        setShipments([]);
+      }
     } catch {
+      // Should rarely hit due to allSettled, but keep a guard
       showError('Failed to load');
     } finally {
       loadingRef.current = false;
@@ -161,16 +183,32 @@ function CompactSiteDetail() {
 
         {activeTab === 1 && (
           <Box>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1} spacing={1}>
               <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '1rem' }}>Tickets</Typography>
-              <TextField
-                size="small"
-                placeholder="Search INC# or SO#"
-                value={ticketSearch}
-                onChange={(e) => setTicketSearch(e.target.value)}
-                InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
-                sx={{ width: 260, '& input': { py: 0.5, fontSize: '0.8rem' } }}
-              />
+              <Stack direction="row" spacing={1} alignItems="center">
+                <FormControl size="small" sx={{ minWidth: 120 }}>
+                  <InputLabel>Status</InputLabel>
+                  <Select
+                    value={ticketStatusFilter}
+                    label="Status"
+                    onChange={(e) => setTicketStatusFilter(e.target.value)}
+                  >
+                    <MenuItem value="all">All</MenuItem>
+                    <MenuItem value="active">Active</MenuItem>
+                    <MenuItem value="completed">Completed</MenuItem>
+                    <MenuItem value="closed">Closed</MenuItem>
+                    <MenuItem value="approved">Approved</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField
+                  size="small"
+                  placeholder="Search INC# or SO#"
+                  value={ticketSearch}
+                  onChange={(e) => setTicketSearch(e.target.value)}
+                  InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
+                  sx={{ width: 260, '& input': { py: 0.5, fontSize: '0.8rem' } }}
+                />
+              </Stack>
             </Stack>
             <Table size="small" sx={{ '& td, & th': { py: 0.5, fontSize: '0.75rem' } }}>
               <TableHead>
@@ -186,6 +224,13 @@ function CompactSiteDetail() {
               <TableBody>
                 {tickets
                   .filter(t => {
+                    // Status filter
+                    if (ticketStatusFilter === 'active') {
+                      if (['completed', 'closed', 'approved', 'archived'].includes(t.status)) return false;
+                    } else if (ticketStatusFilter !== 'all') {
+                      if (t.status !== ticketStatusFilter) return false;
+                    }
+                    // Search filter
                     if (!ticketSearch) return true;
                     const q = ticketSearch.toLowerCase();
                     return (t.inc_number || '').toLowerCase().includes(q) || (t.so_number || '').toLowerCase().includes(q);
@@ -195,8 +240,8 @@ function CompactSiteDetail() {
                     <TableCell sx={{ fontFamily: 'monospace' }}>{t.ticket_id}</TableCell>
                     <TableCell>{t.inc_number || '-'}</TableCell>
                     <TableCell>{t.so_number || '-'}</TableCell>
-                    <TableCell><Chip label={t.type} size="small" color="primary" /></TableCell>
-                    <TableCell><Chip label={t.status} size="small" /></TableCell>
+                    <TableCell><TypeChip type={t.type} size="small" /></TableCell>
+                    <TableCell><StatusChip status={t.status} entityType="ticket" size="small" /></TableCell>
                     <TableCell>{t.date_created ? new Date(t.date_created).toLocaleDateString() : 'N/A'}</TableCell>
                   </TableRow>
                 ))}
