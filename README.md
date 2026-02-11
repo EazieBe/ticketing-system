@@ -73,7 +73,7 @@ npx serve -s build -l 3000 --single
 - **Backend API**: `http://<server-lan-ip>:8000`
 - **API Documentation**: `http://<server-lan-ip>:8000/docs`
 
-Ensure `CORS_ORIGINS` in `.env` includes your frontend origin (e.g. `http://192.168.43.50:3000`). The frontend uses the same host as the page, so API and WebSocket URLs follow the address you use in the browser.
+Ensure `CORS_ORIGINS` in `.env` includes your frontend origin. The frontend uses the same host as the page, so API and WebSocket URLs follow the address you use in the browser.
 
 ## Build Output and Locations
 
