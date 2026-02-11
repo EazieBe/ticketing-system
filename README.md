@@ -69,7 +69,7 @@ npx serve -s build -l 3000 --single
 
 ## Access URLs
 
-- **Frontend**: `http://<server-lan-ip>:3000` (e.g. http://192.168.43.50:3000)
+- **Frontend**: `http://<server-lan-ip>:3000` 
 - **Backend API**: `http://<server-lan-ip>:8000`
 - **API Documentation**: `http://<server-lan-ip>:8000/docs`
 
